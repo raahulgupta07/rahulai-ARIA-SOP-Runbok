@@ -1,0 +1,77 @@
+[
+  {
+    "total_page_number": 7
+  },
+  {
+    "total_token": 1205
+  },
+  {
+    "toc_content": "2 | Page  \n  \n \n \nContents  \n \nPURPOSE  :   3 \nSCOPE :  3 \nROLES AND RESPONSIBILITY  :  3 \nPRE-REQUISITES :  4 \nPROCEDURE/ Steps  :  :  4 \nDOS  :  :  6 \nDON\u2019T  :  6 \nESCALATIONS  :  6 \nDEPENDENCIES  :  :  6 \nSIGNATURES  :  :  6 \n \n \n  ",
+    "toc_page_list": [
+      2
+    ],
+    "page_index_given_in_toc": "yes"
+  },
+  {
+    "message": "toc_with_page_number: [{'structure': '1', 'title': 'PURPOSE', 'page': 3}, {'structure': '2', 'title': 'SCOPE', 'page': 3}, {'structure': '3', 'title': 'ROLES AND RESPONSIBILITY', 'page': 3}, {'structure': '4', 'title': 'PRE-REQUISITES', 'page': 4}, {'structure': '5', 'title': 'PROCEDURE/ Steps', 'page': 4}, {'structure': '6', 'title': 'DOS', 'page': 6}, {'structure': '7', 'title': 'DON\u2019T', 'page': 6}, {'structure': '8', 'title': 'ESCALATIONS', 'page': 6}, {'structure': '9', 'title': 'DEPENDENCIES', 'page': 6}, {'structure': '10', 'title': 'SIGNATURES', 'page': 6}]"
+  },
+  {
+    "message": "toc_with_physical_index: [{'structure': '1', 'title': 'PURPOSE', 'physical_index': '<physical_index_4>'}, {'structure': '2', 'title': 'SCOPE', 'physical_index': '<physical_index_4>'}, {'structure': '3', 'title': 'ROLES AND RESPONSIBILITY', 'physical_index': '<physical_index_4>'}, {'structure': '4', 'title': 'PRE-REQUISITES', 'physical_index': '<physical_index_5>'}, {'structure': '5', 'title': 'PROCEDURE/ Steps', 'physical_index': '<physical_index_5>'}, {'structure': '6', 'title': 'DOS', 'physical_index': '<physical_index_7>'}, {'structure': '7', 'title': 'DON\u2019T', 'physical_index': '<physical_index_7>'}, {'structure': '8', 'title': 'ESCALATIONS', 'physical_index': '<physical_index_7>'}, {'structure': '9', 'title': 'DEPENDENCIES', 'physical_index': '<physical_index_7>'}, {'structure': '10', 'title': 'SIGNATURES', 'physical_index': '<physical_index_7>'}]"
+  },
+  {
+    "message": "toc_with_physical_index: [{'structure': '1', 'title': 'PURPOSE', 'physical_index': 4}, {'structure': '2', 'title': 'SCOPE', 'physical_index': 4}, {'structure': '3', 'title': 'ROLES AND RESPONSIBILITY', 'physical_index': 4}, {'structure': '4', 'title': 'PRE-REQUISITES', 'physical_index': 5}, {'structure': '5', 'title': 'PROCEDURE/ Steps', 'physical_index': 5}, {'structure': '6', 'title': 'DOS', 'physical_index': 7}, {'structure': '7', 'title': 'DON\u2019T', 'physical_index': 7}, {'structure': '8', 'title': 'ESCALATIONS', 'physical_index': 7}, {'structure': '9', 'title': 'DEPENDENCIES', 'physical_index': 7}, {'structure': '10', 'title': 'SIGNATURES', 'physical_index': 7}]"
+  },
+  {
+    "message": "matching_pairs: [{'title': 'PURPOSE', 'page': 3, 'physical_index': 4}, {'title': 'SCOPE', 'page': 3, 'physical_index': 4}, {'title': 'ROLES AND RESPONSIBILITY', 'page': 3, 'physical_index': 4}, {'title': 'PRE-REQUISITES', 'page': 4, 'physical_index': 5}, {'title': 'PROCEDURE/ Steps', 'page': 4, 'physical_index': 5}, {'title': 'DOS', 'page': 6, 'physical_index': 7}, {'title': 'DON\u2019T', 'page': 6, 'physical_index': 7}, {'title': 'ESCALATIONS', 'page': 6, 'physical_index': 7}, {'title': 'DEPENDENCIES', 'page': 6, 'physical_index': 7}, {'title': 'SIGNATURES', 'page': 6, 'physical_index': 7}]"
+  },
+  {
+    "message": "offset: 1"
+  },
+  {
+    "message": "toc_with_page_number: [{'structure': '1', 'title': 'PURPOSE', 'physical_index': 4}, {'structure': '2', 'title': 'SCOPE', 'physical_index': 4}, {'structure': '3', 'title': 'ROLES AND RESPONSIBILITY', 'physical_index': 4}, {'structure': '4', 'title': 'PRE-REQUISITES', 'physical_index': 5}, {'structure': '5', 'title': 'PROCEDURE/ Steps', 'physical_index': 5}, {'structure': '6', 'title': 'DOS', 'physical_index': 7}, {'structure': '7', 'title': 'DON\u2019T', 'physical_index': 7}, {'structure': '8', 'title': 'ESCALATIONS', 'physical_index': 7}, {'structure': '9', 'title': 'DEPENDENCIES', 'physical_index': 7}, {'structure': '10', 'title': 'SIGNATURES', 'physical_index': 7}]"
+  },
+  {
+    "message": "toc_with_page_number: [{'structure': '1', 'title': 'PURPOSE', 'physical_index': 4}, {'structure': '2', 'title': 'SCOPE', 'physical_index': 4}, {'structure': '3', 'title': 'ROLES AND RESPONSIBILITY', 'physical_index': 4}, {'structure': '4', 'title': 'PRE-REQUISITES', 'physical_index': 5}, {'structure': '5', 'title': 'PROCEDURE/ Steps', 'physical_index': 5}, {'structure': '6', 'title': 'DOS', 'physical_index': 7}, {'structure': '7', 'title': 'DON\u2019T', 'physical_index': 7}, {'structure': '8', 'title': 'ESCALATIONS', 'physical_index': 7}, {'structure': '9', 'title': 'DEPENDENCIES', 'physical_index': 7}, {'structure': '10', 'title': 'SIGNATURES', 'physical_index': 7}]"
+  },
+  {
+    "mode": "process_toc_with_page_numbers",
+    "accuracy": 1.0,
+    "incorrect_results": []
+  },
+  {
+    "message": "Checking title appearance in start concurrently"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '6 | Page', followed by instructions regarding supplier codes and order data. The section title 'ESCALATIONS' appears much later in the text, after 'DOS' and 'DON\u2019T'. Since there is significant content preceding the 'ESCALATIONS' title, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '6 | Page', followed by instructional text regarding a search function. The section title 'DOS' appears significantly later in the text, after several lines of content. Therefore, the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '6 | Page', followed by instructional text regarding supplier codes and order data. The section title 'DEPENDENCIES' appears much later in the text, well after the initial content. Therefore, the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '6 | Page', followed by instructional text regarding a search function. The section title 'DON\u2019T' appears much later in the text, after 'DOS'. Since there is content preceding the section title, it does not start at the beginning of the page.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '0 | Page MAY 7, 2025 Order Mass Input Issue in GOLD Central FOR <CMHL > .'. The section title 'Preface' does not appear at the beginning of this text, nor does it appear anywhere within the provided text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '4 | Page' followed by 'PRE- REQUISITES' before reaching the 'PROCEDURE / STEPS' section. Since there is content (page number and a preceding section) before the target section title, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '6 | Page', followed by instructions and several other section headers like 'DOS', 'DON\u2019T', 'ESCALATIONS', and 'DEPENDENCIES' before reaching 'SIGNATURES'. Since 'SIGNATURES' appears significantly later in the text rather than at the very beginning, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '4 | Page', followed by several empty lines before the section title 'PRE- REQUISITES' appears. Since there is content ('4 | Page') preceding the section title, the section does not start at the very beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '3 | Page', followed by 'PURPOSE' and 'SCOPE' sections before reaching 'ROLES AND RESPONSIBILITY'. Since there is content (page number, purpose, and scope) preceding the target section title, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '3 | Page', followed by whitespace, and then the section title 'PURPOSE'. Since '3 | Page' appears before the section title 'PURPOSE', the section does not start at the very beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '3 | Page', followed by 'PURPOSE', and then the 'SCOPE' section. Since there is content ('3 | Page' and 'PURPOSE') appearing before the 'SCOPE' section title, the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  }
+]

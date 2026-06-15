@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aria Brain — Option A peek mockups</title>
+<style>
+  :root{
+    --cream:#f4f0e9; --paper:#ffffff; --clay:#c0654a; --ink:#2b2a27;
+    --muted:#8a8780; --border:#ece9e0; --line:#efece4;
+    --ok:#5fa463; --warn:#d3a13e; --err:#cf6a4c;
+    --enbg:#e3edf7; --enfg:#3a6b9c; --mybg:#fbecd4; --myfg:#a9742a;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif; color:var(--ink); background:var(--paper);}
+  .serif{font-family:Georgia,'Times New Roman',serif;}
+  .tnum{font-variant-numeric:tabular-nums;}
+
+  /* ===== header (CREAM) ===== */
+  header{background:var(--cream); border-bottom:1px solid var(--border); padding:18px 28px 14px;}
+  h1{margin:0; font-size:21px; font-weight:500;}
+  .sub{color:var(--muted); font-size:13px; margin-top:2px;}
+  .searchrow{display:flex; align-items:center; gap:14px; margin-top:14px;}
+  .search{flex:1; max-width:560px; height:40px; border:1px solid var(--border); border-radius:10px; background:#fff; padding:0 14px; display:flex; align-items:center; color:var(--muted); font-size:14px;}
+  .stats{color:#52504a; font-size:12.5px;}
+  .stats b{color:var(--ink);}
+
+  /* ===== tabs + toolbar (CREAM, sticky) ===== */
+  .bar{background:var(--cream); position:sticky; top:0; z-index:5;}
+  .tabs{display:flex; gap:2px; padding:0 28px; border-bottom:1px solid var(--border);}
+  .tab{height:46px; padding:0 14px; display:flex; align-items:center; gap:7px; font-size:14px; color:#6f6c65; background:none; border:none; cursor:pointer; position:relative;}
+  .tab.on{color:var(--clay); font-weight:600;}
+  .tab.on::after{content:''; position:absolute; left:10px; right:10px; bottom:-1px; height:2px; background:var(--clay); border-radius:2px;}
+  .cnt{font-size:11px; padding:0 6px; border-radius:999px; background:rgba(0,0,0,.06); color:#6f6c65;}
+  .cnt.green{background:var(--ok); color:#fff;}
+  .toolbar{display:flex; align-items:center; gap:10px; padding:14px 28px; flex-wrap:wrap;}
+  .seg{display:inline-flex; padding:2px; gap:2px; border-radius:9px; background:#e7e3da;}
+  .seg button{font-size:11.5px; padding:4px 11px; border-radius:7px; border:none; background:none; color:#6f6c65; cursor:pointer;}
+  .seg button.on{background:#fff; color:var(--clay); font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.05);}
+  .spacer{margin-left:auto;}
+  .picker{display:flex; gap:6px; align-items:center; font-size:12px; color:var(--muted);}
+  .picker b{color:var(--ink);}
+  .pk{font-size:12px; padding:5px 10px; border:1px solid var(--border); border-radius:8px; background:#fff; color:#46443f; cursor:pointer;}
+  .pk.on{background:var(--clay); color:#fff; border-color:var(--clay);}
+
+  /* ===== content (WHITE) ===== */
+  main{background:var(--paper); min-height:100vh; padding:8px 28px 60px;}
+  .grouphdr{display:flex; align-items:center; gap:8px; margin:18px 0 12px; font-size:11.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:#6f6c65;}
+  .grouphdr span{color:var(--muted); font-weight:400;}
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:16px;}
+
+  /* ===== COVER CARD ===== */
+  .card{position:relative; background:#fff; border:1px solid var(--border); border-radius:14px; overflow:hidden; cursor:pointer; transition:transform .14s, box-shadow .14s, border-color .14s;}
+  .card:hover{transform:translateY(-3px); box-shadow:0 10px 26px rgba(120,80,55,.13); border-color:#e6cabb;}
+  .cover{position:relative; height:150px; background:linear-gradient(160deg,#faf7f1,#f0ebe2); border-bottom:1px solid var(--line); overflow:hidden;}
+  /* fake "page" lines to look like a document */
+  .cover .pg{position:absolute; inset:14px 16px; background:#fff; border:1px solid #eee7dc; border-radius:4px; padding:12px 11px; box-shadow:0 1px 3px rgba(0,0,0,.04);}
+  .cover .pg i{display:block; height:5px; border-radius:3px; background:#e9e3d8; margin-bottom:6px;}
+  .cover .pg i.t{height:7px; width:70%; background:#d8c7b7;}
+  .cover .pg i.s{width:90%;} .cover .pg i.m{width:78%;} .cover .pg i.x{width:60%;}
+  .cover .fade{position:absolute; left:0; right:0; bottom:0; height:36px; background:linear-gradient(transparent,rgba(255,255,255,.85));}
+  .dot{position:absolute; top:10px; left:10px; width:9px; height:9px; border-radius:50%; background:var(--ok); border:2px solid #fff; box-shadow:0 0 0 1px rgba(0,0,0,.04);}
+  .lang{position:absolute; top:9px; right:10px; font-size:9.5px; font-weight:700; letter-spacing:.03em; padding:2px 6px; border-radius:6px; background:var(--enbg); color:var(--enfg);}
+  .lang.my{background:var(--mybg); color:var(--myfg);}
+  .meta{padding:11px 13px 13px;}
+  .ttl{font-size:13px; font-weight:600; line-height:1.32; min-height:34px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
+  .sub2{display:flex; align-items:center; gap:6px; margin-top:7px; font-size:11px; color:var(--muted);}
+  .sub2 .pp{margin-left:auto;}
+  /* hover actions on cover */
+  .acts{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; gap:8px; opacity:0; background:rgba(43,42,39,.16); transition:opacity .14s;}
+  .card:hover .acts{opacity:1;}
+  .acts button{font-size:12px; padding:7px 12px; border-radius:9px; border:none; cursor:pointer; font-weight:600;}
+  .peekbtn{background:#fff; color:var(--ink);}
+  .openbtn{background:var(--clay); color:#fff;}
+
+  /* ===== shared overlay ===== */
+  .scrim{position:fixed; inset:0; background:rgba(40,35,30,.34); backdrop-filter:blur(2px); opacity:0; pointer-events:none; transition:opacity .18s; z-index:40;}
+  .scrim.show{opacity:1; pointer-events:auto;}
+
+  /* page preview block reused */
+  .preview{background:#faf8f3; border:1px solid var(--border); border-radius:10px; height:300px; position:relative; overflow:hidden;}
+  .preview .pg{position:absolute; inset:20px; background:#fff; border:1px solid #eee7dc; border-radius:5px; padding:20px;}
+  .preview .pg i{display:block; height:7px; border-radius:3px; background:#e9e3d8; margin-bottom:9px;}
+  .preview .pg i.t{height:11px; width:64%; background:#d8c7b7; margin-bottom:16px;}
+  .flip{display:flex; align-items:center; justify-content:center; gap:14px; margin-top:12px; color:var(--muted); font-size:12.5px;}
+  .flip button{width:30px; height:30px; border-radius:8px; border:1px solid var(--border); background:#fff; cursor:pointer; font-size:15px; color:var(--ink);}
+  .dmeta{font-size:12.5px; color:var(--muted); margin:4px 0 0;}
+  .dtitle{font-size:18px; font-weight:600; margin:0;}
+  .outline{margin-top:16px;}
+  .outline .o{display:flex; justify-content:space-between; padding:8px 10px; border-radius:8px; font-size:13px;}
+  .outline .o:hover{background:#f3f1ea;}
+  .outline .o b{color:var(--clay); font-weight:500;}
+  .footer{display:flex; gap:8px; margin-top:18px;}
+  .footer .open{flex:1; background:var(--clay); color:#fff; border:none; border-radius:9px; padding:10px; font-size:13px; font-weight:600; cursor:pointer;}
+  .footer .ask{background:#fff; border:1px solid var(--border); border-radius:9px; padding:10px 14px; font-size:13px; cursor:pointer;}
+  .x{position:absolute; top:14px; right:14px; width:30px; height:30px; border-radius:8px; border:none; background:#f0ece4; cursor:pointer; font-size:15px;}
+
+  /* ===== A: center popup ===== */
+  .popup{position:fixed; z-index:50; left:50%; top:50%; transform:translate(-50%,-46%) scale(.97); opacity:0; pointer-events:none; width:440px; max-width:92vw; background:#fff; border-radius:16px; box-shadow:0 30px 80px rgba(40,30,20,.3); padding:22px; transition:all .2s;}
+  .popup.show{opacity:1; pointer-events:auto; transform:translate(-50%,-50%) scale(1);}
+
+  /* ===== B: left drawer ===== */
+  .left{position:fixed; z-index:50; top:0; left:0; bottom:0; width:440px; max-width:90vw; background:#fff; box-shadow:14px 0 50px rgba(40,30,20,.18); padding:24px; overflow-y:auto; transform:translateX(-104%); transition:transform .22s; }
+  .left.show{transform:translateX(0);}
+
+  /* ===== C: right drawer ===== */
+  .right{position:fixed; z-index:50; top:0; right:0; bottom:0; width:480px; max-width:92vw; background:#fff; box-shadow:-14px 0 50px rgba(40,30,20,.18); padding:24px; overflow-y:auto; transform:translateX(104%); transition:transform .22s;}
+  .right.show{transform:translateX(0);}
+
+  .hint{position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--ink); color:#fff; font-size:12.5px; padding:8px 14px; border-radius:999px; z-index:60; opacity:.92;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1 class="serif">Agent Brain</h1>
+  <div class="sub">Aria's knowledge — runbooks, SOPs and facts you taught.</div>
+  <div class="searchrow">
+    <div class="search">🔍&nbsp; Search documents and facts…</div>
+    <div class="stats tnum"><b>31</b> docs · <b>271</b> pages · <span style="color:#5fa463"><b>100%</b> read</span> · <b>4</b> facts</div>
+  </div>
+</header>
+
+<div class="bar">
+  <div class="tabs">
+    <button class="tab on">▤ Documents <span class="cnt tnum">31</span></button>
+    <button class="tab">◈ Facts <span class="cnt tnum">4</span></button>
+    <button class="tab">◔ Audit <span class="cnt green tnum">100</span></button>
+  </div>
+  <div class="toolbar">
+    <div class="seg"><button class="on">All</button><button>EN</button><button>MY</button></div>
+    <div class="seg"><button class="on">Any</button><button>Ready</button><button>Failed</button></div>
+    <div class="spacer"></div>
+    <div class="picker">
+      <span>peek style:</span>
+      <button class="pk on" data-mode="right" onclick="setMode('right')">Right drawer ✓</button>
+      <button class="pk" data-mode="popup" onclick="setMode('popup')">Center popup</button>
+      <button class="pk" data-mode="left" onclick="setMode('left')">Left drawer</button>
+    </div>
+  </div>
+</div>
+
+<main>
+  <div class="grouphdr">GLDCENTRAL <span>· 28</span></div>
+  <div class="grid" id="grid"></div>
+</main>
+
+<!-- overlays -->
+<div class="scrim" id="scrim" onclick="closeAll()"></div>
+
+<!-- center popup -->
+<div class="popup" id="popup">
+  <button class="x" onclick="closeAll()">✕</button>
+  <h3 class="dtitle" id="pp-t">CAR Parameter Definition</h3>
+  <p class="dmeta" id="pp-m">SOP-028 · EN · 11 pages</p>
+  <div class="preview" style="margin-top:14px"><div class="pg"><i class="t"></i><i></i><i></i><i style="width:80%"></i><i></i><i style="width:62%"></i></div></div>
+  <div class="flip"><button>‹</button><span>page 1 / 11</span><button>›</button></div>
+  <div class="footer"><button class="open">Open full →</button><button class="ask">Ask doc</button></div>
+</div>
+
+<!-- left drawer -->
+<div class="left" id="left">
+  <button class="x" onclick="closeAll()">✕</button>
+  <h3 class="dtitle" id="lf-t">CAR Parameter Definition</h3>
+  <p class="dmeta" id="lf-m">SOP-028 · GLDCENTRAL · EN · 11 pages · 4 sections</p>
+  <div class="preview" style="margin-top:16px"><div class="pg"><i class="t"></i><i></i><i></i><i style="width:80%"></i><i></i><i style="width:62%"></i><i></i></div></div>
+  <div class="flip"><button>‹</button><span>page 1 / 11</span><button>›</button></div>
+  <div class="outline">
+    <div class="o"><span>Overview</span><b>p.1</b></div>
+    <div class="o"><span>Parameter setup</span><b>p.3</b></div>
+    <div class="o"><span>Mass input steps</span><b>p.6</b></div>
+  </div>
+  <div class="footer"><button class="open">Open full →</button><button class="ask">Ask doc</button></div>
+</div>
+
+<!-- right drawer -->
+<div class="right" id="right">
+  <button class="x" onclick="closeAll()">✕</button>
+  <h3 class="dtitle" id="rt-t">CAR Parameter Definition</h3>
+  <p class="dmeta" id="rt-m">SOP-028 · GLDCENTRAL · EN · 11 pages · 4 sections</p>
+  <div class="preview" style="margin-top:16px"><div class="pg"><i class="t"></i><i></i><i></i><i style="width:80%"></i><i></i><i style="width:62%"></i><i></i></div></div>
+  <div class="flip"><button>‹</button><span>page 1 / 11</span><button>›</button></div>
+  <div class="outline">
+    <div class="o"><span>Overview</span><b>p.1</b></div>
+    <div class="o"><span>Parameter setup</span><b>p.3</b></div>
+    <div class="o"><span>Mass input steps</span><b>p.6</b></div>
+    <div class="o"><span>Validation & errors</span><b>p.9</b></div>
+  </div>
+  <div class="footer"><button class="open">Open full →</button><button class="ask">Ask doc</button></div>
+</div>
+
+<div class="hint" id="hint">Click any card → peek opens as <b id="hm">Right drawer</b>. Toggle style top-right. Esc closes.</div>
+
+<script>
+  const docs = [
+    ["CAR Parameter Definition Mass Input","SOP-028","EN",11],
+    ["Specific Period Management Mass Input","SOP-027","EN",11],
+    ["GSM1 Issue","SOP-026","EN",7],
+    ["Transfer, Return, Reception and other Level 1 Issue","SOP-025","EN",7],
+    ["Order Creation & Integration into the Gold Stock","SOP-024","EN",7],
+    ["Article Status Change about Frozen & Frozen Purchase items","SOP-023","EN",7],
+    ["Adjustment Reason Code Adding Process","SOP-022","MY",8],
+    ["Seasonal Prevention Process","SOP-021","MY",10],
+    ["Mass Transfer Process for closed stores","SOP-020","EN",10],
+    ["Product dimension change using mass update process","SOP-019","EN",7],
+    ["OADA-MASS Input Process","SOP-018","EN",12],
+    ["E-COM API Scheduler Service Check","SOP-017","EN",6],
+    ["Ecommerce Integration Issue","SOP-016","EN",6],
+    ["Job Monitoring","SOP-015","EN",8],
+    ["V5 POS, GOLD & SAP monthly closing difference issue","SOP-014","EN",9],
+  ];
+  let mode = "right";
+  function setMode(m){ mode=m; document.querySelectorAll('.pk').forEach(b=>b.classList.toggle('on', b.dataset.mode===m));
+    document.querySelectorAll('.pk').forEach(b=>{ b.textContent = b.dataset.mode==='right'?'Right drawer':b.dataset.mode==='popup'?'Center popup':'Left drawer'; if(b.dataset.mode===m) b.textContent += ' ✓';});
+    document.getElementById('hm').textContent = m==='right'?'Right drawer':m==='popup'?'Center popup':'Left drawer';
+  }
+  function open(d){
+    const meta = d[1]+" · GLDCENTRAL · "+d[2]+" · "+d[3]+" pages · 4 sections";
+    const short = d[1]+" · "+d[2]+" · "+d[3]+" pages";
+    document.getElementById('scrim').classList.add('show');
+    if(mode==='popup'){ document.getElementById('pp-t').textContent=d[0]; document.getElementById('pp-m').textContent=short; document.getElementById('popup').classList.add('show'); }
+    if(mode==='left'){ document.getElementById('lf-t').textContent=d[0]; document.getElementById('lf-m').textContent=meta; document.getElementById('left').classList.add('show'); }
+    if(mode==='right'){ document.getElementById('rt-t').textContent=d[0]; document.getElementById('rt-m').textContent=meta; document.getElementById('right').classList.add('show'); }
+  }
+  function closeAll(){ ['scrim','popup','left','right'].forEach(id=>document.getElementById(id).classList.remove('show')); }
+  document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeAll(); });
+
+  const grid = document.getElementById('grid');
+  docs.forEach(d=>{
+    const lang = d[2]==='MY'?'my':'';
+    const el = document.createElement('div');
+    el.className='card';
+    el.onclick=()=>open(d);
+    el.innerHTML = `
+      <div class="cover">
+        <span class="dot"></span>
+        <span class="lang ${lang}">${d[2]}</span>
+        <div class="pg"><i class="t"></i><i class="s"></i><i></i><i class="m"></i><i></i><i class="x"></i></div>
+        <div class="fade"></div>
+        <div class="acts">
+          <button class="peekbtn" onclick="event.stopPropagation();open(${JSON.stringify(d).replace(/"/g,'&quot;')})">👁 Quick look</button>
+          <button class="openbtn">Open →</button>
+        </div>
+      </div>
+      <div class="meta">
+        <div class="ttl">${d[0]}</div>
+        <div class="sub2 tnum"><span style="color:#5fa463">●</span><span>${d[2]}</span>·<span>${d[1]}</span><span class="pp">${d[3]}p</span></div>
+      </div>`;
+    grid.appendChild(el);
+  });
+</script>
+</body>
+</html>

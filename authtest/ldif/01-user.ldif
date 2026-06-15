@@ -1,0 +1,18 @@
+dn: ou=people,dc=corp,dc=local
+objectClass: organizationalUnit
+ou: people
+
+dn: uid=alice,ou=people,dc=corp,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: top
+uid: alice
+cn: Alice Tan
+sn: Tan
+givenName: Alice
+displayName: Alice Tan
+mail: alice@corp.local
+uidNumber: 10001
+gidNumber: 10001
+homeDirectory: /home/alice
+userPassword: alicepass

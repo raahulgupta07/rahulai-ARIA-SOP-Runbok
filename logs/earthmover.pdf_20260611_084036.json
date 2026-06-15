@@ -1,0 +1,115 @@
+[
+  {
+    "total_page_number": 12
+  },
+  {
+    "total_token": 22007
+  },
+  {
+    "toc_content": null,
+    "toc_page_list": [],
+    "page_index_given_in_toc": "no"
+  },
+  {
+    "message": "len(group_texts): 2"
+  },
+  {
+    "message": "generate_toc: [{'structure': '1', 'title': 'INTRODUCTION', 'physical_index': '<physical_index_1>'}, {'structure': '2', 'title': 'PRELIMINARIES', 'physical_index': '<physical_index_2>'}, {'structure': '2.1', 'title': 'Computing the EMD', 'physical_index': '<physical_index_3>'}, {'structure': '2.2', 'title': 'Filter-and-Re\ufb01nement Framework', 'physical_index': '<physical_index_3>'}, {'structure': '3', 'title': 'SCALING UP SSP', 'physical_index': '<physical_index_4>'}, {'structure': '4', 'title': 'BOOSTING THE REFINEMENT PHASE', 'physical_index': '<physical_index_5>'}, {'structure': '4.1', 'title': 'Analysis of EMD Calculation', 'physical_index': '<physical_index_5>'}, {'structure': '4.2', 'title': 'Progressive Bounding', 'physical_index': '<physical_index_5>'}, {'structure': '4.3', 'title': 'Sensitivity to Re\ufb01nement Order', 'physical_index': '<physical_index_7>'}, {'structure': '4.4', 'title': 'Dynamic Re\ufb01nement Ordering', 'physical_index': '<physical_index_7>'}, {'structure': '4.5', 'title': 'Running Upper Bound', 'physical_index': '<physical_index_8>'}, {'structure': '5', 'title': 'EXPERIMENTAL EV ALUATION', 'physical_index': '<physical_index_8>'}, {'structure': '5.1', 'title': 'Performance Improvement', 'physical_index': '<physical_index_9>'}, {'structure': '5.2', 'title': 'Scalability Experiments', 'physical_index': '<physical_index_10>'}, {'structure': '5.3', 'title': 'Parameter Tuning in DRO', 'physical_index': '<physical_index_11>'}, {'structure': '6', 'title': 'RELATED WORK', 'physical_index': '<physical_index_11>'}, {'structure': '7', 'title': 'CONCLUSION', 'physical_index': '<physical_index_12>'}, {'structure': '8', 'title': 'ACKNOWLEDGMENT', 'physical_index': '<physical_index_12>'}, {'structure': '9', 'title': 'REFERENCES', 'physical_index': '<physical_index_12>'}]"
+  },
+  {
+    "message": "convert_physical_index_to_int: [{'structure': '1', 'title': 'INTRODUCTION', 'physical_index': 1}, {'structure': '2', 'title': 'PRELIMINARIES', 'physical_index': 2}, {'structure': '2.1', 'title': 'Computing the EMD', 'physical_index': 3}, {'structure': '2.2', 'title': 'Filter-and-Re\ufb01nement Framework', 'physical_index': 3}, {'structure': '3', 'title': 'SCALING UP SSP', 'physical_index': 4}, {'structure': '4', 'title': 'BOOSTING THE REFINEMENT PHASE', 'physical_index': 5}, {'structure': '4.1', 'title': 'Analysis of EMD Calculation', 'physical_index': 5}, {'structure': '4.2', 'title': 'Progressive Bounding', 'physical_index': 5}, {'structure': '4.3', 'title': 'Sensitivity to Re\ufb01nement Order', 'physical_index': 7}, {'structure': '4.4', 'title': 'Dynamic Re\ufb01nement Ordering', 'physical_index': 7}, {'structure': '4.5', 'title': 'Running Upper Bound', 'physical_index': 8}, {'structure': '5', 'title': 'EXPERIMENTAL EV ALUATION', 'physical_index': 8}, {'structure': '5.1', 'title': 'Performance Improvement', 'physical_index': 9}, {'structure': '5.2', 'title': 'Scalability Experiments', 'physical_index': 10}, {'structure': '5.3', 'title': 'Parameter Tuning in DRO', 'physical_index': 11}, {'structure': '6', 'title': 'RELATED WORK', 'physical_index': 11}, {'structure': '7', 'title': 'CONCLUSION', 'physical_index': 12}, {'structure': '8', 'title': 'ACKNOWLEDGMENT', 'physical_index': 12}, {'structure': '9', 'title': 'REFERENCES', 'physical_index': 12}]"
+  },
+  {
+    "mode": "process_toc_with_page_numbers",
+    "accuracy": 0.9473684210526315,
+    "incorrect_results": [
+      {
+        "list_index": 8,
+        "answer": "no",
+        "title": "Sensitivity to Re\ufb01nement Order",
+        "page_number": 7
+      }
+    ]
+  },
+  {
+    "message": "incorrect_results_and_range_logs: [{'list_index': 8, 'title': 'Sensitivity to Re\ufb01nement Order', 'prev_correct': 5, 'next_correct': 7}]"
+  },
+  {
+    "message": "invalid_results: [{'list_index': 8, 'title': 'Sensitivity to Re\ufb01nement Order', 'physical_index': 7}]"
+  },
+  {
+    "message": "incorrect_results_and_range_logs: [{'list_index': 8, 'title': 'Sensitivity to Re\ufb01nement Order', 'prev_correct': 5, 'next_correct': 7}]"
+  },
+  {
+    "message": "invalid_results: [{'list_index': 8, 'title': 'Sensitivity to Re\ufb01nement Order', 'physical_index': 7}]"
+  },
+  {
+    "message": "incorrect_results_and_range_logs: [{'list_index': 8, 'title': 'Sensitivity to Re\ufb01nement Order', 'prev_correct': 5, 'next_correct': 7}]"
+  },
+  {
+    "message": "invalid_results: [{'list_index': 8, 'title': 'Sensitivity to Re\ufb01nement Order', 'physical_index': 7}]"
+  },
+  {
+    "message": "Maximum fix attempts reached"
+  },
+  {
+    "message": "Checking title appearance in start concurrently"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text begins with a discussion about the 'DRO' algorithm and its performance, followed by the section title '4.5 Running Upper Bound' appearing in the middle of the text. Since there is significant content (several paragraphs) preceding the section title, the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text contains a significant amount of content before the section title '4.1 Analysis of EMD Calculation'. Specifically, the text includes figure descriptions, introductory paragraphs, and the header for '4. BOOSTING THE REFINEMENT PHASE' before reaching the target section title. Therefore, the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text begins with the title of the paper ('Earth Mover\u2019s Distance based Similarity Search at Scale'), followed by author information, the abstract, and then the section '1. INTRODUCTION'. Since there is significant content (title, authors, abstract) preceding the 'INTRODUCTION' section, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text begins with a paragraph discussing ground distance and EMD techniques, followed by '7. CONCLUSION', '8. ACKNOWLEDGMENT', and finally '9. REFERENCES'. Since the section title 'REFERENCES' appears after several other sections and paragraphs, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text begins with a table ('Table 3: The statistics of six real datasets') and several paragraphs of text describing the evaluation setup. The section title '5.1 Performance Improvement' appears in the middle of the page_text, preceded by a significant amount of content. Therefore, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text begins with various figure captions and text related to scalability studies (Figure 15, Figure 16, and Section 5.3). The section title 'RELATED WORK' appears significantly further down in the text, specifically after the discussion of parameter tuning in DRO. Since there is substantial content preceding the 'RELATED WORK' title, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text begins with a series of alphanumeric codes (e.g., '2/2', '1/1q p', '2/41/11', etc.) followed by text describing a running example of SIA-EMD. The section title 'BOOSTING THE REFINEMENT PHASE' appears later in the text, specifically after the paragraph ending with 'The next section shows how we can optimize the overall cost of queries by exploiting information during the course of a SIA calculation.' Since there is significant content before the section title, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text begins with '10 20 30 40 Access order0.00.51.01.52.0EMDPruning threshold...', which is clearly a caption or content related to a figure or previous section. The section title 'Sensitivity to Re\ufb01nement Order' does not appear at the beginning of the text, nor does it appear anywhere within the provided text snippet.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text contains several figures and paragraphs of text. The section title 'Scalability Experiments' appears in the middle of the text, specifically after the sentence '12An object is counted even when only one path is augmented.5.2 Scalability Experiments'. Since there is significant content (figures and text) preceding this title, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text contains a significant amount of text before the section title 'EXPERIMENTAL EVALUATION'. Specifically, the text discusses 'Running Upper Bound' and 'Algorithm 4' before reaching the section '5. EXPERIMENTAL EVALUATION' near the end of the text. Therefore, the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text begins with content related to Figure 15 and Figure 16, followed by text describing scalability studies. The section title '5.3 Parameter Tuning in DRO' appears in the middle of the page_text, not at the beginning.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text begins with '10 20 30 40 Access order0.00.51.01.52.0EMDPruning threshold...'. The section title 'Dynamic Re\ufb01nement Ordering' appears later in the text (specifically, after the paragraph ending with '...dynamic access order of the candidates.'). Since there is significant content before the section title, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text begins with 'Algorithm 1 FILTER -AND -REFINEMENT FOR k-NN' and continues with descriptive text about that algorithm. The section title '3. SCALING UP SSP' appears later in the text, specifically after the description of Algorithm 1. Since there is significant content (the description of Algorithm 1) before the section title, the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text starts with '2.1 Computing the EMD'. The requested section title is 'Computing the EMD'. Since '2.1' precedes the title and the text continues immediately after, the section title 'Computing the EMD' is not the very first content in the page_text; rather, '2.1' is the prefix. Therefore, the section does not start at the absolute beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text begins with a paragraph discussing EMD calculations and the paper's organization. The section title '2. PRELIMINARIES' appears significantly later in the text, after the introductory paragraphs. Therefore, the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text starts with the section '2.1 Computing the EMD'. The requested section title 'Filter-and-Re\ufb01nement Framework' appears later in the text as '2.2 Filter-and-Re\ufb01nement Framework'. Since there is content (Section 2.1) before the requested section title, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text begins with a series of alphanumeric codes (e.g., '2/2', '1/1q p', '2/41/11', etc.) and figure captions, followed by text describing the SIA-EMD algorithm. The section title 'Progressive Bounding' appears much later in the text under the heading '4.2 Progressive Bounding'. Since there is significant content (including section 4, 4.1, and various figures) preceding the title 'Progressive Bounding', it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text begins with text related to the conclusion of a paper (specifically, the end of the 'CONCLUSION' section). The 'ACKNOWLEDGMENT' section appears later in the text, preceded by several paragraphs of content. Therefore, the 'ACKNOWLEDGMENT' section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text begins with a paragraph discussing ground distance and approximation techniques, followed by the section title '7. CONCLUSION'. Since there is text preceding the 'CONCLUSION' section title, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  }
+]

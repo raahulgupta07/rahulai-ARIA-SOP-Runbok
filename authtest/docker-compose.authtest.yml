@@ -1,0 +1,36 @@
+# Throwaway IdPs to prove Aria's LDAP + Keycloak(OIDC) auth end-to-end.
+# Attaches to the app's network so the app container reaches them by name.
+#   start:  rtk proxy docker compose -f authtest/docker-compose.authtest.yml up -d
+#   stop:   rtk proxy docker compose -f authtest/docker-compose.authtest.yml down -v
+networks:
+  default:
+    name: cityagentdocsensei_default
+    external: true
+
+services:
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: authtest-ldap
+    command: ["--copy-service"]
+    environment:
+      LDAP_ORGANISATION: "Corp"
+      LDAP_DOMAIN: "corp.local"            # -> base dn: dc=corp,dc=local
+      LDAP_ADMIN_PASSWORD: "admin"         # bind: cn=admin,dc=corp,dc=local
+    volumes:
+      - ./ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom:ro
+    ports:
+      - "3890:389"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: authtest-kc
+    command: ["start-dev", "--import-realm", "--http-port=8080"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+    volumes:
+      - ./realm-docsensei.json:/opt/keycloak/data/import/realm-docsensei.json:ro
+    ports:
+      - "8088:8080"                        # browser + app both hit kc.local:8088

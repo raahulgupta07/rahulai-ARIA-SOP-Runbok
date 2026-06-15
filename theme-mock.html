@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aria — Claude Coral Theme Mock</title>
+<style>
+  :root{
+    --clay:#d97757; --clay-dk:#c2613f; --clay-soft:#faf2ee; --clay-line:#ead9cf;
+    --cream:#faf9f5; --sand:#f0eee6; --paper:#ffffff;
+    --ink:#1f1e1d; --muted:#6b6a65; --border:#e8e4d8; --line:#ece8dd;
+    --ok:#5fa463; --warn:#d3a13e; --err:#cf6a4c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       background:var(--cream);color:var(--ink);-webkit-font-smoothing:antialiased}
+  .serif{font-family:Georgia,"Times New Roman",serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:30px 28px 80px}
+  h1{font-family:Georgia,serif;font-weight:500;font-size:28px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13.5px;margin-bottom:26px}
+  .sechead{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:30px 0 12px}
+
+  /* swatches */
+  .swatches{display:flex;flex-wrap:wrap;gap:12px}
+  .sw{width:138px;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--paper)}
+  .sw .chip{height:64px}
+  .sw .meta{padding:8px 10px}
+  .sw .nm{font-size:12.5px;font-weight:600}
+  .sw .hx{font-size:11px;color:var(--muted);font-family:ui-monospace,monospace}
+
+  /* tabs */
+  .tabs{display:flex;gap:26px;border-bottom:1px solid var(--border);margin-bottom:22px}
+  .tab{padding:0 1px 12px;font-size:14px;color:var(--muted);cursor:pointer;position:relative;font-weight:500}
+  .tab.on{color:var(--ink)}
+  .tab.on:after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--clay);border-radius:2px}
+
+  /* buttons + chips */
+  .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+  .btn{padding:9px 16px;border-radius:10px;font-size:13.5px;font-weight:500;cursor:pointer;border:1px solid transparent}
+  .btn.primary{background:var(--clay);color:#fff}
+  .btn.primary:hover{background:var(--clay-dk)}
+  .btn.ghost{background:#fff;border-color:var(--border);color:var(--ink)}
+  .btn.ghost:hover{border-color:var(--clay);color:var(--clay)}
+  .btn.dark{background:#1c1b18;color:#fff}
+  .chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;font-size:12px;font-weight:500}
+  .chip.solid{background:var(--clay);color:#fff}
+  .chip.soft{background:var(--clay-soft);color:var(--clay-dk);border:1px solid var(--clay-line)}
+  .chip.tag{background:var(--sand);color:var(--muted)}
+
+  /* cockpit cards */
+  .kgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
+  .tile{position:relative;background:var(--paper);border:1px solid var(--border);border-radius:14px;
+        padding:16px 16px 14px;overflow:hidden;transition:.15s;cursor:pointer}
+  .tile:hover{transform:translateY(-2px);border-color:var(--clay);box-shadow:0 8px 22px -12px rgba(217,119,87,.45)}
+  .cap{position:absolute;top:0;left:0;right:0;height:3px;background:var(--clay)}
+  .tico{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+        background:color-mix(in srgb,var(--clay) 12%,#fff);font-size:17px;margin-bottom:10px}
+  .tval{font-family:Georgia,serif;font-size:30px;line-height:1;font-weight:500}
+  .tlab{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-top:6px}
+  .tsub{font-size:11.5px;color:var(--muted);margin-top:7px}
+  .tsub.amber{color:var(--warn)}
+
+  /* panels */
+  .pgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px}
+  .panel{background:var(--paper);border:1px solid var(--border);border-radius:16px;padding:18px}
+  .panel h3{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 14px}
+  .hrow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+  .hrow:last-child{border-bottom:0}
+  .hval{display:flex;align-items:center;gap:7px;color:var(--ink)}
+  .dot{width:8px;height:8px;border-radius:50%}
+  .bar{width:64px;height:5px;border-radius:3px;background:var(--sand);overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--ok)}
+  .ava{width:46px;height:46px;border-radius:50%;background:var(--clay);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:600}
+
+  /* feed cards (brain) */
+  .feed{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+  .fc{border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--paper);transition:.15s;cursor:pointer}
+  .fc:hover{transform:translateY(-2px);box-shadow:0 8px 22px -14px rgba(0,0,0,.25)}
+  .fc .cover{height:78px;display:flex;align-items:flex-start;justify-content:space-between;padding:9px}
+  .fc .badge{background:rgba(255,255,255,.85);border-radius:7px;padding:3px 8px;font-size:11px;font-weight:600}
+  .fc .body{padding:11px}
+  .fc .t{font-size:13.5px;font-weight:600;line-height:1.25}
+  .fc .s{font-size:11.5px;color:var(--muted);margin-top:5px}
+  .note{font-size:12px;color:var(--muted);margin-top:8px}
+  code{background:var(--clay-soft);color:var(--clay-dk);padding:2px 6px;border-radius:5px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>City Agent Aria — <span style="color:var(--clay)">Claude Coral</span> theme</h1>
+  <div class="sub">Warm terracotta accent on ivory — the original claude.ai look (vs the current steel-blue). Same components, recolored.</div>
+
+  <div class="sechead">Palette</div>
+  <div class="swatches">
+    <div class="sw"><div class="chip" style="background:#d97757"></div><div class="meta"><div class="nm">Accent · --clay</div><div class="hx">#d97757</div></div></div>
+    <div class="sw"><div class="chip" style="background:#c2613f"></div><div class="meta"><div class="nm">Hover · --clay-dk</div><div class="hx">#c2613f</div></div></div>
+    <div class="sw"><div class="chip" style="background:#faf2ee"></div><div class="meta"><div class="nm">Tint · --clay-soft</div><div class="hx">#faf2ee</div></div></div>
+    <div class="sw"><div class="chip" style="background:#faf9f5"></div><div class="meta"><div class="nm">Bg · --cream</div><div class="hx">#faf9f5</div></div></div>
+    <div class="sw"><div class="chip" style="background:#f0eee6"></div><div class="meta"><div class="nm">Sand · --sand</div><div class="hx">#f0eee6</div></div></div>
+    <div class="sw"><div class="chip" style="background:#1f1e1d"></div><div class="meta"><div class="nm">Ink · --ink</div><div class="hx">#1f1e1d</div></div></div>
+    <div class="sw"><div class="chip" style="background:#e8e4d8"></div><div class="meta"><div class="nm">Border</div><div class="hx">#e8e4d8</div></div></div>
+  </div>
+
+  <div class="sechead">Tabs · Buttons · Chips</div>
+  <div class="tabs">
+    <div class="tab on">Overview</div><div class="tab">Users</div><div class="tab">Authentication</div>
+  </div>
+  <div class="row" style="margin-bottom:14px">
+    <button class="btn primary">＋ Teach a fact</button>
+    <button class="btn ghost">Open in reader →</button>
+    <button class="btn dark">Sign in</button>
+  </div>
+  <div class="row">
+    <span class="chip solid">⚡ overrides docs</span>
+    <span class="chip soft">📄 4 sources</span>
+    <span class="chip tag">EN</span>
+    <span class="chip soft">⏳ pending</span>
+  </div>
+
+  <div class="sechead">Cockpit KPI cards (Settings → Overview)</div>
+  <div class="kgrid">
+    <div class="tile"><span class="cap"></span><div class="tico">📄</div><div class="tval">32</div><div class="tlab">Documents</div><div class="tsub">8.6 pages / doc</div></div>
+    <div class="tile"><span class="cap"></span><div class="tico">📑</div><div class="tval">276</div><div class="tlab">Pages</div><div class="tsub">276 read · 100%</div></div>
+    <div class="tile"><span class="cap"></span><div class="tico">👁</div><div class="tval">100%</div><div class="tlab">Read</div><div class="tsub">all indexed</div></div>
+    <div class="tile"><span class="cap"></span><div class="tico">🗂</div><div class="tval">345</div><div class="tlab">Sections</div><div class="tsub">10.8 / doc</div></div>
+    <div class="tile"><span class="cap"></span><div class="tico">💡</div><div class="tval">4</div><div class="tlab">Facts</div><div class="tsub amber">1 pending</div></div>
+    <div class="tile"><span class="cap"></span><div class="tico">❓</div><div class="tval">84</div><div class="tlab">Questions</div><div class="tsub">12 recent</div></div>
+    <div class="tile"><span class="cap"></span><div class="tico">💬</div><div class="tval">61</div><div class="tlab">Chats</div><div class="tsub">61 threads</div></div>
+    <div class="tile"><span class="cap"></span><div class="tico">📊</div><div class="tval">100</div><div class="tlab">Audit</div><div class="tsub">healthy · /100</div></div>
+  </div>
+
+  <div class="pgrid">
+    <div class="panel">
+      <h3>Account</h3>
+      <div class="row" style="align-items:center;gap:14px">
+        <div class="ava">R</div>
+        <div>
+          <div style="font-weight:600">Rahul <span class="chip soft" style="padding:2px 8px">Admin</span> <span class="chip tag" style="padding:2px 8px">Local</span></div>
+          <div style="font-size:12.5px;color:var(--muted);margin-top:3px">admin@city.com</div>
+        </div>
+      </div>
+      <div class="note">Signed in · local</div>
+      <button class="btn ghost" style="margin-top:14px">Sign out</button>
+    </div>
+    <div class="panel">
+      <h3>System Health</h3>
+      <div class="hrow"><span style="color:var(--muted)">API</span><span class="hval"><span class="dot" style="background:var(--ok)"></span>ok</span></div>
+      <div class="hrow"><span style="color:var(--muted)">Database</span><span class="hval"><span class="dot" style="background:var(--ok)"></span>connected</span></div>
+      <div class="hrow"><span style="color:var(--muted)">Vision</span><span class="hval"><span class="bar"><i style="width:100%"></i></span>276/276</span></div>
+      <div class="hrow"><span style="color:var(--muted)">Ingest</span><span class="hval"><span class="dot" style="background:var(--ok)"></span>idle · just now</span></div>
+      <div class="hrow"><span style="color:var(--muted)">Digest</span><span class="hval"><span class="dot" style="background:var(--ok)"></span>weekly · yesterday</span></div>
+    </div>
+  </div>
+
+  <div class="sechead">Brain feed — typed cards (cover = warm coral gradient)</div>
+  <div class="feed">
+    <div class="fc"><div class="cover" style="background:linear-gradient(135deg,#f3d9cd,#e9bda8)"><span class="badge" style="color:#a24a2a">📄 DOC</span></div><div class="body"><div class="t">New Site Creation</div><div class="s">● Document · 22 pages</div></div></div>
+    <div class="fc"><div class="cover" style="background:linear-gradient(135deg,#efe6da,#e2d3bf)"><span class="badge" style="color:#7a6a4a">📕 PAGE</span><span class="badge" style="color:#7a6a4a">p.4</span></div><div class="body"><div class="t">Adjustment Reason Code…</div><div class="s">● Page</div></div></div>
+    <div class="fc"><div class="cover" style="background:linear-gradient(135deg,#f6ddd2,#edbfae)"><span class="badge" style="color:#a24a2a">🧠 FACT</span><span class="badge" style="color:#5a7a52">⚡ OVERRIDES</span></div><div class="body"><div class="t">IT helpdesk = ext 4357</div><div class="s">● Hand-taught</div></div></div>
+  </div>
+
+  <div class="note" style="margin-top:26px">To apply: flip <code>--clay</code> value <code>#426693 → #d97757</code> + sweep the 4 local-accent files. Graph data colors (purple/gray/pink) unchanged.</div>
+</div>
+</body>
+</html>

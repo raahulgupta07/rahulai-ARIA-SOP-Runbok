@@ -1,0 +1,35 @@
+# --- secrets ---
+.env
+.env.*
+!.env.example
+
+# --- python ---
+.venv/
+__pycache__/
+*.pyc
+
+# --- node / frontend build ---
+node_modules/
+frontend/node_modules/
+frontend/.svelte-kit/
+frontend/build/
+
+# --- runtime data (user docs, never commit) ---
+data/inbox/*
+data/uploads/*
+data/failed/*
+data/processed/*
+data/pages/*
+documents/*
+!data/inbox/.gitkeep
+!data/uploads/.gitkeep
+!data/failed/.gitkeep
+!data/processed/.gitkeep
+!data/pages/.gitkeep
+
+# --- vendored ---
+vendor_pageindex/results/
+
+# --- misc ---
+*.log
+.DS_Store

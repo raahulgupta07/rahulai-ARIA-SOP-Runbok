@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Aria — Claude.ai theme mock</title>
+<style>
+  /* ===== claude.ai / Anthropic palette ===== */
+  :root{
+    --paper:#FAF9F5;       /* ivory canvas */
+    --rail:#F0EEE6;        /* cloud sand sidebar */
+    --pill:#E8E6DC;        /* active nav row */
+    --card:#FFFFFF;
+    --border:#E7E4DA;      /* hairline */
+    --line:#EFEDE4;        /* inner divider */
+    --ink:#262625;         /* slate */
+    --muted:#6B6A63;       /* warm gray */
+    --clay:#CC785C;        /* book cloth coral accent */
+    --clay-d:#B85C3E;
+    --kraft:#D4A27F;
+    --green:#5fa463;
+    --enbg:#e7eef4; --enfg:#42688f;
+    --mybg:#f4e8d4; --myfg:#9d7430;
+    --serif:'Georgia','Times New Roman',serif;
+    --sans:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:var(--sans); background:var(--paper); color:var(--ink); -webkit-font-smoothing:antialiased;}
+  .app{display:flex; height:100vh; overflow:hidden;}
+
+  /* ===== LEFT RAIL ===== */
+  .rail{width:248px; flex-shrink:0; background:var(--rail); border-right:1px solid var(--border); display:flex; flex-direction:column; padding:14px 12px;}
+  .brand{display:flex; align-items:center; gap:9px; padding:6px 8px 14px;}
+  .brand .mk{font-size:18px; color:var(--clay);}
+  .brand b{font-family:var(--serif); font-size:19px; font-weight:600; letter-spacing:-.01em;}
+  .newchat{display:flex; align-items:center; gap:9px; background:var(--clay); color:#fff; border:none; border-radius:10px; padding:10px 12px; font-size:13.5px; font-weight:600; cursor:pointer; margin-bottom:10px;}
+  .newchat:hover{background:var(--clay-d);}
+  .nav{display:flex; flex-direction:column; gap:2px;}
+  .nav a{display:flex; align-items:center; gap:10px; padding:8px 11px; border-radius:9px; font-size:13.5px; color:#45443f; text-decoration:none; cursor:pointer;}
+  .nav a:hover{background:#E8E6DC;}
+  .nav a.on{background:var(--pill); font-weight:600; color:var(--ink);}
+  .nav .ic{width:16px; height:16px; opacity:.8;}
+  .railsearch{display:flex; align-items:center; gap:8px; margin:14px 4px 8px; padding:7px 10px; border-radius:9px; background:#fff; border:1px solid var(--border); color:var(--muted); font-size:12.5px;}
+  .seclbl{font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:#9b988d; padding:8px 11px 4px;}
+  .hist{display:flex; flex-direction:column; gap:1px; overflow-y:auto; flex:1;}
+  .hist a{font-size:12.5px; color:#5c5a53; padding:6px 11px; border-radius:8px; text-decoration:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .hist a:hover{background:#E8E6DC;}
+  .acct{display:flex; align-items:center; gap:9px; padding:9px 8px; border-top:1px solid var(--border); margin-top:6px;}
+  .acct .av{width:28px; height:28px; border-radius:50%; background:var(--clay); color:#fff; display:grid; place-items:center; font-size:12px; font-weight:700;}
+  .acct .nm{font-size:12.5px; font-weight:600;} .acct .dot{width:7px; height:7px; border-radius:50%; background:var(--green); margin-left:auto;}
+
+  /* ===== MAIN ===== */
+  .main{flex:1; min-width:0; display:flex; flex-direction:column; overflow:hidden;}
+  .hdr{padding:20px 28px 16px; border-bottom:1px solid var(--border); background:var(--paper);}
+  .hdr h1{font-family:var(--serif); font-size:22px; font-weight:600; letter-spacing:-.01em;}
+  .hdr p{font-size:13px; color:var(--muted); margin-top:3px;}
+  .hdr-top{display:flex; align-items:flex-start; justify-content:space-between; gap:16px;}
+  .add{display:flex; align-items:center; gap:6px; background:var(--clay); color:#fff; border:none; border-radius:10px; padding:9px 15px; font-size:13.5px; font-weight:600; cursor:pointer;}
+  .add:hover{background:var(--clay-d);}
+  .searchrow{display:flex; align-items:center; gap:14px; margin-top:14px;}
+  .search{flex:1; max-width:560px; display:flex; align-items:center; gap:9px; height:42px; padding:0 14px; border-radius:11px; background:#fff; border:1px solid var(--border); color:var(--muted); font-size:13.5px;}
+  .statline{font-size:12.5px; color:#5c5a53; display:flex; gap:8px; align-items:center;}
+  .statline b{color:var(--ink);} .statline .g{color:var(--green); font-weight:600;} .statline .sep{color:var(--border);}
+
+  .scroll{flex:1; overflow-y:auto; background:var(--paper);}
+  .wrap{padding:18px 28px 40px;}
+
+  /* ===== BENTO ===== */
+  .bento-row{display:grid; grid-template-columns:repeat(4,1fr); gap:16px;}
+  .bento{position:relative; text-align:left; background:#fff; border:1px solid var(--border); border-radius:13px; padding:16px 18px; cursor:pointer; box-shadow:0 4px 20px rgba(40,38,37,.035); transition:.15s;}
+  .bento:hover{transform:translateY(-2px); box-shadow:0 8px 24px rgba(120,80,55,.10);}
+  .bento.on{background:var(--clay); border-color:var(--clay); box-shadow:0 10px 26px rgba(204,120,92,.30);}
+  .bento.on .bh{color:#fff;} .bento.on .bs{color:rgba(255,255,255,.85);} .bento.on .bn{color:#fff;} .bento.on .bic{background:rgba(255,255,255,.2);}
+  .btop{display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:12px;}
+  .bic{width:36px; height:36px; border-radius:9px; background:#f4ece6; display:grid; place-items:center; font-size:18px;}
+  .bn{font-family:var(--serif); font-size:27px; line-height:1; font-variant-numeric:tabular-nums;}
+  .bh{font-size:15px; font-weight:600;} .bs{font-size:11.5px; color:var(--muted); margin-top:2px;}
+  .bento.drop{display:flex; flex-direction:column; align-items:center; justify-content:center; background:#faf6f0; border-style:dashed; box-shadow:none; color:var(--muted);}
+
+  /* ===== FILTER BAR ===== */
+  .filterbar{display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:#fff; border:1px solid var(--border); border-radius:12px; padding:9px 14px; box-shadow:0 4px 20px rgba(40,38,37,.03); margin-top:18px;}
+  .seg{display:inline-flex; padding:2px; border-radius:9px; background:#efece4; gap:2px;}
+  .seg button{font-size:11.5px; padding:4px 12px; border-radius:7px; color:#6f6c65; background:transparent; border:none; cursor:pointer;}
+  .seg button.on{background:#fff; color:var(--clay); font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.05);}
+  .vdiv{width:1px; height:22px; background:var(--line);}
+  .shown{margin-left:auto; font-size:12px; color:var(--muted);}
+  .sort{font-size:12px; padding:5px 10px; border-radius:8px; background:#fff; border:1px solid var(--border); color:#6f6c65;}
+
+  .grouphead{display:flex; align-items:center; gap:7px; margin:22px 0 12px; font-size:11.5px; font-weight:600; color:#6f6c65; text-transform:uppercase; letter-spacing:.04em;}
+
+  /* ===== COVER CARDS ===== */
+  .dgrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:16px;}
+  .dcard{position:relative; background:#fff; border:1px solid var(--border); border-radius:14px; overflow:hidden; cursor:pointer; box-shadow:0 3px 14px rgba(40,38,37,.03); transition:.15s;}
+  .dcard:hover{transform:translateY(-3px); box-shadow:0 10px 26px rgba(120,80,55,.12);}
+  .dcover{position:relative; height:132px; background:linear-gradient(160deg,#fbf8f3,#f1ece3); border-bottom:1px solid var(--line); overflow:hidden;}
+  .dcover .ghost{position:absolute; inset:14px 12px auto; font-size:10px; color:#c3b9ac; line-height:1.5;}
+  .dtop{position:absolute; top:10px; left:12px; right:10px; display:flex; align-items:flex-start; justify-content:space-between; gap:8px; z-index:2;}
+  .ddate{font-size:9.5px; font-weight:700; letter-spacing:.02em; padding:3px 7px; border-radius:5px; background:rgba(255,255,255,.85); backdrop-filter:blur(3px); color:#6f6c65;}
+  .dlang{font-size:9.5px; font-weight:700; padding:3px 7px; border-radius:5px; background:var(--enbg); color:var(--enfg);}
+  .dlang.my{background:var(--mybg); color:var(--myfg);}
+  .dfor{position:absolute; left:12px; bottom:9px; z-index:2; font-size:9.5px; letter-spacing:.04em; color:#7d7264; background:rgba(255,255,255,.72); padding:1px 6px; border-radius:4px;}
+  .dbody{padding:12px 14px 14px;}
+  .dttl{font-size:13px; font-weight:600; line-height:1.32; min-height:34px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
+  .dsub{display:flex; align-items:center; gap:5px; margin-top:7px; font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums;}
+  .dsub .pp{margin-left:auto;}
+  .dot{width:7px; height:7px; border-radius:50%; background:var(--green); display:inline-block;}
+  .dstats{display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-top:11px; padding-top:10px; border-top:1px solid var(--line);}
+  .dstat{display:flex; flex-direction:column; gap:2px;}
+  .dstat .k{font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#a89b8c;}
+  .dstat .v{font-size:12px; font-weight:600; font-variant-numeric:tabular-nums;}
+  .v.used{color:var(--clay);} .v.acc{color:var(--green);} .v.un{color:var(--muted);}
+
+  /* ===== chat peek toggle ===== */
+  .switcher{position:fixed; top:14px; right:18px; z-index:50; display:flex; gap:4px; background:#fff; border:1px solid var(--border); border-radius:10px; padding:3px; box-shadow:0 4px 16px rgba(0,0,0,.08);}
+  .switcher button{font-size:12px; padding:6px 12px; border:none; border-radius:7px; background:transparent; color:var(--muted); cursor:pointer; font-weight:600;}
+  .switcher button.on{background:var(--clay); color:#fff;}
+
+  /* chat view */
+  .chat{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:26px; background:var(--paper);}
+  .welcome{font-family:var(--serif); font-size:34px; font-weight:600; letter-spacing:-.01em; display:flex; align-items:center; gap:14px;}
+  .welcome .mk{color:var(--clay); font-size:30px;}
+  .composer{width:min(720px,86%); background:#fff; border:1px solid var(--border); border-radius:16px; box-shadow:0 8px 30px rgba(40,38,37,.06); padding:18px 18px 12px;}
+  .composer .ph{font-size:15px; color:var(--muted);}
+  .composer .bar{display:flex; align-items:center; justify-content:space-between; margin-top:26px;}
+  .composer .plus{width:30px; height:30px; border-radius:8px; border:1px solid var(--border); background:#fff; color:var(--ink); font-size:17px; cursor:pointer;}
+  .composer .model{font-size:13px; color:var(--muted);}
+  .cards{display:flex; gap:10px; flex-wrap:wrap; justify-content:center;}
+  .cards button{display:flex; align-items:center; gap:7px; background:#fff; border:1px solid var(--border); border-radius:10px; padding:9px 15px; font-size:13px; color:#45443f; cursor:pointer;}
+  .cards button:hover{border-color:var(--kraft);}
+  .hidden{display:none !important;}
+</style>
+</head>
+<body>
+<div class="switcher">
+  <button id="tBrain" class="on" onclick="show('brain')">Brain</button>
+  <button id="tChat" onclick="show('chat')">Chat</button>
+</div>
+
+<div class="app">
+  <!-- ===== LEFT RAIL ===== -->
+  <aside class="rail">
+    <div class="brand"><span class="mk">✦</span><b>Aria</b></div>
+    <button class="newchat"><span>＋</span> New chat</button>
+    <nav class="nav">
+      <a class="on"><span class="ic">🧠</span> Brain</a>
+      <a><span class="ic">⚙️</span> Settings</a>
+    </nav>
+    <div class="railsearch">🔍 Search chats…</div>
+    <div class="seclbl">Today</div>
+    <div class="hist">
+      <a>How do I reset CAR parameters?</a>
+      <a>Mass transfer for closed stores</a>
+      <a>GSM1 escalation steps</a>
+      <a>Seasonal prevention process</a>
+      <a>Refund window policy</a>
+      <a>OADA mass input walkthrough</a>
+    </div>
+    <div class="acct"><span class="av">R</span><div><div class="nm">Rahul</div><div style="font-size:11px;color:var(--muted)">Admin</div></div><span class="dot"></span></div>
+  </aside>
+
+  <!-- ===== MAIN: BRAIN ===== -->
+  <main class="main" id="brain">
+    <div class="hdr">
+      <div class="hdr-top">
+        <div>
+          <h1>Agent Brain</h1>
+          <p>Everything Aria learned — uploaded runbooks/SOPs and facts you taught. Ask about any of it in Chat.</p>
+        </div>
+        <button class="add">＋ Add ⌄</button>
+      </div>
+      <div class="searchrow">
+        <div class="search">🔍 Search the brain — documents and facts…</div>
+        <div class="statline"><span>📄 <b>31</b> documents</span><span class="sep">·</span><span><b>271</b> pages</span><span class="sep">·</span><span class="g">100% read</span><span class="sep">·</span><span>💡 <b>4</b> facts</span></div>
+      </div>
+    </div>
+
+    <div class="scroll"><div class="wrap">
+      <!-- bento -->
+      <div class="bento-row">
+        <button class="bento on">
+          <div class="btop"><span class="bic">📄</span><span class="bn">31</span></div>
+          <div class="bh">Documents</div><div class="bs">Standard operating procedures &amp; guides</div>
+        </button>
+        <button class="bento">
+          <div class="btop"><span class="bic">💡</span><span class="bn">4</span></div>
+          <div class="bh">Facts</div><div class="bs">Knowledge snippets &amp; business rules</div>
+        </button>
+        <button class="bento">
+          <div class="btop"><span class="bic">🛡</span><span class="bn" style="color:var(--green)">100</span></div>
+          <div class="bh">Audit</div><div class="bs">Coverage &amp; trust score</div>
+        </button>
+        <button class="bento drop"><span style="font-size:24px;opacity:.55">⬆</span><div class="bs" style="margin-top:4px">Drop files to train Aria</div></button>
+      </div>
+
+      <!-- filters -->
+      <div class="filterbar">
+        <div class="seg"><button class="on">All</button><button>EN</button><button>MY</button></div>
+        <span class="vdiv"></span>
+        <div class="seg"><button class="on">Any</button><button>Ready</button><button>Failed</button></div>
+        <span class="shown">31 shown</span>
+        <select class="sort"><option>Recent</option><option>Most pages</option><option>Name A–Z</option></select>
+      </div>
+
+      <div class="grouphead">▾ GLDCENTRAL · 28</div>
+
+      <div class="dgrid" id="cards"></div>
+    </div></div>
+  </main>
+
+  <!-- ===== MAIN: CHAT ===== -->
+  <main class="main hidden" id="chat">
+    <div class="chat">
+      <div class="welcome"><span class="mk">✦</span> Welcome, Rahul</div>
+      <div class="composer">
+        <div class="ph">How can I help you today?</div>
+        <div class="bar"><button class="plus">＋</button><span class="model">ARIA 1.0 · Quick ⌄</span></div>
+      </div>
+      <div class="cards">
+        <button>📄 Find a runbook</button>
+        <button>🧭 How-to steps</button>
+        <button>💡 Policy &amp; rules</button>
+        <button>🔎 Search SOPs</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  const docs = [
+    ["CAR Parameter Definition Mass Input","EN","SOP-028","11p","11 sec","Unused","100%",0],
+    ["Specific Period Management Mass Input","EN","SOP-027","11p","9 sec","3 times","100%",1],
+    ["GSM1 Issue — Escalation Flow","EN","SOP-026","7p","11 sec","9 times","100%",1],
+    ["Transfer, Return, Reception & other Level 1 Issue","EN","SOP-025","7p","8 sec","1 time","100%",1],
+    ["Order Creation & Integration into the Gold Stock","EN","SOP-024","7p","10 sec","2 times","100%",1],
+    ["Article Status Change about Frozen & Frozen Purchase…","EN","SOP-023","7p","—","Unused","100%",0],
+    ["Adjustment Reason Code Adding Process in GOLD Central","MY","SOP-022","8p","11 sec","2 times","100%",1],
+    ["Seasonal Prevention Process in Gold Central","MY","SOP-021","10p","9 sec","2 times","100%",1],
+    ["Mass Transfer Process for Closed Stores","EN","SOP-020","10p","11 sec","1 time","100%",1],
+    ["Product Dimension Change using Mass Update Process","EN","SOP-019","7p","10 sec","Unused","100%",0],
+    ["OADA-MASS Input Process","EN","SOP-018","12p","12 sec","4 times","100%",1],
+    ["E-COM API / Scheduler Service Check","EN","SOP-017","6p","—","Unused","100%",0],
+  ];
+  const dates=["JUN 9, 2025","MAY 27, 2025","MAY 25, 2025","AUG 13, 2024","AUG 5, 2024","MAY 7, 2025","MAY 7, 2025","MAY 7, 2025","JUN 13, 2025","MAY 2, 2025","JUN 30, 2025","MAY 7, 2025"];
+  document.getElementById('cards').innerHTML = docs.map((d,i)=>{
+    const my = d[1]==='MY';
+    const usedCls = d[5]==='Unused' ? 'un' : 'used';
+    return `<div class="dcard">
+      <div class="dcover">
+        <div class="ghost">${d[0]}</div>
+        <div class="dtop"><span class="ddate">${dates[i]}</span><span class="dlang ${my?'my':''}">${d[1]}</span></div>
+        <span class="dfor">FOR &lt;GLDCENTRAL&gt;</span>
+      </div>
+      <div class="dbody">
+        <div class="dttl">${d[0]}</div>
+        <div class="dsub"><span class="dot"></span><span>${d[1]} · ${d[2]}</span><span class="pp">${d[3]}</span></div>
+        <div class="dstats">
+          <div class="dstat"><span class="k">Process</span><span class="v">${d[4]}</span></div>
+          <div class="dstat"><span class="k">Used</span><span class="v ${usedCls}">${d[5]}</span></div>
+          <div class="dstat"><span class="k">Accuracy</span><span class="v acc">${d[6]}</span></div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  function show(v){
+    document.getElementById('brain').classList.toggle('hidden', v!=='brain');
+    document.getElementById('chat').classList.toggle('hidden', v!=='chat');
+    document.getElementById('tBrain').classList.toggle('on', v==='brain');
+    document.getElementById('tChat').classList.toggle('on', v==='chat');
+  }
+</script>
+</body>
+</html>

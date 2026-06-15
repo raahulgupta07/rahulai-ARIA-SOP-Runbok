@@ -1,0 +1,71 @@
+[
+  {
+    "total_page_number": 8
+  },
+  {
+    "total_token": 3738
+  },
+  {
+    "toc_content": "2 | Page  \n  \n \n \nContents  \n \nPURPOSE  :   3 \nSCOPE :  3 \nROLES AND RESPONSIBILITY  :  3 \nPRE-REQUISITES :  3 \nPROCEDURE/ Steps  :  :  3 \nESCALATIONS  :  7 \nDEPENDENCIES  :  :  7 \nSIGNATURES  :  7 \n \n ",
+    "toc_page_list": [
+      2
+    ],
+    "page_index_given_in_toc": "yes"
+  },
+  {
+    "message": "toc_with_page_number: [{'structure': '1', 'title': 'PURPOSE', 'page': 3}, {'structure': '2', 'title': 'SCOPE', 'page': 3}, {'structure': '3', 'title': 'ROLES AND RESPONSIBILITY', 'page': 3}, {'structure': '4', 'title': 'PRE-REQUISITES', 'page': 3}, {'structure': '5', 'title': 'PROCEDURE/ Steps', 'page': 3}, {'structure': '6', 'title': 'ESCALATIONS', 'page': 7}, {'structure': '7', 'title': 'DEPENDENCIES', 'page': 7}, {'structure': '8', 'title': 'SIGNATURES', 'page': 7}]"
+  },
+  {
+    "message": "toc_with_physical_index: [{'structure': '1', 'title': 'PURPOSE', 'physical_index': '<physical_index_4>'}, {'structure': '2', 'title': 'SCOPE', 'physical_index': '<physical_index_4>'}, {'structure': '3', 'title': 'ROLES AND RESPONSIBILITY', 'physical_index': '<physical_index_4>'}, {'structure': '4', 'title': 'PRE-REQUISITES', 'physical_index': '<physical_index_4>'}, {'structure': '5', 'title': 'PROCEDURE/ Steps', 'physical_index': '<physical_index_4>'}, {'structure': '6', 'title': 'ESCALATIONS', 'physical_index': '<physical_index_8>'}, {'structure': '7', 'title': 'DEPENDENCIES', 'physical_index': '<physical_index_8>'}, {'structure': '8', 'title': 'SIGNATURES', 'physical_index': '<physical_index_8>'}]"
+  },
+  {
+    "message": "toc_with_physical_index: [{'structure': '1', 'title': 'PURPOSE', 'physical_index': 4}, {'structure': '2', 'title': 'SCOPE', 'physical_index': 4}, {'structure': '3', 'title': 'ROLES AND RESPONSIBILITY', 'physical_index': 4}, {'structure': '4', 'title': 'PRE-REQUISITES', 'physical_index': 4}, {'structure': '5', 'title': 'PROCEDURE/ Steps', 'physical_index': 4}, {'structure': '6', 'title': 'ESCALATIONS', 'physical_index': 8}, {'structure': '7', 'title': 'DEPENDENCIES', 'physical_index': 8}, {'structure': '8', 'title': 'SIGNATURES', 'physical_index': 8}]"
+  },
+  {
+    "message": "matching_pairs: [{'title': 'PURPOSE', 'page': 3, 'physical_index': 4}, {'title': 'SCOPE', 'page': 3, 'physical_index': 4}, {'title': 'ROLES AND RESPONSIBILITY', 'page': 3, 'physical_index': 4}, {'title': 'PRE-REQUISITES', 'page': 3, 'physical_index': 4}, {'title': 'PROCEDURE/ Steps', 'page': 3, 'physical_index': 4}, {'title': 'ESCALATIONS', 'page': 7, 'physical_index': 8}, {'title': 'DEPENDENCIES', 'page': 7, 'physical_index': 8}, {'title': 'SIGNATURES', 'page': 7, 'physical_index': 8}]"
+  },
+  {
+    "message": "offset: 1"
+  },
+  {
+    "message": "toc_with_page_number: [{'structure': '1', 'title': 'PURPOSE', 'physical_index': 4}, {'structure': '2', 'title': 'SCOPE', 'physical_index': 4}, {'structure': '3', 'title': 'ROLES AND RESPONSIBILITY', 'physical_index': 4}, {'structure': '4', 'title': 'PRE-REQUISITES', 'physical_index': 4}, {'structure': '5', 'title': 'PROCEDURE/ Steps', 'physical_index': 4}, {'structure': '6', 'title': 'ESCALATIONS', 'physical_index': 8}, {'structure': '7', 'title': 'DEPENDENCIES', 'physical_index': 8}, {'structure': '8', 'title': 'SIGNATURES', 'physical_index': 8}]"
+  },
+  {
+    "message": "toc_with_page_number: [{'structure': '1', 'title': 'PURPOSE', 'physical_index': 4}, {'structure': '2', 'title': 'SCOPE', 'physical_index': 4}, {'structure': '3', 'title': 'ROLES AND RESPONSIBILITY', 'physical_index': 4}, {'structure': '4', 'title': 'PRE-REQUISITES', 'physical_index': 4}, {'structure': '5', 'title': 'PROCEDURE/ Steps', 'physical_index': 4}, {'structure': '6', 'title': 'ESCALATIONS', 'physical_index': 8}, {'structure': '7', 'title': 'DEPENDENCIES', 'physical_index': 8}, {'structure': '8', 'title': 'SIGNATURES', 'physical_index': 8}]"
+  },
+  {
+    "mode": "process_toc_with_page_numbers",
+    "accuracy": 1.0,
+    "incorrect_results": []
+  },
+  {
+    "message": "Checking title appearance in start concurrently"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '3 | Page', followed by 'PURPOSE', and then 'Gold Central Crontab jobs list and job schedule time'. The section title 'SCOPE' appears later in the text, not at the very beginning.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '3 | Page', followed by 'PURPOSE', 'SCOPE', 'ROLES AND RESPONSIBILITY', and 'PRE- REQUISITES' before reaching the 'PROCEDURE / STEPS' section. Since there is significant content preceding the target section title, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The section title 'SIGNATURES' appears near the end of the provided page_text, preceded by several lines of cron job configurations, 'ESCALATIONS', and 'DEPENDENCIES'. Since it is not the first content in the page_text, it does not start at the beginning.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '3 | Page', followed by 'PURPOSE', 'SCOPE', and 'ROLES AND RESPONSIBILITY' before reaching the 'PRE-REQUISITES' section. Since there is significant content preceding the 'PRE-REQUISITES' title, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '0 | Page AUGUST 25, 2025 Gold Central Job Monitoring FOR <CMHL > .'. The section title 'Preface' does not appear at the beginning of this text, nor does it appear anywhere within the provided text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '3 | Page', followed by a newline and then the section title 'PURPOSE'. Since '3 | Page' appears before the section title 'PURPOSE', the section does not start at the very beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '7 | Page' followed by several lines of cron job configurations and section headers (e.g., '25- Invoice Matching Data sync Job', '28- Clearance Sale'). The section title 'ESCALATIONS' appears significantly further down in the text, well after the initial content. Therefore, it does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The page_text begins with '3 | Page', followed by 'PURPOSE', 'SCOPE', and then 'ROLES AND RESPONSIBILITY'. Since there are multiple sections ('PURPOSE', 'SCOPE') appearing before 'ROLES AND RESPONSIBILITY', the section does not start at the beginning of the page_text.\", 'start_begin': 'no'}"
+  },
+  {
+    "message": "Response: {'thinking': \"The provided page_text begins with '7 | Page' followed by various cron job configurations and other sections like 'ESCALATIONS'. The section title 'DEPENDENCIES' appears much later in the text, not at the very beginning.\", 'start_begin': 'no'}"
+  }
+]

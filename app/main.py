@@ -1,0 +1,91 @@
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+
+from .config import ensure_dirs, ROOT, CORS_ALLOW_ORIGINS, APP_ENV, check_prod_config
+from .db import init_db
+from .routes import router
+from .auth.router import router as auth_router
+from . import worker
+from . import watcher
+from . import digest
+from . import usage_rollup
+from . import verify
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    check_prod_config()   # fail fast on weak prod secrets
+    ensure_dirs()
+    init_db()
+    from .auth import store as _astore
+    _astore.ensure_superadmin()   # env-bootstrapped admin (signup disabled → only admin source)
+    worker.start()   # async ingest: requeue stuck docs + run worker thread(s)
+    watcher.start()  # pick up files dropped straight into the storage inbox
+    digest.start()   # cadence: weekly self-audit digest into the activity feed
+    from . import embed as _embed
+    _embed.start_prune_daemon()  # embed retention (flag EMBED_PRUNE_ENABLED)
+    from . import maintenance as _maint
+    _maint.start_daemon()        # DB vacuum/retention (flag DB_MAINTENANCE_ENABLED)
+    usage_rollup.start_daemon()  # usage analytics rollup (flag USAGE_ROLLUP_ENABLED)
+    verify.start_daemon()  # citation-accuracy verify pass (flag VERIFY_ENABLED)
+    from . import learn as _learn
+    _learn.start_auto_learn_daemon()  # nightly fact mining (AUTO_LEARN_ENABLED + MODE=nightly)
+    yield
+
+
+app = FastAPI(title="DocSensei", version="0.1.0", lifespan=lifespan)
+
+# Same-origin by default (CORS_ALLOW_ORIGINS empty). The embed widget loads in an
+# iframe served from THIS origin, so it talks same-origin and needs no CORS grant.
+# allow_credentials stays False so a wildcard, if ever set, can't leak cookies.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOW_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    resp = await call_next(request)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    if APP_ENV == "production":
+        # behind TLS termination — tell browsers to never downgrade to http
+        resp.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return resp
+
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok", "service": "DocSensei"}
+
+
+# all backend endpoints live under /api so the SPA can own every other path
+app.include_router(auth_router, prefix="/api")
+app.include_router(router, prefix="/api")
+
+
+# ---- serve the built SvelteKit SPA (OpenWebUI-style single deployable) ----
+FRONTEND = ROOT / "frontend" / "build"
+if FRONTEND.exists():
+    app.mount("/_app", StaticFiles(directory=FRONTEND / "_app"), name="spa-assets")
+
+    @app.get("/{full_path:path}")
+    def spa(full_path: str):
+        # serve a real static file if it exists, else fall back to index.html
+        candidate = FRONTEND / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(FRONTEND / "index.html")
+else:
+    @app.get("/")
+    def root():
+        return {"service": "DocSensei", "note": "frontend not built; API under /api"}

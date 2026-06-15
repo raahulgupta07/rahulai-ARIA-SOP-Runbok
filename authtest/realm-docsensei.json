@@ -1,0 +1,39 @@
+{
+  "realm": "docsensei",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "clients": [
+    {
+      "clientId": "docsensei",
+      "name": "City Agent Aria",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "docsensei-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": [
+        "http://localhost:8081/*",
+        "http://kc.local:8088/*"
+      ],
+      "webOrigins": ["*"],
+      "defaultClientScopes": ["openid", "email", "profile"]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "alice@corp.local",
+      "firstName": "Alice",
+      "lastName": "Tan",
+      "credentials": [
+        { "type": "password", "value": "alicepass", "temporary": false }
+      ],
+      "realmRoles": ["default-roles-docsensei"]
+    }
+  ]
+}

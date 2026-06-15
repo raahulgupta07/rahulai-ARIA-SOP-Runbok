@@ -1,0 +1,234 @@
+<script lang="ts">
+  import '../app.css';
+  import '$lib/prefs';   // boot: load + apply density / reduced-motion to <html>
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
+  import { api } from '$lib/api';
+  import { auth, type User } from '$lib/auth';
+  import Burst from '$lib/Burst.svelte';
+  import Bell from '$lib/Bell.svelte';
+  import IngestRobot from '$lib/IngestRobot.svelte';
+  import { convs, activeConvId, reloadConvs, openConvId, triggerNewChat } from '$lib/chatstore';
+
+  let { children } = $props();
+
+  // ===== conversation rail (history lives here now) =====
+  let search = $state('');
+  let renaming = $state<number | null>(null);
+  let renameText = $state('');
+  $effect(() => { if (!isLogin && !isEmbed && auth.isAuthed()) reloadConvs(); });
+
+  function railNewChat() { triggerNewChat(); if ($page.url.pathname !== '/') goto('/'); }
+  function railOpen(id: number) { openConvId(id); if ($page.url.pathname !== '/') goto('/'); }
+  async function railDelete(c: any, e: Event) {
+    e.stopPropagation();
+    if (!confirm(`Delete "${c.title}"?`)) return;
+    try { await api.deleteConversation(c.id); if (get_active() === c.id) triggerNewChat(); await reloadConvs(); } catch {}
+  }
+  function railStartRename(c: any, e: Event) { e.stopPropagation(); renaming = c.id; renameText = c.title; }
+  async function railCommitRename(c: any) {
+    const t = renameText.trim(); renaming = null;
+    if (!t || t === c.title) return;
+    try { await api.renameConversation(c.id, t); await reloadConvs(); } catch {}
+  }
+  let activeCid = $state<number | null>(null);
+  activeConvId.subscribe((v) => (activeCid = v));
+  function get_active() { return activeCid; }
+
+  function bucket(ts: string): string {
+    const d = new Date(ts), now = new Date(), day = 86400000;
+    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const t = d.getTime();
+    if (t >= startToday) return 'Today';
+    if (t >= startToday - day) return 'Yesterday';
+    if (t >= startToday - 7 * day) return 'Previous 7 days';
+    return 'Older';
+  }
+  let grouped = $derived.by(() => {
+    const order = ['Today', 'Yesterday', 'Previous 7 days', 'Older'];
+    const map: Record<string, any[]> = {};
+    const nd = search.trim().toLowerCase();
+    for (const c of $convs) {
+      if (nd && !(c.title || '').toLowerCase().includes(nd)) continue;
+      (map[bucket(c.updated_at)] ||= []).push(c);
+    }
+    return order.filter((g) => map[g]?.length).map((g) => ({ g, items: map[g] }));
+  });
+  let onChat = $derived($page.url.pathname === '/');
+
+  let me = $state<User | null>(null);
+  let menuOpen = $state(false);
+
+  let isLogin = $derived($page.url.pathname === '/login');
+  let isEmbed = $derived($page.url.pathname === '/embed');  // bare iframe widget
+  let isShare = $derived($page.url.pathname.startsWith('/s/'));  // read-only shared answer
+  $effect(() => {
+    if (isLogin || isEmbed || isShare) return;
+    if (!auth.isAuthed()) { goto('/login'); return; }
+    if (!me) auth.me().then((u) => { me = u; if (!u) goto('/login'); });
+  });
+
+  // primary nav — Chat is implicit (New chat + history), so only sections here
+  const nav = [
+    { href: '/brain', label: 'Brain', section: '/brain', d: 'M9.5 2a4.5 4.5 0 0 0-4.5 4.5c-1.2.5-2 1.7-2 3 0 .8.3 1.5.8 2-.5.5-.8 1.2-.8 2 0 1.6 1.3 3 3 3a3 3 0 0 0 3 3 2.5 2.5 0 0 0 2.5-2.5V4.5A2.5 2.5 0 0 0 9.5 2zM14.5 2A2.5 2.5 0 0 0 12 4.5v14.5a2.5 2.5 0 0 0 2.5 2.5 3 3 0 0 0 3-3c1.7 0 3-1.4 3-3 0-.8-.3-1.5-.8-2 .5-.5.8-1.2.8-2 0-1.3-.8-2.5-2-3A4.5 4.5 0 0 0 14.5 2z' },
+    { href: '/settings', label: 'Settings', section: '/settings', d: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 13a7.5 7.5 0 0 0 0-2l2-1.5-2-3.5-2.4 1a7.5 7.5 0 0 0-1.7-1L15 3h-4l-.3 2.5a7.5 7.5 0 0 0-1.7 1l-2.4-1-2 3.5L4.6 11a7.5 7.5 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7.5 7.5 0 0 0 1.7 1L11 21h4l.3-2.5a7.5 7.5 0 0 0 1.7-1l2.4 1 2-3.5z' }
+  ];
+  // top bar nav — Chat, unified Workspace (Dashboard + Brain folded in), Settings
+  const topnav = [
+    { href: '/', label: 'Chat', section: '/', d: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z' },
+    { href: '/workspace', label: 'Workspace', section: '/workspace', d: 'M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z' },
+    { href: '/settings', label: 'Settings', section: '/settings', d: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 13a7.5 7.5 0 0 0 0-2l2-1.5-2-3.5-2.4 1a7.5 7.5 0 0 0-1.7-1L15 3h-4l-.3 2.5a7.5 7.5 0 0 0-1.7 1l-2.4-1-2 3.5L4.6 11a7.5 7.5 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7.5 7.5 0 0 0 1.7 1L11 21h4l.3-2.5a7.5 7.5 0 0 0 1.7-1l2.4 1 2-3.5z' }
+  ];
+
+  // collapsible rail (persisted)
+  let collapsed = $state(false);
+  $effect(() => {
+    if (typeof localStorage === 'undefined') return;
+    // auto-collapse the chat rail on phones so the conversation gets the width;
+    // otherwise honour the saved preference
+    collapsed = window.innerWidth <= 640 ? true : localStorage.getItem('aria_rail') === '1';
+  });
+  function toggleRail() { collapsed = !collapsed; if (typeof localStorage !== 'undefined') localStorage.setItem('aria_rail', collapsed ? '1' : '0'); }
+
+  let path = $derived($page.url.pathname);
+  function sectionActive(s: string) { return s === '/' ? path === '/' : path.startsWith(s); }
+
+  let online = $state(false);
+  $effect(() => { api.health().then(() => (online = true)).catch(() => (online = false)); });
+
+  function logout() { auth.logout(); me = null; menuOpen = false; goto('/login'); }
+</script>
+
+{#if isLogin || isEmbed || isShare}
+  {@render children()}
+{:else}
+<div class="flex flex-col h-screen overflow-hidden">
+
+  <!-- ===== GLOBAL FULL-WIDTH HEADER (logo · nav · bell · user) ===== -->
+  <header class="h-14 shrink-0 flex items-center gap-1 px-3 border-b" style="border-color:#efefec; background:var(--sand)">
+    <a href="/" class="flex items-center shrink-0 pl-1 pr-1" title="City Agent Aria">
+      <img src="/brand-logo.png" alt="City Agent Aria" class="h-9 w-auto" />
+    </a>
+    <div class="w-2"></div>
+    {#each topnav as t}
+      {@const on = sectionActive(t.section)}
+      <a href={t.href} class="flex items-center gap-2 rounded-[9px] h-9 px-3 text-[14px] transition"
+         style={on ? 'background:#f0efed; color:var(--ink); font-weight:600;' : 'color:#46443f;'}
+         title={t.label}
+         onmouseenter={(e)=>{ if(!on) e.currentTarget.style.background='#efefec'; }}
+         onmouseleave={(e)=>{ if(!on) e.currentTarget.style.background='transparent'; }}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={t.d}/></svg>
+        {t.label}
+      </a>
+    {/each}
+    {#if me}
+      <div class="ml-auto flex items-center gap-1.5">
+        <IngestRobot inline />
+        <Bell />
+        <div class="relative">
+          <button onclick={() => (menuOpen = !menuOpen)} class="flex items-center gap-2 px-1.5 py-1.5 rounded-lg hover:bg-[#efefec]">
+            <span class="w-7 h-7 shrink-0 rounded-full grid place-items-center text-white text-xs font-semibold" style="background:var(--clay)">{(me.name || me.email)[0]?.toUpperCase()}</span>
+            <span class="text-left leading-tight hidden sm:block">
+              <span class="block text-[13px]" style="color:var(--ink)">{me.name || me.email}</span>
+              <span class="block text-[10px] uppercase tracking-wide" style="color:var(--muted)">{me.role}</span>
+            </span>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          {#if menuOpen}
+            <div class="absolute right-0 top-full mt-1.5 w-48 rounded-xl border shadow-lg py-1.5 z-50" style="background:var(--paper); border-color:var(--border)"
+                 role="presentation" onmouseleave={() => (menuOpen = false)}>
+              <div class="px-3 py-1.5 text-[11px]" style="color:var(--muted)">{me.email}</div>
+              <a href="/settings" onclick={() => (menuOpen = false)} class="block px-3 py-2 text-[13.5px] hover:bg-[#ece9e0]" style="color:#46443f">Settings</a>
+              <button onclick={logout} class="w-full text-left px-3 py-2 text-[13.5px] hover:bg-[#ece9e0]" style="color:#46443f">Sign out</button>
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/if}
+  </header>
+
+  <div class="flex flex-1 min-h-0 overflow-hidden">
+
+  <!-- ===== LEFT RAIL (warm sand) — Chat route only ===== -->
+  {#if onChat}
+  <aside class="shrink-0 flex flex-col border-r transition-[width] duration-150" style="width:{collapsed ? '58px' : '232px'}; background:var(--sand); border-color:#efefec">
+
+    <!-- New chat -->
+    <div class="px-2.5 pt-3 pb-2 shrink-0">
+      <button onclick={railNewChat} class="w-full flex items-center gap-2.5 rounded-[9px] text-[13.5px] font-medium {collapsed ? 'justify-center px-0 h-9' : 'px-2.5 h-9'}" style="color:#2b2a27; background:transparent" title="New chat"
+        onmouseenter={(e)=>e.currentTarget.style.background='#efefec'} onmouseleave={(e)=>e.currentTarget.style.background='transparent'}>
+        <span class="grid place-items-center w-[22px] h-[22px] rounded-full border" style="border-color:#cfc9bb"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></span>
+        {#if !collapsed}New chat{/if}
+      </button>
+    </div>
+
+    <!-- conversation history -->
+    {#if !collapsed}
+      <div class="mt-3 px-2.5 pb-1 shrink-0">
+        <div class="relative">
+          <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input bind:value={search} placeholder="Search chats"
+            class="w-full bg-transparent outline-none pl-8 pr-2.5 h-8 text-[13px] rounded-[9px]" style="color:#46443f"
+            onfocus={(e)=>e.currentTarget.style.background='#efefec'} onblur={(e)=>e.currentTarget.style.background='transparent'} />
+        </div>
+      </div>
+      <div class="flex-1 min-h-0 overflow-y-auto px-2 pb-2">
+        {#if $convs.length === 0}
+          <div class="px-3 py-5 text-center text-[11.5px]" style="color:var(--muted)">No conversations yet.</div>
+        {/if}
+        {#each grouped as grp}
+          <div class="px-2.5 pt-3 pb-1 text-[10px] uppercase tracking-wide" style="color:var(--muted)">{grp.g}</div>
+          {#each grp.items as c (c.id)}
+            {@const on = activeCid === c.id && onChat}
+            <div class="group flex items-center gap-0.5 rounded-[8px] pr-1"
+                 style={on ? 'background:#e6e2d8;' : ''}
+                 onmouseenter={(e)=>{ if(!on) e.currentTarget.style.background='#efefec'; }}
+                 onmouseleave={(e)=>{ if(!on) e.currentTarget.style.background='transparent'; }}
+                 role="presentation">
+              {#if renaming === c.id}
+                <input class="flex-1 bg-white border rounded-md px-2 py-1 text-[12.5px] mx-1 my-1 min-w-0" style="border-color:var(--clay)"
+                  bind:value={renameText} onblur={() => railCommitRename(c)}
+                  onkeydown={(e) => { if (e.key === 'Enter') railCommitRename(c); if (e.key === 'Escape') renaming = null; }} />
+              {:else}
+                <button onclick={() => railOpen(c.id)} class="flex-1 min-w-0 text-left px-2.5 py-2 text-[13px] truncate"
+                  style="color:{on ? 'var(--ink)' : '#46443f'}">{c.title}</button>
+                <button onclick={(e) => railStartRename(c, e)} class="opacity-0 group-hover:opacity-100 p-1 rounded shrink-0" title="Rename" style="color:var(--muted)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+                </button>
+                <button onclick={(e) => railDelete(c, e)} class="opacity-0 group-hover:opacity-100 p-1 rounded shrink-0" title="Delete" style="color:#cf6a4c">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+                </button>
+              {/if}
+            </div>
+          {/each}
+        {/each}
+      </div>
+    {:else}
+      <div class="flex-1"></div>
+    {/if}
+
+    <!-- bottom: connection status -->
+    {#if !collapsed}
+      <div class="shrink-0 border-t px-3.5 py-3 flex items-center gap-1.5 text-[11px]" style="border-color:#efefec; color:var(--muted)">
+        <span class="w-1.5 h-1.5 rounded-full" style="background:{online ? '#5fa463' : '#cf6a4c'}"></span>
+        {online ? 'Connected' : 'Offline'}
+      </div>
+    {/if}
+  </aside>
+  {/if}
+
+  <main class="flex-1 min-w-0 overflow-hidden" style="background:var(--cream)">
+    {@render children()}
+  </main>
+
+  </div><!-- /rail+main row -->
+
+  <!-- robot now lives in the header next to the Bell (inline) -->
+
+</div>
+{/if}
+
+<style>
+  /* floating bell: fixed top-right, above page content, below reader/modals */
+  .float-bell{ position:fixed; top:10px; right:16px; z-index:30; }
+</style>
