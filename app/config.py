@@ -67,6 +67,10 @@ AUTO_QA_HARVEST = os.getenv("AUTO_QA_HARVEST", "1") == "1"   # ON by default
 AUTO_QA_GAP_ENABLED = os.getenv("AUTO_QA_GAP_ENABLED", "0") == "1"     # default OFF (costs LLM)
 AUTO_QA_GAP_PER_DAY = int(os.getenv("AUTO_QA_GAP_PER_DAY", "5"))       # cap new gap pairs/day
 AUTO_QA_GAP_INTERVAL_H = int(os.getenv("AUTO_QA_GAP_INTERVAL_H", "24"))  # how often to run the fill
+# Phase 4: SERVE a cached answer from the bank when an incoming question near-matches an
+# APPROVED pair → instant, zero-agent, zero-cost. Conservative similarity floor.
+AUTO_QA_SERVE_ENABLED = os.getenv("AUTO_QA_SERVE_ENABLED", "1") == "1"   # ON by default
+AUTO_QA_SERVE_MIN_SIM = float(os.getenv("AUTO_QA_SERVE_MIN_SIM", "0.72"))  # trigram floor to serve
 
 # ---- auto complexity routing (quick vs deep, picked per question) ----
 AUTO_ROUTE_ENABLED = os.getenv("AUTO_ROUTE_ENABLED", "1") == "1"   # ON by default

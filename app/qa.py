@@ -72,6 +72,36 @@ def add_qa(question: str, answer: str, source: str = "qa",
     return row["id"]
 
 
+def serve_match(question: str, min_sim: float = 0.72) -> dict | None:
+    """Best ACTIVE pair whose question is near-identical to `question` (trigram).
+    Used to serve a cached answer with zero agent. Conservative by threshold —
+    only approved pairs, only very close phrasing. Returns the pair + sim, or None."""
+    q = (question or "").strip()
+    if len(q) < 6:
+        return None
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, question, answer, page_ids, confidence, source, "
+            "similarity(question, %(q)s) AS sim FROM qa_pairs "
+            "WHERE status = 'active' AND similarity(question, %(q)s) >= %(t)s "
+            "ORDER BY sim DESC LIMIT 1",
+            {"q": q, "t": min_sim},
+        ).fetchone()
+    return row
+
+
+def bump_served(qa_id: int) -> None:
+    """Freshness: record that a pair served an answer (cited_count / last_cited_at)."""
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE qa_pairs SET cited_count = cited_count + 1, last_cited_at = now() "
+                "WHERE id = %s", (qa_id,),
+            )
+    except Exception as e:
+        print(f"[qa] bump_served skipped: {e!r}")
+
+
 def list_qa(limit: int = 100, status: str | None = None) -> list[dict]:
     where = "WHERE status = %s" if status else ""
     params: tuple = (status, limit) if status else (limit,)

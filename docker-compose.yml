@@ -84,6 +84,9 @@ services:
       AUTO_QA_GAP_ENABLED: ${AUTO_QA_GAP_ENABLED:-0}
       AUTO_QA_GAP_PER_DAY: ${AUTO_QA_GAP_PER_DAY:-5}
       AUTO_QA_GAP_INTERVAL_H: ${AUTO_QA_GAP_INTERVAL_H:-24}
+      # ---- Phase 4: serve cached answers from the Q&A bank (default ON) ----
+      AUTO_QA_SERVE_ENABLED: ${AUTO_QA_SERVE_ENABLED:-1}
+      AUTO_QA_SERVE_MIN_SIM: ${AUTO_QA_SERVE_MIN_SIM:-0.72}
       # ---- auto complexity routing ----
       AUTO_ROUTE_ENABLED: ${AUTO_ROUTE_ENABLED:-1}
       AUTO_ROUTE_LLM: ${AUTO_ROUTE_LLM:-1}

@@ -272,6 +272,24 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
     conv_id = conv["id"]
     first_turn = convo.message_count(conv_id) == 0
 
+    # Phase 4: serve a cached bank answer for a near-identical, non-follow-up question
+    from .config import AUTO_QA_SERVE_ENABLED, AUTO_QA_SERVE_MIN_SIM
+    if AUTO_QA_SERVE_ENABLED and req.mode != "deep" and not _is_followup(req.q):
+        try:
+            from . import qa as qa_mod
+            hit = qa_mod.serve_match(req.q, AUTO_QA_SERVE_MIN_SIM)
+        except Exception:
+            hit = None
+        if hit:
+            ans = (hit.get("answer") or "").strip()
+            cited = _pages_by_ids(hit.get("page_ids") or [])
+            convo.add_message(conv_id, "user", req.q, [])
+            convo.add_message(conv_id, "bot", ans, cited)
+            qa_mod.bump_served(hit["id"])
+            title = convo.autotitle(conv_id, req.q) if first_turn else None
+            return {"answer": ans, "pages": cited, "conversation_id": conv_id,
+                    "title": title, "served_from_bank": True}
+
     seed = search_pages(req.q, k=req.k or DEFAULT_K)
     if not seed:
         answer = "No documents uploaded yet. Please upload SOPs/policies first."
@@ -330,6 +348,37 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
             return
         if kid:
             embed_mod.bump_message(kid)  # counts toward this key's daily cap
+
+        # ---- Phase 4: serve a cached answer from the Q&A bank (instant, zero-agent) ----
+        # Only when an APPROVED pair near-matches this exact question, it isn't a
+        # context-dependent follow-up, and the user didn't ask for deep mode.
+        from .config import AUTO_QA_SERVE_ENABLED, AUTO_QA_SERVE_MIN_SIM
+        if (AUTO_QA_SERVE_ENABLED and req.mode != "deep" and not _is_followup(req.q)):
+            try:
+                from . import qa as qa_mod
+                hit = qa_mod.serve_match(req.q, AUTO_QA_SERVE_MIN_SIM)
+            except Exception as e:
+                hit = None
+                print(f"[qa] serve_match skipped: {e!r}")
+            if hit:
+                ans = (hit.get("answer") or "").strip()
+                cited = _pages_by_ids(hit.get("page_ids") or [])
+                yield _step("Answered from the Q&A bank",
+                            f"matched a saved answer ({int((hit.get('sim') or 0) * 100)}% match)")
+                for i in range(0, len(ans), 48):   # chunk for a streamed feel
+                    yield json.dumps({"type": "token", "v": ans[i:i + 48]}) + "\n"
+                convo.add_message(conv_id, "user", req.q, [])
+                bot_id = convo.add_message(conv_id, "bot", ans, cited)
+                qa_mod.bump_served(hit["id"])
+                title = convo.autotitle(conv_id, req.q) if first_turn else None
+                yield json.dumps({"type": "done", "pages": cited, "title": title,
+                                  "clean": ans, "blind": False, "nearest": None,
+                                  "message_id": bot_id,
+                                  "tokens": {"in": 0, "out": 0, "total": 0},
+                                  "cost": 0, "cited_n": len(cited),
+                                  "followups": [], "served_from_bank": True,
+                                  "grounded": len(cited) > 0}) + "\n"
+                return
 
         # ---- auto complexity routing: resolve quick|deep|auto → quick|deep ----
         from .router import resolve_mode
