@@ -30,6 +30,17 @@
   let stats = $state<any>(null);
   let loading = $state(true);
 
+  // ── Q&A bank (auto-mined from docs + harvested from upvoted chat) ──
+  type QAPair = {
+    id: number; question: string; answer: string; source?: string;
+    status?: string; confidence?: number | null; doc_id?: number | null;
+    page_ids?: number[]; origin?: string | null; cited_count?: number;
+    created_at?: string;
+  };
+  let qaPairs = $state<QAPair[]>([]);
+  let qaCounts = $state<{ active: number; pending: number; rejected: number }>({ active: 0, pending: 0, rejected: 0 });
+  let qaFilter = $state<'all' | 'active' | 'pending' | 'rejected'>('all');
+
   let q = $state('');                                  // one search over docs + facts
   let collapsed = $state<Record<string, boolean>>({}); // collapsed category groups
   let railTab = $state<'brain' | 'audit' | 'graph'>('brain');    // top tab: unified Brain feed, Graph or Audit
@@ -51,7 +62,7 @@
   };
   let feedItems = $state<FeedItem[]>([]);
   let feedLoading = $state(false);
-  let feedType = $state<'all' | 'doc' | 'fact'>('doc');   // chip filter → search type param ('all' tab dropped)
+  let feedType = $state<'all' | 'doc' | 'fact' | 'qa'>('doc');   // chip filter → search type param ('all' tab dropped)
   let feedErr = $state('');
   let feedSeq = 0;                                         // ignore stale responses
   function authHeaders(): Record<string, string> {        // mirror api.ts Bearer auth
@@ -145,14 +156,17 @@
     if (showSpinner) loading = true;
     try {
       // fire all three in parallel — they're independent (was serial ~40ms → ~15ms)
-      const [docsR, mem, usageR] = await Promise.all([
+      const [docsR, mem, usageR, qaR] = await Promise.all([
         api.documents(),
         api.memory(),
         api.usage().catch(() => ({ stats: undefined })),
+        api.qa().catch(() => ({ qa: [], counts: { active: 0, pending: 0, rejected: 0 } })),
       ]);
       docs = docsR.docs || [];
       facts = mem.memory || [];
       pending = mem.pending || 0;
+      qaPairs = qaR.qa || [];
+      qaCounts = qaR.counts || { active: 0, pending: 0, rejected: 0 };
       if (usageR.stats) stats = usageR.stats;
     } finally {
       loading = false;
@@ -795,6 +809,16 @@
   }
   async function approveFact(f: Fact) { await api.approveFact(f.id); factModal = null; await load(); }
   async function rejectFact(f: Fact) { await api.rejectFact(f.id); factModal = null; await load(); }
+
+  // ── Q&A bank actions ──
+  let qaBusy = $state<number | null>(null);
+  async function approveQa(p: QAPair) { qaBusy = p.id; try { await api.approveQa(p.id); await load(false); } catch {} finally { qaBusy = null; } }
+  async function rejectQa(p: QAPair) { qaBusy = p.id; try { await api.rejectQa(p.id); await load(false); } catch {} finally { qaBusy = null; } }
+  async function delQa(p: QAPair) {
+    if (!confirm('Delete this Q&A pair?')) return;
+    qaBusy = p.id; try { await api.deleteQa(p.id); await load(false); } catch {} finally { qaBusy = null; }
+  }
+  let qaShown = $derived(qaFilter === 'all' ? qaPairs : qaPairs.filter((p) => (p.status || 'pending') === qaFilter));
   let pendingFacts = $derived(facts.filter((f) => f.status === 'pending'));
   let activeFacts = $derived(facts.filter((f) => f.status !== 'pending' && f.status !== 'rejected'));
 
@@ -1439,6 +1463,10 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V18h6v-1.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg>
         Facts
       </button>
+      <button class="brail {railTab === 'brain' && !sel && feedType === 'qa' ? 'on' : ''}" onclick={() => { railTab = 'brain'; sel = null; feedType = 'qa'; }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        Q&amp;A{#if qaCounts.pending > 0}<span class="tabpill">{qaCounts.pending}</span>{/if}
+      </button>
     </nav>
     <div class="mt-auto px-2 pt-3 text-[11.5px]" style="color:var(--muted)">{(stats?.docs ?? docs.length)} documents</div>
   </aside>
@@ -1461,6 +1489,7 @@
       <div class="bktabs">
         <button class="bktab" class:on={railTab === 'brain' && feedType === 'doc'} onclick={() => { railTab = 'brain'; feedType = 'doc'; sel = null; }}>Documents</button>
         <button class="bktab" class:on={railTab === 'brain' && feedType === 'fact'} onclick={() => { railTab = 'brain'; feedType = 'fact'; sel = null; }}>Facts</button>
+        <button class="bktab" class:on={railTab === 'brain' && feedType === 'qa'} onclick={() => { railTab = 'brain'; feedType = 'qa'; sel = null; }}>Q&amp;A{#if qaCounts.pending > 0}<span class="bktab-badge" style="color:var(--clay)">{qaCounts.pending}</span>{/if}</button>
         {#if isAdmin}
           <button class="bktab" class:on={railTab === 'audit'} onclick={() => { railTab = 'audit'; sel = null; }}>
             Health{#if audit}<span class="bktab-badge" style="color:{band(audit.score)}">{audit.score}</span>{/if}
@@ -2101,7 +2130,7 @@
           </div>
 
           <!-- pending review strip (chat-learned facts awaiting approval) -->
-          {#if pendingFacts.length > 0}
+          {#if pendingFacts.length > 0 && feedType !== 'qa'}
             <div class="flex items-center justify-between mb-2">
               <div class="text-[10.5px] font-semibold uppercase tracking-wide" style="color:var(--clay)">Awaiting review · {pendingFacts.length}</div>
               <div class="text-[11px]" style="color:var(--muted)">Chat-learned facts don't affect answers until approved</div>
@@ -2366,6 +2395,50 @@
                 {#each docCatFlat as d (d.id)}{@render docRow(d)}{/each}
               </div>
             {/if}
+          {/if}
+          {:else if feedType === 'qa'}
+          <!-- ===== Q&A BANK (auto-mined from docs + harvested from upvoted chat) ===== -->
+          <div class="flex items-center justify-between mb-2.5">
+            <div class="text-[10.5px] font-semibold uppercase tracking-wide" style="color:var(--muted)">
+              Q&amp;A pairs · {qaPairs.length}
+            </div>
+            <div class="seg-group">
+              <button onclick={() => (qaFilter = 'all')} class="segb {qaFilter === 'all' ? 'on' : ''}">All</button>
+              <button onclick={() => (qaFilter = 'active')} class="segb {qaFilter === 'active' ? 'on' : ''}">Active{#if qaCounts.active}<span class="ml-1 opacity-60">{qaCounts.active}</span>{/if}</button>
+              <button onclick={() => (qaFilter = 'pending')} class="segb {qaFilter === 'pending' ? 'on' : ''}">Pending{#if qaCounts.pending}<span class="ml-1 opacity-60">{qaCounts.pending}</span>{/if}</button>
+              <button onclick={() => (qaFilter = 'rejected')} class="segb {qaFilter === 'rejected' ? 'on' : ''}">Rejected</button>
+            </div>
+          </div>
+          <p class="text-[12px] mb-4 max-w-2xl" style="color:var(--muted)">Questions and grounded answers Aria built from your documents and from chat answers you upvoted. Approve the good ones — pending pairs don't serve answers yet.</p>
+          {#if qaShown.length === 0}
+            <div class="panel p-12 text-center" style="color:var(--muted)">
+              <div class="mb-2 flex justify-center"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+              <div class="text-[13.5px]">{qaFilter === 'all' ? 'No Q&A yet — they appear after you ingest a document or upvote a sourced chat answer.' : `No ${qaFilter} Q&A pairs.`}</div>
+            </div>
+          {:else}
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
+              {#each qaShown as p (p.id)}
+                {@const st = p.status || 'pending'}
+                <div class="panel p-4 flex flex-col gap-2" style="border-left:3px solid {st === 'active' ? '#5fa463' : st === 'rejected' ? '#cf6a4c' : '#c98a2e'}">
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="text-[13.5px] font-semibold leading-snug" style="color:var(--ink)">{p.question}</div>
+                    <span class="ftag shrink-0" style="background:{st === 'active' ? '#eef3ef' : st === 'rejected' ? '#fbe9e6' : '#fbf1df'}; color:{st === 'active' ? '#3f8f5f' : st === 'rejected' ? '#c0492f' : '#a9742a'}">{st.toUpperCase()}</span>
+                  </div>
+                  <div class="text-[12.5px] leading-relaxed" style="color:var(--muted)">{p.answer}</div>
+                  <div class="flex items-center flex-wrap gap-x-2 gap-y-1 text-[11px]" style="color:var(--muted)">
+                    <span>{p.source === 'chat' ? 'From upvoted chat' : 'From a document'}</span>
+                    {#if p.page_ids && p.page_ids.length}<span>·</span><span>{p.page_ids.length} page{p.page_ids.length > 1 ? 's' : ''} cited</span>{/if}
+                    {#if p.confidence != null}<span>·</span><span>conf {Math.round((p.confidence || 0) * 100)}%</span>{/if}
+                    {#if p.created_at}<span>·</span><span>{relTime(p.created_at)}</span>{/if}
+                  </div>
+                  <div class="flex gap-1.5 mt-1">
+                    {#if st !== 'active'}<button disabled={qaBusy === p.id} onclick={() => approveQa(p)} class="text-[12px] px-3 py-1.5 rounded-[8px] text-white disabled:opacity-50" style="background:var(--clay)">✓ Approve</button>{/if}
+                    {#if st !== 'rejected'}<button disabled={qaBusy === p.id} onclick={() => rejectQa(p)} class="text-[12px] px-3 py-1.5 rounded-[8px] border disabled:opacity-50" style="border-color:var(--border); color:var(--muted); background:#fff">Reject</button>{/if}
+                    <button disabled={qaBusy === p.id} onclick={() => delQa(p)} class="text-[12px] px-2.5 py-1.5 rounded-[8px] border disabled:opacity-50 ml-auto" style="border-color:var(--border); color:var(--muted); background:#fff" title="Delete">Delete</button>
+                  </div>
+                </div>
+              {/each}
+            </div>
           {/if}
           {:else}
           <!-- ===== KNOWLEDGE FEED (feedType === 'all' or 'fact') ===== -->

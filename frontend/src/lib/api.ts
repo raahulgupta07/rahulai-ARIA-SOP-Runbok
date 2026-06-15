@@ -267,6 +267,27 @@ export const api = {
     }));
   },
 
+  // ---- Q&A bank (auto-mined / chat-harvested question-answer pairs) ----
+  async qa(status?: string) {
+    const qs = status ? `?status=${status}` : '';
+    return jsonOrThrow(await fetch(`${BASE}/qa${qs}`, { headers: headers(false) }));
+  },
+  async approveQa(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/qa/${id}/approve`, { method: 'POST', headers: headers(false) }));
+  },
+  async rejectQa(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/qa/${id}/reject`, { method: 'POST', headers: headers(false) }));
+  },
+  async deleteQa(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/qa/${id}`, { method: 'DELETE', headers: headers(false) }));
+  },
+  async updateQa(id: number, question: string | null, answer: string | null) {
+    return jsonOrThrow(await fetch(`${BASE}/qa/${id}`, {
+      method: 'PATCH', headers: headers(true),
+      body: JSON.stringify({ question, answer }),
+    }));
+  },
+
   async auditCoverage(days = 30) {
     return jsonOrThrow(await fetch(`${BASE}/audit/coverage?days=${days}`, { headers: headers(false) }));
   },
