@@ -198,6 +198,12 @@ export const api = {
   async scanImport() {
     return jsonOrThrow(await fetch(`${BASE}/ingest/scan`, { method: 'POST', headers: headers(false) }));
   },
+  async s3ScanPreview() {
+    return jsonOrThrow(await fetch(`${BASE}/ingest/s3-scan`, { headers: headers(false) }));
+  },
+  async s3Import() {
+    return jsonOrThrow(await fetch(`${BASE}/ingest/s3-import`, { method: 'POST', headers: headers(false) }));
+  },
 
   async docDetail(docId: number) {
     return jsonOrThrow(await fetch(`${BASE}/documents/${docId}`, { headers: headers(false) }));

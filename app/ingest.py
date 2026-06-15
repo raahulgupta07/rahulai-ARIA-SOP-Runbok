@@ -68,15 +68,27 @@ def render_pages(pdf_path: Path, doc_slug: str) -> list[dict]:
     pages = []
     zoom = RENDER_DPI / 72.0
     mat = fitz.Matrix(zoom, zoom)
+    from . import s3client
+    from .config import STORAGE
+    use_s3 = s3client.enabled() and STORAGE == "s3"
     for i, page in enumerate(doc, start=1):
         pix = page.get_pixmap(matrix=mat)
         img_path = out_dir / f"{i}.png"
         pix.save(str(img_path))
+        stored = str(img_path)
+        if use_s3:
+            # durable page image in S3; image_path = "s3:<bucket-key>" (served from S3)
+            try:
+                okey = s3client.prefixed(f"pages/{doc_slug}/{i}.png")
+                s3client.put_file(img_path, okey, content_type="image/png")
+                stored = f"s3:{okey}"
+            except Exception as e:
+                print(f"[ingest] s3 page upload failed (keeping local): {e!r}")
         text = (page.get_text("text") or "").strip()
         pages.append(
             {
                 "page_no": i,
-                "image_path": str(img_path),
+                "image_path": stored,
                 "text": text,
                 "text_layer": text,
                 "vision_text": "",

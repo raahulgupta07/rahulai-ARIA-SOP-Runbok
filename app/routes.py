@@ -719,6 +719,27 @@ def ingest_scan(user: dict = Depends(require_admin)):
     return {"ok": True, "found": found, "queued": queued, "skipped": skipped, "dir": str(base)}
 
 
+@router.get("/ingest/s3-scan")
+def ingest_s3_preview(user: dict = Depends(require_admin)):
+    """What an S3 bulk-import WOULD queue from the configured bucket/prefix (no writes)."""
+    from . import s3_import
+    return s3_import.preview()
+
+
+@router.post("/ingest/s3-import")
+def ingest_s3_import(user: dict = Depends(require_admin)):
+    """Pull every new document from the S3 import prefix and queue it for ingest."""
+    from . import s3_import
+    if not s3_import.s3client.enabled():
+        raise HTTPException(status_code=400, detail="S3 not configured (set S3_BUCKET)")
+    res = s3_import.import_all(uploaded_by=user.get("email"))
+    if res.get("queued"):
+        notify.emit("ingest", f"Imported {res['queued']} document(s) from S3",
+                    f"{res.get('skipped', 0)} already present", "info")
+    audit_mod.log(user, "doc.s3_import", "doc", 0, res)
+    return res
+
+
 @router.post("/documents/{doc_id}/retry", dependencies=[Depends(require_key)])
 def retry_doc(doc_id: int, user: dict = Depends(current_user)):
     """Re-queue a failed (or stuck) document for ingest."""
@@ -1216,8 +1237,13 @@ def delete_doc(doc_id: int, user: dict = Depends(current_user)):
     if not row:
         raise HTTPException(status_code=404, detail="document not found")
     for r in imgs:
+        p = r["image_path"] or ""
         try:
-            Path(r["image_path"]).unlink(missing_ok=True)
+            if p.startswith("s3:"):
+                from . import s3client
+                s3client.delete(p[3:])
+            else:
+                Path(p).unlink(missing_ok=True)
         except Exception:
             pass
     audit_mod.log(user, "doc.delete", "doc", doc_id, {"name": (name or {}).get("name")})
@@ -1731,7 +1757,16 @@ def get_page_image(page_id: int):
         ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="page not found")
-    img = _resolve_image(row["image_path"])
+    path = row["image_path"] or ""
+    # S3-backed page image: stream straight from the bucket
+    if path.startswith("s3:"):
+        from . import s3client
+        try:
+            body, ctype = s3client.get_stream(path[3:])
+        except Exception:
+            raise HTTPException(status_code=404, detail="page image missing in S3")
+        return StreamingResponse(body, media_type=ctype or "image/png")
+    img = _resolve_image(path)
     if not img.is_file():
         raise HTTPException(status_code=404, detail="page image missing on disk")
     return FileResponse(img, media_type="image/png")

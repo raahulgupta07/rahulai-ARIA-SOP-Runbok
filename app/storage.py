@@ -39,19 +39,77 @@ from .config import (
     FAILED_DIR,
     INBOX_DIR,
     PROCESSED_DIR,
+    S3_CACHE_DIR,
     STORAGE,
 )
 
 _KEY_SEP = "__"
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._-]")
 
+# S3 object layout under our prefix: inbox/<key>, processed/<key>, failed/<key>
+_S3_INBOX = "inbox/"
+_S3_OUT = {"processed": "processed/", "failed": "failed/"}
+
 
 def _is_s3() -> bool:
     return STORAGE == "s3"
 
 
-def _s3_stub() -> None:
-    raise NotImplementedError("S3 backend is Phase 8")
+def _s3_key(stage: str, key: str) -> str:
+    """Bucket-relative object key for a storage_key at a lifecycle stage."""
+    from . import s3client
+    return s3client.prefixed(f"{stage}{key}")
+
+
+# ---- s3 backend ------------------------------------------------------------
+
+
+def _s3_save_to_inbox(fileobj, filename: str) -> str:
+    from . import s3client
+    key = f"{uuid.uuid4().hex[:8]}{_KEY_SEP}{_safe_filename(filename)}"
+    s3client.put_fileobj(fileobj, _s3_key(_S3_INBOX, key))
+    return key
+
+
+def _s3_inbox_path(key: str) -> Path:
+    """Download the inbox object to a local cache path (pymupdf needs a real file)."""
+    from . import s3client
+    Path(S3_CACHE_DIR).mkdir(parents=True, exist_ok=True)
+    dest = Path(S3_CACHE_DIR) / key
+    if not dest.exists():
+        s3client.download_to(_s3_key(_S3_INBOX, key), dest)
+    return dest
+
+
+def _s3_move_out(key: str, outcome: str) -> str:
+    from . import s3client
+    stage = _S3_OUT.get(outcome)
+    if not stage:
+        raise ValueError(f"outcome must be 'processed' or 'failed', got {outcome!r}")
+    src = _s3_key(_S3_INBOX, key)
+    if s3client.exists(src):
+        s3client.copy(src, _s3_key(stage, key))
+        s3client.delete(src)
+    # drop the local processing cache copy
+    try:
+        (Path(S3_CACHE_DIR) / key).unlink(missing_ok=True)
+    except Exception:
+        pass
+    return key
+
+
+def _s3_list_inbox() -> list[str]:
+    from . import s3client
+    base = _s3_key(_S3_INBOX, "")
+    keys = []
+    for full in s3client.list_keys(base):
+        name = full[len(base):]
+        if not name or "/" in name or name.startswith("."):
+            continue
+        if name.endswith(".partial") or name.endswith(".tmp"):
+            continue
+        keys.append(name)
+    return sorted(keys)
 
 
 def _safe_filename(filename: str) -> str:
@@ -127,14 +185,14 @@ def save_to_inbox(fileobj, filename: str) -> str:
     Local: key = "<uuid8>__<safe_filename>", file written to INBOX_DIR/key.
     """
     if _is_s3():
-        _s3_stub()
+        return _s3_save_to_inbox(fileobj, filename)
     return _local_save_to_inbox(fileobj, filename)
 
 
 def inbox_path(key: str) -> Path:
     """Absolute local path for a key currently in the inbox (INBOX_DIR/key)."""
     if _is_s3():
-        _s3_stub()
+        return _s3_inbox_path(key)
     return _local_inbox_path(key)
 
 
@@ -144,7 +202,7 @@ def move_out(key: str, outcome: str) -> str:
     Returns the new key. No-op safe if file already moved/missing (return key).
     """
     if _is_s3():
-        _s3_stub()
+        return _s3_move_out(key, outcome)
     return _local_move_out(key, outcome)
 
 
@@ -154,7 +212,7 @@ def list_inbox() -> list[str]:
     Skip dotfiles/partials.
     """
     if _is_s3():
-        _s3_stub()
+        return _s3_list_inbox()
     return _local_list_inbox()
 
 

@@ -26,7 +26,20 @@ PROCESSED_DIR = ROOT / os.getenv("PROCESSED_DIR", "./data/processed").lstrip("./
 FAILED_DIR    = ROOT / os.getenv("FAILED_DIR", "./data/failed").lstrip("./")
 # server-side bulk-import folder: "Import from server" scans this for new docs to queue
 IMPORT_DIR    = ROOT / os.getenv("IMPORT_DIR", "./documents").lstrip("./")
-STORAGE       = os.getenv("STORAGE", "local")  # local | s3 (s3 = Phase 8, stub for now)
+STORAGE       = os.getenv("STORAGE", "local")  # local | s3 (durable object-store backend)
+# Local working cache for files pulled from S3 during processing (pymupdf needs a real path)
+S3_CACHE_DIR  = ROOT / os.getenv("S3_CACHE_DIR", "./data/s3cache").lstrip("./")
+
+# ---- S3 / MinIO object storage (durable backend + bulk import source) ----
+S3_BUCKET            = os.getenv("S3_BUCKET", "")            # required when STORAGE=s3 or for import
+S3_REGION            = os.getenv("S3_REGION", "us-east-1")
+S3_ENDPOINT_URL      = os.getenv("S3_ENDPOINT_URL", "")      # set for MinIO / non-AWS (e.g. http://minio:9000)
+S3_ACCESS_KEY_ID     = os.getenv("S3_ACCESS_KEY_ID") or os.getenv("AWS_ACCESS_KEY_ID", "")
+S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY", "")
+S3_PREFIX            = os.getenv("S3_PREFIX", "docsensei/").strip()   # key namespace for OUR managed files
+S3_FORCE_PATH_STYLE  = os.getenv("S3_FORCE_PATH_STYLE", "1") == "1"   # MinIO needs path-style
+# bulk import: where source documents to ingest live in the bucket (can differ from S3_PREFIX)
+S3_IMPORT_PREFIX     = os.getenv("S3_IMPORT_PREFIX", "inbox-drop/").strip()
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
@@ -129,5 +142,5 @@ def check_prod_config() -> None:
 
 
 def ensure_dirs() -> None:
-    for d in (DATA_DIR, PAGES_DIR, UPLOADS_DIR, INBOX_DIR, PROCESSED_DIR, FAILED_DIR, IMPORT_DIR):
+    for d in (DATA_DIR, PAGES_DIR, UPLOADS_DIR, INBOX_DIR, PROCESSED_DIR, FAILED_DIR, IMPORT_DIR, S3_CACHE_DIR):
         Path(d).mkdir(parents=True, exist_ok=True)

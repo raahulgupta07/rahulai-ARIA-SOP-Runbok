@@ -2,7 +2,7 @@
   import '$lib/dashboard.css';
   import { auth, type User } from '$lib/auth';
   import { api } from '$lib/api';
-  import { range, tick, wsItem, WS_ITEMS, brainTeachSignal, brainFilesSignal, brainScanSignal } from '$lib/dashstore';
+  import { range, tick, wsItem, WS_ITEMS, brainTeachSignal, brainFilesSignal, brainScanSignal, brainS3Signal } from '$lib/dashstore';
   import { RANGES } from '$lib/dashutil';
   import { onMount } from 'svelte';
   import Overview from '$lib/dashboard/sections/Overview.svelte';
@@ -54,17 +54,22 @@
   // ---- OpenWebUI-style upload menu (no modal) ----
   let upMenu = $state(false);
   let upScan = $state<{ exists: boolean; found: number; new: number } | null>(null);
+  let upS3 = $state<{ configured: boolean; found: number; new: number } | null>(null);
   let wFileInput: HTMLInputElement;
   let wFolderInput: HTMLInputElement;
   function toggleUpMenu() {
     upMenu = !upMenu;
-    if (upMenu && isAdmin) api.scanPreview().then((r) => (upScan = r)).catch(() => (upScan = null));
+    if (upMenu && isAdmin) {
+      api.scanPreview().then((r) => (upScan = r)).catch(() => (upScan = null));
+      api.s3ScanPreview().then((r) => (upS3 = r)).catch(() => (upS3 = null));
+    }
   }
   function bridgeFiles(files: FileList | null) {
     if (files && files.length) brainFilesSignal.set(Array.from(files));
     upMenu = false;
   }
   function fireScan() { brainScanSignal.update((n) => n + 1); upMenu = false; }
+  function fireS3() { brainS3Signal.update((n) => n + 1); upMenu = false; }
   function fmtBytes(n: number) {
     if (!n) return '0';
     if (n < 1048576) return `${(n / 1024).toFixed(0)} KB`;
@@ -158,6 +163,13 @@
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M12 11v5"/><path d="M9.5 13.5 12 11l2.5 2.5"/></svg>
                       <span><b>Import from server</b><i>{upScan ? (upScan.exists ? `${upScan.new} new · ${upScan.found} in folder` : 'folder not found') : 'scan server documents folder'}</i></span>
                     </button>
+                    {#if upS3 && upS3.configured}
+                      <div class="upmenu-sep"></div>
+                      <button class="upmi" onclick={fireS3}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.66 3.58 3 8 3s8-1.34 8-3V6"/><path d="M4 12v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>
+                        <span><b>Import from S3</b><i>{`${upS3.new} new · ${upS3.found} in bucket`}</i></span>
+                      </button>
+                    {/if}
                   {/if}
                 </div>
               {/if}

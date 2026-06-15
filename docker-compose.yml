@@ -102,6 +102,16 @@ services:
       PAGES_DIR: ./data/pages
       UPLOADS_DIR: ./data/uploads
       IMPORT_DIR: ${IMPORT_DIR:-./documents}   # "Import from server" scans this folder
+      # ---- S3 / MinIO object storage (durable backend + bulk import source) ----
+      STORAGE: ${STORAGE:-local}               # local | s3
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}    # e.g. http://minio:9000 for MinIO
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_PREFIX: ${S3_PREFIX:-docsensei/}
+      S3_IMPORT_PREFIX: ${S3_IMPORT_PREFIX:-inbox-drop/}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-1}
     ports:
       - "8082:8077"
     extra_hosts:

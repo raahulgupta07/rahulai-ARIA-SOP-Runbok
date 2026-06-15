@@ -9,7 +9,7 @@
   import { parseDocName, cleanText } from '$lib/docname';
   import Lightbox from '$lib/Lightbox.svelte';
   import { auth } from '$lib/auth';
-  import { brainTeachSignal, brainFilesSignal, brainScanSignal } from '$lib/dashstore';
+  import { brainTeachSignal, brainFilesSignal, brainScanSignal, brainS3Signal } from '$lib/dashstore';
   let _me = $state<any>(auth.cachedUser());
   $effect(() => { if (!_me) auth.me().then((u) => (_me = u)).catch(() => {}); });
   let isAdmin = $derived(_me?.role === 'admin');
@@ -889,12 +889,24 @@
     } catch (e: any) { scanMsg = 'Import failed: ' + (e.message || ''); }
     scanning = false;
   }
+  // S3 bulk import ("Import from S3")
+  async function doS3Import() {
+    scanning = true; scanMsg = ''; jobsOpen = true;
+    try {
+      const r = await api.s3Import();
+      scanMsg = r.queued ? `Queued ${r.queued} new from S3 · ${r.skipped} already present` : `Nothing new in S3 — ${r.skipped} already present`;
+      await load(false);
+    } catch (e: any) { scanMsg = 'S3 import failed: ' + (e.message || ''); }
+    scanning = false;
+  }
   // Workspace top-bar menu bridges in via these signals (skip the initial value)
   let _filesSeen = $state<File[] | null>(null);
   let _scanSeen = $state<number | null>(null);
+  let _s3Seen = $state<number | null>(null);
   let _teachSeen = $state<number | null>(null);
   $effect(() => { const v = $brainFilesSignal; if (v && v !== _filesSeen) { _filesSeen = v; handleFiles(v); brainFilesSignal.set(null); } });
   $effect(() => { const v = $brainScanSignal; if (_scanSeen === null) { _scanSeen = v; return; } if (v !== _scanSeen) { _scanSeen = v; doScan(); } });
+  $effect(() => { const v = $brainS3Signal; if (_s3Seen === null) { _s3Seen = v; return; } if (v !== _s3Seen) { _s3Seen = v; doS3Import(); } });
   $effect(() => { const v = $brainTeachSignal; if (_teachSeen === null) { _teachSeen = v; return; } if (v !== _teachSeen) { _teachSeen = v; startTeach(); } });
   function pickedFiles(files: FileList | File[] | null) {
     // keep the modal open so progress renders inside it (floating card takes over only when closed)

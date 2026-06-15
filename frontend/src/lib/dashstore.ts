@@ -81,6 +81,7 @@ export const brainTeachSignal = writable(0);
 // bridge into the embedded Brain which does the actual upload + list reload.
 export const brainFilesSignal = writable<File[] | null>(null);
 export const brainScanSignal = writable(0);
+export const brainS3Signal = writable(0);   // bulk import from S3 bucket
 
 export const wsItem = writable<string>(initWs());
 wsItem.subscribe((v) => { if (typeof localStorage !== 'undefined') localStorage.setItem(WKEY, v); });

@@ -37,6 +37,12 @@ async def lifespan(app: FastAPI):
     _learn.start_auto_learn_daemon()  # nightly fact mining (AUTO_LEARN_ENABLED + MODE=nightly)
     from . import auto_qa_gaps as _qagaps
     _qagaps.start()  # gap-driven Q&A daemon (flag AUTO_QA_GAP_ENABLED, default OFF)
+    try:
+        from . import s3client
+        if s3client.enabled():
+            s3client.ensure_bucket()  # create bucket if missing (S3/MinIO)
+    except Exception as e:
+        print(f"[s3] init skipped: {e!r}")
     yield
 
 
