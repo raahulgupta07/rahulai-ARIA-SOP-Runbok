@@ -9,7 +9,7 @@ chat + corrections reviewed.
 """
 from . import appcfg
 
-SOURCES = ["human", "doc", "chat", "feedback", "qa"]
+SOURCES = ["human", "doc", "chat", "feedback", "qa", "gap"]
 
 _DEFAULTS = {
     "human":    {"mode": "auto",   "min": 0.0},   # you typed it → trusted
@@ -17,6 +17,7 @@ _DEFAULTS = {
     "chat":     {"mode": "review", "min": 0.95},  # user-asserted, riskier
     "feedback": {"mode": "review", "min": 0.0},   # 👎 corrections, riskier
     "qa":       {"mode": "auto",   "min": 0.90},  # doc-mined Q&A, grounded w/ page cites
+    "gap":      {"mode": "review", "min": 0.0},   # daemon-synthesized → always reviewed
 }
 
 

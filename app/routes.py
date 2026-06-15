@@ -919,6 +919,16 @@ def delete_qa_pair(qa_id: int, user: dict = Depends(current_user)):
     return {"ok": True, "id": qa_id}
 
 
+@router.post("/qa/gap-fill")
+def qa_gap_fill(user: dict = Depends(require_admin)):
+    """Run one gap-driven Q&A fill pass now (Phase 3, admin). Honors the per-day
+    cap; returns how many grounded pending pairs were created."""
+    from . import auto_qa_gaps
+    n = auto_qa_gaps.run_gap_fill()
+    audit_mod.log(user, "qa.gap_fill", "qa", 0, {"saved": n})
+    return {"ok": True, "saved": n}
+
+
 # ---------------- Coverage Audit + weekly digest (cadence) ----------------
 @router.get("/audit/coverage", dependencies=[Depends(require_key)])
 def audit_coverage(days: int = 30):

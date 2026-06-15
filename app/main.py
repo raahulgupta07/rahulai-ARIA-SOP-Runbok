@@ -35,6 +35,8 @@ async def lifespan(app: FastAPI):
     verify.start_daemon()  # citation-accuracy verify pass (flag VERIFY_ENABLED)
     from . import learn as _learn
     _learn.start_auto_learn_daemon()  # nightly fact mining (AUTO_LEARN_ENABLED + MODE=nightly)
+    from . import auto_qa_gaps as _qagaps
+    _qagaps.start()  # gap-driven Q&A daemon (flag AUTO_QA_GAP_ENABLED, default OFF)
     yield
 
 

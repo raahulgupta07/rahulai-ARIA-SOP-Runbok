@@ -62,6 +62,11 @@ AUTO_QA_ENABLED = os.getenv("AUTO_QA_ENABLED", "1") == "1"   # ON by default (1 
 AUTO_QA_MAX = int(os.getenv("AUTO_QA_MAX", "8"))            # max Q&A pairs proposed per doc
 # Phase 2: harvest Q&A FREE from real sourced+upvoted chat turns (zero LLM, reuses the answer)
 AUTO_QA_HARVEST = os.getenv("AUTO_QA_HARVEST", "1") == "1"   # ON by default
+# Phase 3: daemon that turns demand/coverage GAPS (keywords.py) into grounded Q&A, rate-capped.
+# COSTS LLM per gap (synth question + answer pipeline) → default OFF; enable when you want it.
+AUTO_QA_GAP_ENABLED = os.getenv("AUTO_QA_GAP_ENABLED", "0") == "1"     # default OFF (costs LLM)
+AUTO_QA_GAP_PER_DAY = int(os.getenv("AUTO_QA_GAP_PER_DAY", "5"))       # cap new gap pairs/day
+AUTO_QA_GAP_INTERVAL_H = int(os.getenv("AUTO_QA_GAP_INTERVAL_H", "24"))  # how often to run the fill
 
 # ---- auto complexity routing (quick vs deep, picked per question) ----
 AUTO_ROUTE_ENABLED = os.getenv("AUTO_ROUTE_ENABLED", "1") == "1"   # ON by default
