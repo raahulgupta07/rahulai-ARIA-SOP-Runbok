@@ -240,13 +240,21 @@ def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=No
             print(f"[ingest] categorize_doc({doc_id}) failed (non-fatal): {e!r}")
 
     # auto-facts: extract durable facts from the compiled doc → pending review
-    from .config import AUTO_FACTS_ENABLED
+    from .config import AUTO_FACTS_ENABLED, AUTO_QA_ENABLED
     if AUTO_FACTS_ENABLED:
         try:
             from .doc_facts import extract_doc_facts
             extract_doc_facts(doc_id, display_name)
         except Exception as e:
             print(f"[ingest] extract_doc_facts({doc_id}) failed (non-fatal): {e!r}")
+
+    # auto-Q&A: mine grounded question/answer pairs from the doc → review-gated bank
+    if AUTO_QA_ENABLED:
+        try:
+            from .doc_qa import extract_doc_qa
+            extract_doc_qa(doc_id, display_name)
+        except Exception as e:
+            print(f"[ingest] extract_doc_qa({doc_id}) failed (non-fatal): {e!r}")
 
     log_ingest(doc_id, "ready", f"✓ ready · indexed {len(pages)} pages")
     return {

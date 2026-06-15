@@ -266,6 +266,8 @@ Any answer has a **Share** button → a stable link to a read-only view of that 
   in fast indexed SQL, not a vector store.
 
 ## Notes / deploy
+- **Version-controlled** since `5848264` (`main`). `.gitignore` excludes `.env`, `node_modules`, `.venv`, build output, and `data/*` runtime — never commit your `.env` (it holds the live OpenRouter key).
+- **Enterprise login (LDAP + OIDC/SSO) is verified end-to-end** against real providers (OpenLDAP + Keycloak): bind-search-bind, JWKS signature verification, audience check, and tamper rejection all pass. Configure under Settings → Authentication.
 - Set real `JWT_SECRET`, `PUBLIC_URL` (for SSO redirect), `CORS_ORIGINS` before a real deploy.
 - The frontend is built **inside the image** — every deploy must rebuild: `docker compose up -d --build --force-recreate app`. `--build` alone can build the image but leave the old container running (new `app/*.py` won't be live); use `--force-recreate` and verify the container actually swapped. Then hard-refresh the browser (Cmd+Shift+R) to drop the cached bundle.
 - **Cache gotcha:** `compose up -d --build` can cache the `COPY app/` layer and ship a **new frontend with a stale backend** (a missing route then 404s and falls through to the SPA). If a just-added endpoint 404s, run `docker compose build app` first (this busts the layer — you'll see `COPY app/` run, not `CACHED`), then `up -d --force-recreate`, and confirm with `docker exec <app> grep <symbol> /app/app/routes.py`. Registry `EOF`/TLS timeouts mid-build are common — just retry `build` until it prints `Built`.

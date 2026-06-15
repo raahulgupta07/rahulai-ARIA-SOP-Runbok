@@ -256,7 +256,16 @@
     if (v === 'down') { downModal = m; downNote = ''; downCorrection = ''; return; }
     m.vote = 'up';
     messages = messages;
-    api.feedback({ conversation_id: activeId, vote: 'up', answer: m.text });
+    // send question + cited pages so the backend can harvest a Q&A pair from this
+    // sourced+upvoted answer (Phase 2). direct fetch — api.feedback strips extras.
+    const body = {
+      conversation_id: activeId,
+      vote: 'up',
+      answer: m.text,
+      question: questionFor(m),
+      page_ids: (m.pages || []).map((p) => p.page_id)
+    };
+    fetch(`${api.base}/feedback`, { method: 'POST', headers: authHeaders(), body: JSON.stringify(body) }).catch(() => {});
   }
 
   // on-demand citation accuracy check for one answer (LLM judges each cited page)

@@ -9,13 +9,14 @@ chat + corrections reviewed.
 """
 from . import appcfg
 
-SOURCES = ["human", "doc", "chat", "feedback"]
+SOURCES = ["human", "doc", "chat", "feedback", "qa"]
 
 _DEFAULTS = {
     "human":    {"mode": "auto",   "min": 0.0},   # you typed it → trusted
     "doc":      {"mode": "auto",   "min": 0.90},  # straight from your SOPs, high volume
     "chat":     {"mode": "review", "min": 0.95},  # user-asserted, riskier
     "feedback": {"mode": "review", "min": 0.0},   # 👎 corrections, riskier
+    "qa":       {"mode": "auto",   "min": 0.90},  # doc-mined Q&A, grounded w/ page cites
 }
 
 

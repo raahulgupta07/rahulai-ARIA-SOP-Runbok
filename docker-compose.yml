@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: docsensei
       POSTGRES_DB: docsensei
     ports:
-      - "5436:5432"
+      - "5437:5432"
     volumes:
       - docsensei_pg:/var/lib/postgresql/data
     healthcheck:
@@ -76,6 +76,10 @@ services:
       AUTO_LEARN_MAX_PER_CONV: ${AUTO_LEARN_MAX_PER_CONV:-5}
       AUTO_FACTS_ENABLED: ${AUTO_FACTS_ENABLED:-1}
       AUTO_FACTS_MAX: ${AUTO_FACTS_MAX:-6}
+      # ---- auto Q&A pairs from documents (default ON) ----
+      AUTO_QA_ENABLED: ${AUTO_QA_ENABLED:-1}
+      AUTO_QA_MAX: ${AUTO_QA_MAX:-8}
+      AUTO_QA_HARVEST: ${AUTO_QA_HARVEST:-1}
       # ---- auto complexity routing ----
       AUTO_ROUTE_ENABLED: ${AUTO_ROUTE_ENABLED:-1}
       AUTO_ROUTE_LLM: ${AUTO_ROUTE_LLM:-1}
@@ -92,7 +96,7 @@ services:
       UPLOADS_DIR: ./data/uploads
       IMPORT_DIR: ${IMPORT_DIR:-./documents}   # "Import from server" scans this folder
     ports:
-      - "8081:8077"
+      - "8082:8077"
     extra_hosts:
       # lets the app container reach the throwaway Keycloak on the SAME url the
       # browser uses (kc.local:8088 → host published port). Split-horizon fix.

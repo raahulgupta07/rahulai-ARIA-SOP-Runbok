@@ -88,6 +88,10 @@ def _is_downvote(vote: str | None) -> bool:
     return (vote or "").strip().lower() in ("down", "-1")
 
 
+def _is_upvote(vote: str | None) -> bool:
+    return (vote or "").strip().lower() in ("up", "1", "+1")
+
+
 @router.post("/feedback")
 def feedback(req: FeedbackRequest, user: dict = Depends(current_principal)):
     """Record a thumbs up/down on an answer (fail-soft). A downvote that carries
@@ -136,7 +140,33 @@ def feedback(req: FeedbackRequest, user: dict = Depends(current_principal)):
                         correction[:80], "info")
         except Exception as e:
             print(f"[feedback] learn skipped: {e!r}")
-    return {"ok": True, "learned_id": learned_id}
+
+    # Phase 2: harvest a Q&A pair FREE from an UPVOTED, SOURCED answer (zero LLM —
+    # reuse the answer the user already liked). Only when it cited pages (grounded)
+    # and we have both the question and the answer. Lands per chat governance
+    # (default: pending → admin approves in the Q&A queue). Dedup in qa.add_qa.
+    qa_id = None
+    from .config import AUTO_QA_HARVEST
+    if AUTO_QA_HARVEST and _is_upvote(req.vote):
+        q = (req.question or "").strip()
+        a = (req.answer or "").strip()
+        pids = req.page_ids or []
+        if len(q) >= 6 and len(a) >= 12 and pids:
+            try:
+                from . import qa as qa_mod, governance
+                status = governance.decide_status(
+                    "chat", None, is_admin=(user.get("role") == "admin"))
+                qa_id = qa_mod.add_qa(
+                    q, a, source="chat", status=status, confidence=None,
+                    doc_id=None, page_ids=pids, created_by=user.get("email"),
+                    origin="From chat (upvoted)")
+                if qa_id:
+                    notify.emit("memory", "Q&A harvested from chat"
+                                + ("" if status == "active" else " (pending review)"),
+                                q[:80], "info")
+            except Exception as e:
+                print(f"[feedback] qa harvest skipped: {e!r}")
+    return {"ok": True, "learned_id": learned_id, "qa_id": qa_id}
 
 
 @router.get("/stats/public")
@@ -814,6 +844,79 @@ def edit_fact(mem_id: int, body: MemoryEdit, user: dict = Depends(current_user))
         raise HTTPException(status_code=404, detail="fact not found or empty value")
     audit_mod.log(user, "fact.edit", "fact", mem_id, {"value": (body.value or "")[:120]})
     return {"ok": True, "id": mem_id}
+
+
+# ---------------- Q&A bank (auto-mined question/answer pairs) ----------------
+@router.get("/qa", dependencies=[Depends(require_key)])
+def get_qa(status: str | None = None, limit: int = 200):
+    """List Q&A pairs. Optional ?status=active|pending|rejected. Returns status
+    counts so the review queue can badge pending pairs."""
+    from . import qa as qa_mod
+    return {"qa": qa_mod.list_qa(limit=limit, status=status),
+            "counts": qa_mod.qa_counts(),
+            "pending": qa_mod.pending_qa_count()}
+
+
+@router.post("/qa/{qa_id}/approve", dependencies=[Depends(require_key)])
+def approve_qa(qa_id: int, user: dict = Depends(current_user)):
+    """Approve a pending Q&A pair so it can serve/seed answers."""
+    from . import qa as qa_mod
+    if not qa_mod.set_qa_status(qa_id, "active"):
+        raise HTTPException(status_code=404, detail="qa pair not found")
+    audit_mod.log(user, "qa.approve", "qa", qa_id)
+    return {"ok": True, "id": qa_id, "status": "active"}
+
+
+@router.post("/qa/{qa_id}/reject", dependencies=[Depends(require_key)])
+def reject_qa(qa_id: int, user: dict = Depends(current_user)):
+    """Reject a pending Q&A pair (keeps the row, marks it rejected)."""
+    from . import qa as qa_mod
+    if not qa_mod.set_qa_status(qa_id, "rejected"):
+        raise HTTPException(status_code=404, detail="qa pair not found")
+    audit_mod.log(user, "qa.reject", "qa", qa_id)
+    return {"ok": True, "id": qa_id, "status": "rejected"}
+
+
+@router.post("/qa/approve-bulk")
+def approve_qa_bulk(req: dict, user: dict = Depends(require_admin)):
+    """Bulk-approve pending Q&A pairs: by explicit ids, or all pending."""
+    ids = req.get("ids")
+    n = 0
+    with get_conn() as conn:
+        if ids:
+            for i in ids:
+                conn.execute("UPDATE qa_pairs SET status='active' WHERE id=%s AND status='pending'", (i,))
+                n += 1
+        else:
+            r = conn.execute("UPDATE qa_pairs SET status='active' WHERE status='pending'")
+            n = r.rowcount if hasattr(r, "rowcount") else 0
+    audit_mod.log(user, "qa.approve_bulk", "qa", 0, {"n": n})
+    return {"ok": True, "approved": n}
+
+
+class QaEdit(BaseModel):
+    question: str | None = None
+    answer: str | None = None
+
+
+@router.patch("/qa/{qa_id}", dependencies=[Depends(require_key)])
+def edit_qa(qa_id: int, body: QaEdit, user: dict = Depends(current_user)):
+    """Edit a Q&A pair's question and/or answer in place."""
+    from . import qa as qa_mod
+    if not qa_mod.update_qa(qa_id, body.question, body.answer):
+        raise HTTPException(status_code=404, detail="qa pair not found or empty")
+    audit_mod.log(user, "qa.edit", "qa", qa_id)
+    return {"ok": True, "id": qa_id}
+
+
+@router.delete("/qa/{qa_id}", dependencies=[Depends(require_key)])
+def delete_qa_pair(qa_id: int, user: dict = Depends(current_user)):
+    """Delete a Q&A pair permanently."""
+    from . import qa as qa_mod
+    if not qa_mod.delete_qa(qa_id):
+        raise HTTPException(status_code=404, detail="qa pair not found")
+    audit_mod.log(user, "qa.delete", "qa", qa_id)
+    return {"ok": True, "id": qa_id}
 
 
 # ---------------- Coverage Audit + weekly digest (cadence) ----------------

@@ -57,6 +57,12 @@ AUTO_LEARN_MAX_PER_CONV = int(os.getenv("AUTO_LEARN_MAX_PER_CONV", "5"))   # flo
 AUTO_FACTS_ENABLED = os.getenv("AUTO_FACTS_ENABLED", "1") == "1"   # ON by default (1 LLM call/doc)
 AUTO_FACTS_MAX = int(os.getenv("AUTO_FACTS_MAX", "6"))             # max facts proposed per doc
 
+# ---- auto-Q&A from documents: extract grounded question/answer pairs at ingest (pending review) ----
+AUTO_QA_ENABLED = os.getenv("AUTO_QA_ENABLED", "1") == "1"   # ON by default (1 LLM call/doc)
+AUTO_QA_MAX = int(os.getenv("AUTO_QA_MAX", "8"))            # max Q&A pairs proposed per doc
+# Phase 2: harvest Q&A FREE from real sourced+upvoted chat turns (zero LLM, reuses the answer)
+AUTO_QA_HARVEST = os.getenv("AUTO_QA_HARVEST", "1") == "1"   # ON by default
+
 # ---- auto complexity routing (quick vs deep, picked per question) ----
 AUTO_ROUTE_ENABLED = os.getenv("AUTO_ROUTE_ENABLED", "1") == "1"   # ON by default
 AUTO_ROUTE_LLM = os.getenv("AUTO_ROUTE_LLM", "1") == "1"           # LLM tie-breaker when heuristic unsure

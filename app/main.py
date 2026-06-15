@@ -76,15 +76,27 @@ app.include_router(router, prefix="/api")
 # ---- serve the built SvelteKit SPA (OpenWebUI-style single deployable) ----
 FRONTEND = ROOT / "frontend" / "build"
 if FRONTEND.exists():
-    app.mount("/_app", StaticFiles(directory=FRONTEND / "_app"), name="spa-assets")
+    class _ImmutableStatic(StaticFiles):
+        # /_app filenames are content-hashed → cache forever, safe across deploys
+        def file_response(self, *a, **k):
+            resp = super().file_response(*a, **k)
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            return resp
+
+    app.mount("/_app", _ImmutableStatic(directory=FRONTEND / "_app"), name="spa-assets")
+
+    # the SPA shell must NEVER be cached, else a browser keeps an old index.html
+    # that references hashed chunks deleted by the next deploy → stale/blank UI.
+    # Hashed /_app assets are content-addressed, so they're safe to cache forever.
+    _NOCACHE = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
     @app.get("/{full_path:path}")
     def spa(full_path: str):
         # serve a real static file if it exists, else fall back to index.html
         candidate = FRONTEND / full_path
         if full_path and candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(FRONTEND / "index.html")
+            return FileResponse(candidate, headers=_NOCACHE)
+        return FileResponse(FRONTEND / "index.html", headers=_NOCACHE)
 else:
     @app.get("/")
     def root():

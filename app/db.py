@@ -101,6 +101,31 @@ CREATE TABLE IF NOT EXISTS fact_citation (
 );
 CREATE INDEX IF NOT EXISTS idx_fact_citation_fact ON fact_citation(fact_id, at DESC);
 
+-- auto-Q&A bank: grounded question/answer pairs mined from docs (Phase 1) and,
+-- later, harvested from real sourced+upvoted chat turns. Same review gate as
+-- facts: source='qa' lands 'active' if confidence high enough else 'pending'.
+-- page_ids = the doc pages the answer is grounded in (citation, best-effort).
+CREATE TABLE IF NOT EXISTS qa_pairs (
+    id              BIGSERIAL PRIMARY KEY,
+    question        TEXT NOT NULL,
+    answer          TEXT NOT NULL,
+    source          TEXT NOT NULL DEFAULT 'qa',     -- 'qa' (doc-mined) | 'chat' (harvested)
+    status          TEXT NOT NULL DEFAULT 'pending',-- 'active' | 'pending' | 'rejected'
+    confidence      REAL,
+    doc_id          INT,                            -- origin document (NULL for chat-harvested)
+    page_ids        JSONB NOT NULL DEFAULT '[]',    -- grounding pages [page_id,...]
+    created_by      TEXT,                           -- "ingest:{doc_id}" or user email
+    origin          TEXT,                           -- human-readable provenance
+    cited_count     INT NOT NULL DEFAULT 0,         -- times this pair served/shaped an answer
+    last_cited_at   TIMESTAMPTZ,
+    dedupe_key      TEXT,                           -- normalized question for near-dup detection
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_qa_status ON qa_pairs(status);
+CREATE INDEX IF NOT EXISTS idx_qa_dedupe ON qa_pairs(dedupe_key);
+CREATE INDEX IF NOT EXISTS idx_qa_doc ON qa_pairs(doc_id);
+CREATE INDEX IF NOT EXISTS idx_qa_q_trgm ON qa_pairs USING GIN (question gin_trgm_ops);
+
 CREATE TABLE IF NOT EXISTS chat_log (
     id          BIGSERIAL PRIMARY KEY,
     q           TEXT,
