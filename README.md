@@ -10,6 +10,13 @@ embeddings, no separate OCR. **Self-learning**: drop in files, teach facts — o
 just *tell* Aria something mid-chat ("remember…", "correction…") and she saves it
 herself and recalls it forever (taught facts even override the docs).
 
+**Auto-growing Q&A bank**: beyond facts, Aria builds a reviewable bank of
+question/answer pairs — mined from each document at ingest (page-cited), harvested
+free from chat answers you **upvote**, and (optional daemon) synthesized to fill the
+topics users ask about but the docs answer poorly. Approve the good ones in
+**Workspace → Q&A**; once approved, a repeat question is **served straight from the
+bank** — instant, zero-agent, zero-cost.
+
 Packaged OpenWebUI-style: one image serves the API + the SvelteKit SPA on a
 single port, plus Postgres. Multi-method login, per-user chat history, AI
 follow-up questions, stop/copy/feedback. (Model labelled "ARIA 1.0" in the UI;
@@ -32,7 +39,7 @@ echo "OPENROUTER_API_KEY=sk-or-..." >> .env
 ./release.sh
 docker compose up -d --force-recreate app
 ```
-- App → **http://localhost:8081** · Postgres on host 5436.
+- App → **http://localhost:8082** · Postgres on host 5437.
 - First sign-up becomes **admin**. (No real SSO/LDAP backend needed for local — local email/password works out of the box.)
 
 To cut a release: bump `VERSION` + add a `CHANGELOG` entry in `app/version.py`, then `./release.sh`.
@@ -269,7 +276,8 @@ Any answer has a **Share** button → a stable link to a read-only view of that 
 - **Version-controlled** since `5848264` (`main`). `.gitignore` excludes `.env`, `node_modules`, `.venv`, build output, and `data/*` runtime — never commit your `.env` (it holds the live OpenRouter key).
 - **Enterprise login (LDAP + OIDC/SSO) is verified end-to-end** against real providers (OpenLDAP + Keycloak): bind-search-bind, JWKS signature verification, audience check, and tamper rejection all pass. Configure under Settings → Authentication.
 - Set real `JWT_SECRET`, `PUBLIC_URL` (for SSO redirect), `CORS_ORIGINS` before a real deploy.
-- The frontend is built **inside the image** — every deploy must rebuild: `docker compose up -d --build --force-recreate app`. `--build` alone can build the image but leave the old container running (new `app/*.py` won't be live); use `--force-recreate` and verify the container actually swapped. Then hard-refresh the browser (Cmd+Shift+R) to drop the cached bundle.
+- The frontend is built **inside the image** — every deploy must rebuild: `docker compose up -d --build --force-recreate app`. `--build` alone can build the image but leave the old container running (new `app/*.py` won't be live); use `--force-recreate` and verify the container actually swapped.
+- **SPA cache headers (fixed):** `index.html` is served `no-cache` and the hashed `/_app/*` assets `immutable`, so a new deploy reaches the browser on the next navigation without a manual hard-refresh. (Before this, the shell was heuristically cached and could point at chunk hashes the new deploy deleted → a stuck/blank screen. If you still see a stale page once right after upgrading from an old build, hard-refresh `Cmd+Shift+R` a single time.)
 - **Cache gotcha:** `compose up -d --build` can cache the `COPY app/` layer and ship a **new frontend with a stale backend** (a missing route then 404s and falls through to the SPA). If a just-added endpoint 404s, run `docker compose build app` first (this busts the layer — you'll see `COPY app/` run, not `CACHED`), then `up -d --force-recreate`, and confirm with `docker exec <app> grep <symbol> /app/app/routes.py`. Registry `EOF`/TLS timeouts mid-build are common — just retry `build` until it prints `Built`.
 - Knobs: `BLINDSPOT_LOOP=1` (self-correction loop on/off), `RETRIEVE_K` / `RETRIEVE_DEPTH` / `RETRIEVE_RERANK` (retrieval breadth), `COMPILE_ON_INGEST` / `CHAT_USE_WIKI` (compiled-markdown layer), `USAGE_ROLLUP_ENABLED=1` (nightly usage-analytics rollup daemon for 10k-scale; dashboards also refresh it on read), `VALUE_MINUTES_SAVED` / `LLM_PRICE_PER_MTOK` (ROI model defaults).
 - rtk shell hook fakes `curl`/`docker` output here — verify via `scripts/check.py` / `rtk proxy docker …`.
