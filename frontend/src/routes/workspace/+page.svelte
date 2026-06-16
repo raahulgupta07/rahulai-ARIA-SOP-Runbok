@@ -71,30 +71,39 @@
   function fireScan() { brainScanSignal.update((n) => n + 1); upMenu = false; }
   function fireS3() { brainS3Signal.update((n) => n + 1); upMenu = false; }
 
-  // ---- SharePoint import (config modal + import) ----
+  // ---- Cloud import: SharePoint + OneDrive (Microsoft Graph) ----
+  type GraphCfg = { tenant_id: string; client_id: string; site_host: string; site_path: string; user_upn: string; drive_id: string; folder: string; has_secret?: boolean };
+  const emptyCfg = (): GraphCfg => ({ tenant_id: '', client_id: '', site_host: '', site_path: '', user_upn: '', drive_id: '', folder: '' });
   let spOpen = $state(false);
-  let spCfg = $state<{ tenant_id: string; client_id: string; site_host: string; site_path: string; drive_id: string; folder: string; has_secret?: boolean }>(
-    { tenant_id: '', client_id: '', site_host: '', site_path: '', drive_id: '', folder: '' });
+  let spKind = $state<'sharepoint' | 'onedrive'>('sharepoint');
+  let spCfg = $state<GraphCfg>(emptyCfg());
   let spBusy = $state(false);
   let spMsg = $state('');
-  function openSharePoint() {
-    upMenu = false; spOpen = true; spMsg = '';
-    api.spConfig().then((r) => { if (r) spCfg = { ...spCfg, ...r }; }).catch(() => {});
+  function loadGraphCfg() {
+    spMsg = '';
+    api.graphConfig(spKind).then((r) => { spCfg = { ...emptyCfg(), ...r }; }).catch(() => { spCfg = emptyCfg(); });
+  }
+  function openSharePoint(kind: 'sharepoint' | 'onedrive' = 'sharepoint') {
+    upMenu = false; spOpen = true; spKind = kind; loadGraphCfg();
+  }
+  function spSwitch(kind: 'sharepoint' | 'onedrive') {
+    if (kind === spKind) return;
+    spKind = kind; loadGraphCfg();
   }
   async function spSave() {
     spBusy = true; spMsg = '';
-    try { const r = await api.spSaveConfig(spCfg); spCfg = { ...spCfg, ...r }; spMsg = 'Saved.'; }
+    try { const r = await api.graphSaveConfig(spKind, spCfg as any); spCfg = { ...spCfg, ...r }; spMsg = 'Saved.'; }
     catch (e: any) { spMsg = e?.message || 'save failed'; } finally { spBusy = false; }
   }
   async function spTest() {
     spBusy = true; spMsg = 'Testing…';
-    try { const r = await api.spTest(); spMsg = r.ok ? 'Connected ✓' : ('Failed: ' + (r.detail || 'check creds')); }
+    try { const r = await api.graphTest(spKind); spMsg = r.ok ? 'Connected ✓' : ('Failed: ' + (r.detail || 'check creds')); }
     catch (e: any) { spMsg = e?.message || 'test failed'; } finally { spBusy = false; }
   }
   async function spImport() {
     spBusy = true; spMsg = 'Importing…';
     try {
-      const r = await api.spImport();
+      const r = await api.graphImport(spKind);
       spMsg = r.ok ? `Queued ${r.queued} · skipped ${r.skipped} (of ${r.found})` : ('Failed: ' + (r.detail || 'not configured'));
     } catch (e: any) { spMsg = e?.message || 'import failed'; } finally { spBusy = false; }
   }
@@ -195,9 +204,13 @@
                       </button>
                     {/if}
                     <div class="upmenu-sep"></div>
-                    <button class="upmi" onclick={openSharePoint}>
+                    <button class="upmi" onclick={() => openSharePoint('sharepoint')}>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18"/><path d="M8 14h4"/></svg>
                       <span><b>Import from SharePoint</b><i>Microsoft 365 document library</i></span>
+                    </button>
+                    <button class="upmi" onclick={() => openSharePoint('onedrive')}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 19h11a4 4 0 0 0 .8-7.9A5.5 5.5 0 0 0 7.6 9.2 4.2 4.2 0 0 0 6.5 19z"/></svg>
+                      <span><b>Import from OneDrive</b><i>A user's OneDrive files</i></span>
                     </button>
                   {/if}
                 </div>
@@ -272,21 +285,32 @@
 
 {#if spOpen}
   <button class="sp-scrim" onclick={() => (spOpen = false)} aria-label="Close"></button>
-  <div class="sp-modal" role="dialog" aria-label="Import from SharePoint">
+  <div class="sp-modal" role="dialog" aria-label="Import from cloud">
     <div class="sp-head">
-      <b>Import from SharePoint</b>
+      <b>Import from cloud</b>
       <button class="sp-x" onclick={() => (spOpen = false)} aria-label="Close">✕</button>
     </div>
-    <p class="sp-sub">Pulls every PDF/image from a Microsoft 365 document library into Aria. The app secret is set on the server (SHAREPOINT_CLIENT_SECRET).</p>
+    <div class="sp-tabs">
+      <button class="sp-tab {spKind === 'sharepoint' ? 'on' : ''}" onclick={() => spSwitch('sharepoint')}>SharePoint</button>
+      <button class="sp-tab {spKind === 'onedrive' ? 'on' : ''}" onclick={() => spSwitch('onedrive')}>OneDrive</button>
+    </div>
+    <p class="sp-sub">
+      {#if spKind === 'sharepoint'}Pulls every PDF/image from a Microsoft 365 document library into Aria.{:else}Pulls every PDF/image from a user's OneDrive into Aria.{/if}
+      The app secret is set on the server (GRAPH_CLIENT_SECRET).
+    </p>
     <div class="sp-grid">
       <label class="sp-f"><span>Tenant ID</span><input bind:value={spCfg.tenant_id} placeholder="aaaa-bbbb-…" /></label>
       <label class="sp-f"><span>Client ID</span><input bind:value={spCfg.client_id} placeholder="app registration id" /></label>
-      <label class="sp-f"><span>Site host</span><input bind:value={spCfg.site_host} placeholder="contoso.sharepoint.com" /></label>
-      <label class="sp-f"><span>Site path</span><input bind:value={spCfg.site_path} placeholder="/sites/IT" /></label>
-      <label class="sp-f"><span>Drive ID <i>(optional)</i></span><input bind:value={spCfg.drive_id} placeholder="default library if blank" /></label>
+      {#if spKind === 'sharepoint'}
+        <label class="sp-f"><span>Site host</span><input bind:value={spCfg.site_host} placeholder="contoso.sharepoint.com" /></label>
+        <label class="sp-f"><span>Site path</span><input bind:value={spCfg.site_path} placeholder="/sites/IT" /></label>
+      {:else}
+        <label class="sp-f sp-f-wide"><span>User (UPN / email)</span><input bind:value={spCfg.user_upn} placeholder="alice@contoso.com" /></label>
+      {/if}
+      <label class="sp-f"><span>Drive ID <i>(optional)</i></span><input bind:value={spCfg.drive_id} placeholder="default drive if blank" /></label>
       <label class="sp-f"><span>Folder <i>(optional)</i></span><input bind:value={spCfg.folder} placeholder="Runbooks/SOPs" /></label>
     </div>
-    <div class="sp-secret {spCfg.has_secret ? 'ok' : 'no'}">{spCfg.has_secret ? 'App secret detected on server ✓' : 'No app secret on server — set SHAREPOINT_CLIENT_SECRET'}</div>
+    <div class="sp-secret {spCfg.has_secret ? 'ok' : 'no'}">{spCfg.has_secret ? 'App secret detected on server ✓' : 'No app secret on server — set GRAPH_CLIENT_SECRET'}</div>
     {#if spMsg}<div class="sp-msg">{spMsg}</div>{/if}
     <div class="sp-actions">
       <button class="sp-btn ghost" disabled={spBusy} onclick={spSave}>Save</button>
@@ -404,7 +428,11 @@
   .sp-x { font-size: 13px; color: var(--muted); padding: 4px 8px; border-radius: 8px; }
   .sp-x:hover { background: #f1f0ec; }
   .sp-sub { font-size: 12px; color: var(--muted); margin: 6px 0 14px; line-height: 1.5; }
+  .sp-tabs { display: inline-flex; gap: 2px; margin-top: 12px; padding: 3px; background: var(--bg-alt, #f4f3f0); border-radius: 9px; }
+  .sp-tab { border: 0; background: transparent; padding: 5px 14px; font-size: 12.5px; border-radius: 7px; color: var(--muted); cursor: pointer; }
+  .sp-tab.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
   .sp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .sp-f-wide { grid-column: 1 / -1; }
   .sp-f { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--muted); }
   .sp-f i { font-style: normal; opacity: .7; }
   .sp-f input { border: 1px solid var(--border, #e0dfda); border-radius: 8px; padding: 7px 9px; font-size: 13px; color: var(--ink); background: #fff; outline: none; }

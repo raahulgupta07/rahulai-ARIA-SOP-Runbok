@@ -949,17 +949,70 @@ def ingest_s3_import(user: dict = Depends(require_admin)):
     return res
 
 
-# ---- SharePoint / Microsoft Graph ingest lane ----
+# ---- SharePoint / OneDrive (Microsoft Graph) ingest lane ----
+def _graph_kind(kind: str) -> str:
+    if kind not in ("sharepoint", "onedrive"):
+        raise HTTPException(status_code=404, detail="unknown source")
+    return kind
+
+
+@router.get("/ingest/graph/{kind}/config")
+def graph_config(kind: str, user: dict = Depends(require_admin)):
+    from . import sharepoint
+    return sharepoint.config(_graph_kind(kind))
+
+
+@router.post("/ingest/graph/{kind}/config")
+def graph_save_config(kind: str, body: dict, user: dict = Depends(require_admin)):
+    from . import sharepoint
+    kind = _graph_kind(kind)
+    cfg = sharepoint.save_config(body or {}, kind=kind)
+    audit_mod.log(user, f"{kind}.config", "config", 0,
+                  {"loc": cfg.get("site_path") or cfg.get("user_upn")})
+    return cfg
+
+
+@router.post("/ingest/graph/{kind}/test")
+def graph_test(kind: str, user: dict = Depends(require_admin)):
+    from . import sharepoint
+    return sharepoint.test_connection(_graph_kind(kind))
+
+
+@router.get("/ingest/graph/{kind}/scan")
+def graph_preview(kind: str, user: dict = Depends(require_admin)):
+    """What an import WOULD queue (no writes)."""
+    from . import sharepoint
+    return sharepoint.preview(_graph_kind(kind))
+
+
+@router.post("/ingest/graph/{kind}/import")
+def graph_import(kind: str, user: dict = Depends(require_admin)):
+    """Pull every new file from the configured source and queue it."""
+    from . import sharepoint
+    kind = _graph_kind(kind)
+    if not sharepoint.enabled(kind):
+        raise HTTPException(status_code=400,
+                            detail=f"{kind} not configured (set creds + GRAPH_CLIENT_SECRET)")
+    res = sharepoint.import_all(uploaded_by=user.get("email"), kind=kind)
+    if res.get("queued"):
+        label = "SharePoint" if kind == "sharepoint" else "OneDrive"
+        notify.emit("ingest", f"Imported {res['queued']} document(s) from {label}",
+                    f"{res.get('skipped', 0)} already present", "info")
+    audit_mod.log(user, f"doc.{kind}_import", "doc", 0, res)
+    return res
+
+
+# ---- back-compat aliases (old SharePoint-only endpoints) ----
 @router.get("/ingest/sharepoint/config")
 def sharepoint_config(user: dict = Depends(require_admin)):
     from . import sharepoint
-    return sharepoint.config()
+    return sharepoint.config("sharepoint")
 
 
 @router.post("/ingest/sharepoint/config")
 def sharepoint_save_config(body: dict, user: dict = Depends(require_admin)):
     from . import sharepoint
-    cfg = sharepoint.save_config(body or {})
+    cfg = sharepoint.save_config(body or {}, kind="sharepoint")
     audit_mod.log(user, "sharepoint.config", "config", 0, {"site": cfg.get("site_path")})
     return cfg
 
@@ -967,24 +1020,22 @@ def sharepoint_save_config(body: dict, user: dict = Depends(require_admin)):
 @router.post("/ingest/sharepoint/test")
 def sharepoint_test(user: dict = Depends(require_admin)):
     from . import sharepoint
-    return sharepoint.test_connection()
+    return sharepoint.test_connection("sharepoint")
 
 
 @router.get("/ingest/sharepoint/scan")
 def sharepoint_preview(user: dict = Depends(require_admin)):
-    """What a SharePoint import WOULD queue (no writes)."""
     from . import sharepoint
-    return sharepoint.preview()
+    return sharepoint.preview("sharepoint")
 
 
 @router.post("/ingest/sharepoint/import")
 def sharepoint_import(user: dict = Depends(require_admin)):
-    """Pull every new file from the configured SharePoint library and queue it."""
     from . import sharepoint
-    if not sharepoint.enabled():
+    if not sharepoint.enabled("sharepoint"):
         raise HTTPException(status_code=400,
-                            detail="SharePoint not configured (set creds + SHAREPOINT_CLIENT_SECRET)")
-    res = sharepoint.import_all(uploaded_by=user.get("email"))
+                            detail="SharePoint not configured (set creds + GRAPH_CLIENT_SECRET)")
+    res = sharepoint.import_all(uploaded_by=user.get("email"), kind="sharepoint")
     if res.get("queued"):
         notify.emit("ingest", f"Imported {res['queued']} document(s) from SharePoint",
                     f"{res.get('skipped', 0)} already present", "info")

@@ -1,15 +1,20 @@
 """SharePoint / OneDrive document ingest via Microsoft Graph (app-only OAuth).
 
 A third ingest lane (alongside upload + S3 import): pull every supported file
-from a SharePoint document library into the normal pipeline. Mirrors s3_import —
-list -> dedup by docs.name -> download -> storage.save_to_inbox -> docs row
-'queued' -> the async worker ingests it.
+from a SharePoint document library OR a user's OneDrive into the normal pipeline.
+Mirrors s3_import — list -> dedup by docs.name -> download -> storage.save_to_inbox
+-> docs row 'queued' -> the async worker ingests it.
 
-CONFIG (super-admin): tenant_id, client_id, site_host, site_path, optional
-drive_id / folder live in app_config['sharepoint']. The client SECRET is read
-from the SHAREPOINT_CLIENT_SECRET env var (never stored in the DB), mirroring how
-OPENROUTER_API_KEY is handled. Fail-soft: every public entry point returns a
-status dict, never raises into the caller.
+TWO SOURCES, ONE LANE. Both use Microsoft Graph and the same app-only token; only
+the drive-resolution step differs:
+  - sharepoint: site_host + site_path -> /sites/{id}/drive
+  - onedrive:   user_upn             -> /users/{upn}/drive
+Everything downstream (walk, download, dedup, queue, auto-sync) is identical.
+
+CONFIG (super-admin) lives per-kind in integration_config[key=<kind>]. The client
+SECRET is read from the GRAPH_CLIENT_SECRET / SHAREPOINT_CLIENT_SECRET env var
+(never stored in the DB), mirroring OPENROUTER_API_KEY. Fail-soft: every public
+entry point returns a status dict, never raises into the caller.
 """
 import io
 import json
@@ -25,62 +30,72 @@ from . import storage
 _EXTS = {".pdf", ".png", ".jpg", ".jpeg"}
 _GRAPH = "https://graph.microsoft.com/v1.0"
 _TIMEOUT = 60.0
-_FIELDS = ("tenant_id", "client_id", "site_host", "site_path", "drive_id", "folder")
+
+KINDS = ("sharepoint", "onedrive")
+
+# Config fields persisted per kind. Secret is NEVER here (env only).
+_FIELDS = {
+    "sharepoint": ("tenant_id", "client_id", "site_host", "site_path", "drive_id", "folder"),
+    "onedrive":   ("tenant_id", "client_id", "user_upn", "drive_id", "folder"),
+}
 
 
-def _raw() -> dict:
+def _norm(kind: str) -> str:
+    return kind if kind in KINDS else "sharepoint"
+
+
+def _raw(kind: str) -> dict:
     try:
         with get_conn() as conn:
             row = conn.execute(
-                "SELECT data FROM integration_config WHERE key='sharepoint'"
+                "SELECT data FROM integration_config WHERE key=%s", (kind,)
             ).fetchone()
         return (row["data"] if row else {}) or {}
     except Exception:
         return {}
 
 
-def config() -> dict:
-    """Non-secret SharePoint config from integration_config. Secret comes from env."""
-    cfg = _raw()
-    out = {
-        "tenant_id": cfg.get("tenant_id", ""),
-        "client_id": cfg.get("client_id", ""),
-        "site_host": cfg.get("site_host", ""),     # e.g. contoso.sharepoint.com
-        "site_path": cfg.get("site_path", ""),     # e.g. /sites/IT
-        "drive_id": cfg.get("drive_id", ""),       # optional — default drive if blank
-        "folder": cfg.get("folder", ""),           # optional sub-folder path filter
-        "has_secret": bool(_secret()),
-    }
+def config(kind: str = "sharepoint") -> dict:
+    """Non-secret config for one source from integration_config. Secret from env."""
+    kind = _norm(kind)
+    cfg = _raw(kind)
+    out = {"kind": kind, "has_secret": bool(_secret())}
+    for k in _FIELDS[kind]:
+        out[k] = cfg.get(k, "")
     return out
 
 
-def save_config(patch: dict) -> dict:
-    cur = _raw()
-    for k in _FIELDS:
+def save_config(patch: dict, kind: str = "sharepoint") -> dict:
+    kind = _norm(kind)
+    cur = _raw(kind)
+    for k in _FIELDS[kind]:
         if k in (patch or {}):
             cur[k] = (patch[k] or "").strip()
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO integration_config (key, data, updated_at) "
-            "VALUES ('sharepoint', %s::jsonb, now()) "
+            "VALUES (%s, %s::jsonb, now()) "
             "ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_at = now()",
-            (json.dumps(cur),),
+            (kind, json.dumps(cur)),
         )
-    return config()
+    return config(kind)
 
 
 def _secret() -> str:
-    return os.getenv("SHAREPOINT_CLIENT_SECRET", "")
+    return os.getenv("GRAPH_CLIENT_SECRET", "") or os.getenv("SHAREPOINT_CLIENT_SECRET", "")
 
 
-def enabled() -> bool:
-    c = config()
-    return bool(c["tenant_id"] and c["client_id"] and c["site_host"]
-               and c["site_path"] and c["has_secret"])
+def enabled(kind: str = "sharepoint") -> bool:
+    kind = _norm(kind)
+    c = config(kind)
+    if not (c["tenant_id"] and c["client_id"] and c["has_secret"]):
+        return False
+    if kind == "sharepoint":
+        return bool(c["site_host"] and c["site_path"])
+    return bool(c["user_upn"])
 
 
-def _token() -> str:
-    c = config()
+def _token(c: dict) -> str:
     url = f"https://login.microsoftonline.com/{c['tenant_id']}/oauth2/v2.0/token"
     data = {
         "client_id": c["client_id"],
@@ -97,17 +112,21 @@ def _headers(tok: str) -> dict:
     return {"Authorization": f"Bearer {tok}"}
 
 
-def _site_id(tok: str, c: dict) -> str:
-    path = c["site_path"].strip("/")
-    url = f"{_GRAPH}/sites/{c['site_host']}:/{path}"
-    r = httpx.get(url, headers=_headers(tok), timeout=_TIMEOUT)
-    r.raise_for_status()
-    return r.json()["id"]
-
-
-def _drive_id(tok: str, site_id: str, c: dict) -> str:
-    if c["drive_id"]:
+def _drive_for(kind: str, tok: str, c: dict) -> str:
+    """Resolve the drive id for the configured source (kind-specific)."""
+    if c.get("drive_id"):
         return c["drive_id"]
+    if kind == "onedrive":
+        upn = c["user_upn"].strip()
+        r = httpx.get(f"{_GRAPH}/users/{upn}/drive", headers=_headers(tok), timeout=_TIMEOUT)
+        r.raise_for_status()
+        return r.json()["id"]
+    # sharepoint: site path -> site id -> default drive
+    path = c["site_path"].strip("/")
+    r = httpx.get(f"{_GRAPH}/sites/{c['site_host']}:/{path}",
+                  headers=_headers(tok), timeout=_TIMEOUT)
+    r.raise_for_status()
+    site_id = r.json()["id"]
     r = httpx.get(f"{_GRAPH}/sites/{site_id}/drive", headers=_headers(tok), timeout=_TIMEOUT)
     r.raise_for_status()
     return r.json()["id"]
@@ -136,11 +155,10 @@ def _walk(tok: str, drive_id: str, item_url: str, out: list) -> None:
         url = body.get("@odata.nextLink")
 
 
-def _list_files() -> list[dict]:
-    tok = _token()
-    c = config()
-    site_id = _site_id(tok, c)
-    drive_id = _drive_id(tok, site_id, c)
+def _list_files(kind: str) -> list[dict]:
+    c = config(kind)
+    tok = _token(c)
+    drive_id = _drive_for(kind, tok, c)
     root = f"{_GRAPH}/drives/{drive_id}/root"
     if c["folder"].strip("/"):
         root += f":/{c['folder'].strip('/')}:"
@@ -150,25 +168,27 @@ def _list_files() -> list[dict]:
     return out
 
 
-def test_connection() -> dict:
-    """Verify creds + site resolve. Returns {ok, detail/site}."""
-    if not enabled():
-        return {"ok": False, "configured": False, "detail": "SharePoint not configured"}
+def test_connection(kind: str = "sharepoint") -> dict:
+    """Verify creds + source resolve. Returns {ok, detail/drive_id}."""
+    kind = _norm(kind)
+    if not enabled(kind):
+        return {"ok": False, "configured": False, "detail": f"{kind} not configured"}
     try:
-        tok = _token()
-        c = config()
-        sid = _site_id(tok, c)
-        return {"ok": True, "configured": True, "site_id": sid}
+        c = config(kind)
+        tok = _token(c)
+        did = _drive_for(kind, tok, c)
+        return {"ok": True, "configured": True, "drive_id": did}
     except Exception as e:
         return {"ok": False, "configured": True, "detail": str(e)[:200]}
 
 
-def preview() -> dict:
+def preview(kind: str = "sharepoint") -> dict:
     """What an import WOULD queue (no writes)."""
-    if not enabled():
+    kind = _norm(kind)
+    if not enabled(kind):
         return {"ok": False, "configured": False, "found": 0, "new": 0, "skipped": 0}
     try:
-        files = _list_files()
+        files = _list_files(kind)
     except Exception as e:
         return {"ok": False, "configured": True, "detail": str(e)[:200],
                 "found": 0, "new": 0, "skipped": 0}
@@ -179,12 +199,13 @@ def preview() -> dict:
             "new": new, "skipped": len(files) - new}
 
 
-def import_all(uploaded_by: str | None = None) -> dict:
-    """Download every NEW SharePoint file and queue it for ingest (dedup by name)."""
-    if not enabled():
+def import_all(uploaded_by: str | None = None, kind: str = "sharepoint") -> dict:
+    """Download every NEW file from the source and queue it for ingest (dedup by name)."""
+    kind = _norm(kind)
+    if not enabled(kind):
         return {"ok": False, "configured": False, "found": 0, "queued": 0, "skipped": 0}
     try:
-        files = _list_files()
+        files = _list_files(kind)
     except Exception as e:
         return {"ok": False, "configured": True, "detail": str(e)[:200],
                 "found": 0, "queued": 0, "skipped": 0}
@@ -209,12 +230,12 @@ def import_all(uploaded_by: str | None = None) -> dict:
                 conn.execute(
                     "INSERT INTO docs (name, status, progress, storage_key, uploaded_by, updated_at) "
                     "VALUES (%s, 'queued', 0, %s, %s, now())",
-                    (name, skey, uploaded_by or "sharepoint"),
+                    (name, skey, uploaded_by or kind),
                 )
             existing.add(name)
             queued += 1
         except Exception as e:
-            print(f"[sharepoint] {name} failed: {e!r}")
+            print(f"[{kind}] {name} failed: {e!r}")
     return {"ok": True, "configured": True, "found": found,
             "queued": queued, "skipped": skipped}
 
@@ -227,13 +248,14 @@ def _loop():
     from .config import SHAREPOINT_SYNC_INTERVAL_H
     time.sleep(120)                          # let boot settle
     while True:
-        try:
-            if enabled():
-                res = import_all(uploaded_by="sharepoint-sync")
-                if res.get("queued"):
-                    print(f"[sharepoint] auto-sync queued {res['queued']} new file(s)")
-        except Exception as e:
-            print(f"[sharepoint] sync loop skipped: {e!r}")
+        for kind in KINDS:
+            try:
+                if enabled(kind):
+                    res = import_all(uploaded_by=f"{kind}-sync", kind=kind)
+                    if res.get("queued"):
+                        print(f"[{kind}] auto-sync queued {res['queued']} new file(s)")
+            except Exception as e:
+                print(f"[{kind}] sync loop skipped: {e!r}")
         time.sleep(max(1, SHAREPOINT_SYNC_INTERVAL_H) * 3600)
 
 
@@ -244,5 +266,5 @@ def start() -> None:
     if _started or not SHAREPOINT_SYNC_ENABLED:
         return
     _started = True
-    threading.Thread(target=_loop, name="sharepoint-sync", daemon=True).start()
-    print(f"[sharepoint] auto-sync on — every {SHAREPOINT_SYNC_INTERVAL_H}h")
+    threading.Thread(target=_loop, name="graph-sync", daemon=True).start()
+    print(f"[graph] SharePoint/OneDrive auto-sync on — every {SHAREPOINT_SYNC_INTERVAL_H}h")

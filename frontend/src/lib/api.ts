@@ -214,21 +214,21 @@ export const api = {
   async s3Import() {
     return jsonOrThrow(await fetch(`${BASE}/ingest/s3-import`, { method: 'POST', headers: headers(false) }));
   },
-  // ---- SharePoint / Microsoft Graph ingest ----
-  async spConfig() {
-    return jsonOrThrow(await fetch(`${BASE}/ingest/sharepoint/config`, { headers: headers(false) }));
+  // ---- SharePoint / OneDrive (Microsoft Graph) ingest ----
+  async graphConfig(kind: string) {
+    return jsonOrThrow(await fetch(`${BASE}/ingest/graph/${kind}/config`, { headers: headers(false) }));
   },
-  async spSaveConfig(cfg: Record<string, string>) {
-    return jsonOrThrow(await fetch(`${BASE}/ingest/sharepoint/config`, { method: 'POST', headers: headers(), body: JSON.stringify(cfg) }));
+  async graphSaveConfig(kind: string, cfg: Record<string, string>) {
+    return jsonOrThrow(await fetch(`${BASE}/ingest/graph/${kind}/config`, { method: 'POST', headers: headers(), body: JSON.stringify(cfg) }));
   },
-  async spTest() {
-    return jsonOrThrow(await fetch(`${BASE}/ingest/sharepoint/test`, { method: 'POST', headers: headers(false) }));
+  async graphTest(kind: string) {
+    return jsonOrThrow(await fetch(`${BASE}/ingest/graph/${kind}/test`, { method: 'POST', headers: headers(false) }));
   },
-  async spScan() {
-    return jsonOrThrow(await fetch(`${BASE}/ingest/sharepoint/scan`, { headers: headers(false) }));
+  async graphScan(kind: string) {
+    return jsonOrThrow(await fetch(`${BASE}/ingest/graph/${kind}/scan`, { headers: headers(false) }));
   },
-  async spImport() {
-    return jsonOrThrow(await fetch(`${BASE}/ingest/sharepoint/import`, { method: 'POST', headers: headers(false) }));
+  async graphImport(kind: string) {
+    return jsonOrThrow(await fetch(`${BASE}/ingest/graph/${kind}/import`, { method: 'POST', headers: headers(false) }));
   },
   async storageConfig() {
     return jsonOrThrow(await fetch(`${BASE}/storage/config`, { headers: headers(false) }));

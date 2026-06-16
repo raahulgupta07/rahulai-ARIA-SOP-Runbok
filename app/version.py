@@ -6,12 +6,23 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.10.1"
+VERSION = "2.11.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.11.0",
+        "date": "2026-06-16",
+        "title": "Import from OneDrive too (same as SharePoint)",
+        "lines": [
+            "New OneDrive lane — pull every PDF/image from a user's OneDrive",
+            "One 'Import from cloud' dialog with a SharePoint / OneDrive switch",
+            "Both sources get the same features: test, preview, bulk import, auto-sync",
+            "Auto-sync now keeps both SharePoint and OneDrive in sync on a schedule",
+        ],
+    },
     {
         "version": "2.10.1",
         "date": "2026-06-16",
