@@ -10,13 +10,34 @@ outlines / read other pages for hard or ambiguous questions.
 Bilingual EN/Burmese. Persistent session + taught facts.
 """
 import re
+import threading
+from contextlib import contextmanager
 
 from .config import (
     OPENROUTER_API_KEY, CHAT_MODEL, DEEP_MODEL, DATABASE_URL,
-    OPENROUTER_BASE_URL,
+    OPENROUTER_BASE_URL, LLM_MAX_CONCURRENCY,
 )
 from .memory import memory_facts
 from .retrieve import search_brain
+
+# Global cap on simultaneous user-facing LLM calls. Excess callers BLOCK here
+# (backpressure) instead of all hitting OpenRouter at once. Gated at the public
+# entry points (stream_reply / answer) only — NOT the _quick_stream/_deep_text
+# primitives, so the deep->quick fallback never re-acquires and deadlocks.
+_llm_sema = threading.BoundedSemaphore(LLM_MAX_CONCURRENCY) if LLM_MAX_CONCURRENCY > 0 else None
+
+
+@contextmanager
+def _llm_slot():
+    if _llm_sema is None:
+        yield
+        return
+    _llm_sema.acquire()
+    try:
+        yield
+    finally:
+        _llm_sema.release()
+
 
 _client = None
 if OPENROUTER_API_KEY:
@@ -230,25 +251,27 @@ def stream_reply(query: str, seed_pages: list[dict], mode: str = "quick",
                  meter: dict | None = None):
     """Generator of answer token strings. Caller accumulates + parses PAGES.
     `meter` (optional) is filled with {model, tok_in, tok_out} for telemetry."""
-    if mode == "deep":
-        if meter is not None:
-            meter["model"] = DEEP_MODEL
-        # deep mode gets follow-up context from our own messages history (no
-        # Agno persistent session memory — see _deep_text)
-        text = _deep_text(query, seed_pages, session_id, history)
-        for i in range(0, len(text), 48):   # chunk so the client still streams
-            yield text[i:i + 48]
-    else:
-        yield from _quick_stream(query, seed_pages, history, meter=meter)
+    with _llm_slot():   # hold one LLM permit for the whole generation/stream
+        if mode == "deep":
+            if meter is not None:
+                meter["model"] = DEEP_MODEL
+            # deep mode gets follow-up context from our own messages history (no
+            # Agno persistent session memory — see _deep_text)
+            text = _deep_text(query, seed_pages, session_id, history)
+            for i in range(0, len(text), 48):   # chunk so the client still streams
+                yield text[i:i + 48]
+        else:
+            yield from _quick_stream(query, seed_pages, history, meter=meter)
 
 
 # ---------------- public: non-streaming (legacy /ask) ----------------
 def answer(query: str, seed_pages: list[dict], mode: str = "quick",
            session_id: str | None = None) -> dict:
-    if mode == "deep":
-        text = _deep_text(query, seed_pages, session_id)
-    else:
-        text = "".join(_quick_stream(query, seed_pages))
+    with _llm_slot():
+        if mode == "deep":
+            text = _deep_text(query, seed_pages, session_id)
+        else:
+            text = "".join(_quick_stream(query, seed_pages))
     clean, nums = parse_pages(text, [])
     clean = render_cited(clean, seed_pages)
     page_ids = map_cited(nums, seed_pages) or [p["page_id"] for p in seed_pages]

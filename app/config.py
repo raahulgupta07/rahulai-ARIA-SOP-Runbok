@@ -95,6 +95,12 @@ AUTO_QA_GAP_INTERVAL_H = int(os.getenv("AUTO_QA_GAP_INTERVAL_H", "24"))  # how o
 AUTO_QA_SERVE_ENABLED = os.getenv("AUTO_QA_SERVE_ENABLED", "1") == "1"   # ON by default
 AUTO_QA_SERVE_MIN_SIM = float(os.getenv("AUTO_QA_SERVE_MIN_SIM", "0.72"))  # trigram floor to serve
 
+# ---- LLM concurrency cap ----
+# Global ceiling on simultaneous user-facing LLM calls (quick + deep). Under a
+# burst (1000 users) this queues requests instead of firing 1000 concurrent
+# OpenRouter calls -> avoids provider rate-limit storms. 0 = unlimited.
+LLM_MAX_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", "6"))
+
 # ---- auto complexity routing (quick vs deep, picked per question) ----
 AUTO_ROUTE_ENABLED = os.getenv("AUTO_ROUTE_ENABLED", "1") == "1"   # ON by default
 AUTO_ROUTE_LLM = os.getenv("AUTO_ROUTE_LLM", "1") == "1"           # LLM tie-breaker when heuristic unsure
