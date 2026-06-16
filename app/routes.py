@@ -272,9 +272,12 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
     conv_id = conv["id"]
     first_turn = convo.message_count(conv_id) == 0
 
-    # Phase 4: serve a cached bank answer for a near-identical, non-follow-up question
+    # Phase 4: serve a cached bank answer for a near-identical, non-follow-up question.
+    # On a first turn there's no history, so a standalone question can't be a
+    # follow-up — serve regardless of demonstratives ("this/that") that otherwise
+    # trip _is_followup and silently disable the cache.
     from .config import AUTO_QA_SERVE_ENABLED, AUTO_QA_SERVE_MIN_SIM
-    if AUTO_QA_SERVE_ENABLED and req.mode != "deep" and not _is_followup(req.q):
+    if AUTO_QA_SERVE_ENABLED and req.mode != "deep" and (first_turn or not _is_followup(req.q)):
         try:
             from . import qa as qa_mod
             hit = qa_mod.serve_match(req.q, AUTO_QA_SERVE_MIN_SIM)
@@ -353,7 +356,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
         # Only when an APPROVED pair near-matches this exact question, it isn't a
         # context-dependent follow-up, and the user didn't ask for deep mode.
         from .config import AUTO_QA_SERVE_ENABLED, AUTO_QA_SERVE_MIN_SIM
-        if (AUTO_QA_SERVE_ENABLED and req.mode != "deep" and not _is_followup(req.q)):
+        if (AUTO_QA_SERVE_ENABLED and req.mode != "deep" and (first_turn or not _is_followup(req.q))):
             try:
                 from . import qa as qa_mod
                 hit = qa_mod.serve_match(req.q, AUTO_QA_SERVE_MIN_SIM)
