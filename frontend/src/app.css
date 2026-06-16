@@ -13,7 +13,7 @@
   --navpill: #f0efed; /* active nav / tab pill — GRAY (not coral) */
   --ink: #1a1a18;
   --muted: #8b8b85;
-  --border: #ececea;
+  --border: #e0dfda;  /* soft but visible — cards must read against white page (gaps) */
   --sand: #f9f9f8;    /* sidebar / rail — near-white */
   --sidebar: #f9f9f8;
   --serif: 'Fraunces', Georgia, 'Times New Roman', serif;

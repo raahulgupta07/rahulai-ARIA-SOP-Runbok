@@ -143,7 +143,7 @@
 .privnote { font-size: 11px; color: var(--muted); padding: 2px 4px; }
 
 /* exec scorecard */
-.exgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 11px; }
+.exgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 13px; }
 .excard { background: #fff; border: 1px solid var(--border); border-radius: 13px; padding: 14px 15px; }
 .excard.val { background: #f3f3f1; border-color: #dcdcd8; }
 .exh { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
