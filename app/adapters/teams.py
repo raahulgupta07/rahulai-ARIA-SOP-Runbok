@@ -9,7 +9,6 @@ Config (Settings → Integrations → Microsoft Teams, stored in app_config.team
   enabled, app_id, app_password, public_url, skip_auth (dev tunnel only).
 """
 import json
-import threading
 import time
 import urllib.request
 import urllib.parse
@@ -21,6 +20,16 @@ from ..appcfg import get_config
 from ..retrieve import search_pages, DEFAULT_K
 from .. import agent as agent_mod
 from ..db import get_conn
+
+import os
+from concurrent.futures import ThreadPoolExecutor
+
+# Bounded worker pool for inbound Teams messages. Previously on_activity spawned
+# an unbounded daemon Thread per message -> 1000 messages = 1000 threads + 1000
+# concurrent LLM calls (spawn storm). A fixed pool caps in-flight work; overflow
+# queues. Sized small since each job may call the LLM (see also LLM concurrency cap).
+TEAMS_WORKERS = int(os.getenv("TEAMS_WORKERS", "8"))
+_exec = ThreadPoolExecutor(max_workers=TEAMS_WORKERS, thread_name_prefix="teams")
 
 _BOT_JWKS = "https://login.botframework.com/v1/.well-known/keys"
 _TOKEN_URL = "https://login.microsoftonline.com/botframework.com/oauth2/v2.0/token"
@@ -226,5 +235,8 @@ def on_activity(activity: dict) -> dict:
     """Called by the route. Returns fast; replies happen in a thread."""
     if (activity or {}).get("type") != "message":
         return {}
-    threading.Thread(target=_process, args=(activity,), daemon=True).start()
+    # Bounded pool instead of a fresh Thread per message (no spawn storm). Excess
+    # messages queue and run as workers free up; _process is self-contained and
+    # swallows its own errors, so a failed job never kills a pool worker.
+    _exec.submit(_process, activity)
     return {}
