@@ -6,12 +6,24 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.1.0",
+        "date": "2026-06-16",
+        "title": "Smarter starter chips, duplicate-upload guard & a steadier Workspace",
+        "lines": [
+            "Home starter questions now span the whole corpus — one per document, rotating",
+            "Chips for documents without Q&A are derived from the document's real topic",
+            "Block uploading a document whose name already exists — clear inline message",
+            "Workspace tabs stay in sync — switching Documents / Facts / Graph no longer hangs",
+            "Ingest keeps running in the background while you browse other pages",
+        ],
+    },
     {
         "version": "2.0.0",
         "date": "2026-06-15",

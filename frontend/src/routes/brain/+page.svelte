@@ -43,16 +43,15 @@
 
   let q = $state('');                                  // one search over docs + facts
   let collapsed = $state<Record<string, boolean>>({}); // collapsed category groups
-  let railTab = $state<'brain' | 'audit' | 'graph'>('brain');    // top tab: unified Brain feed, Graph or Audit
+  let _railTab = $state<'brain' | 'audit' | 'graph'>('brain');   // backing state — standalone mode only
 
   // ── embedded mode (inside unified Workspace) — hide own rail, drive view from props ──
   let { embedded = false, showTabs = true, extView = null } = $props<{ embedded?: boolean; showTabs?: boolean; extView?: { tab: 'brain' | 'graph' | 'audit'; feed?: 'all' | 'doc' | 'fact' } | null }>();
-  $effect(() => {
-    if (!embedded || !extView) return;
-    railTab = extView.tab;
-    if (extView.feed) feedType = extView.feed;
-    sel = null;
-  });
+  // SINGLE SOURCE OF TRUTH: embedded → view is the extView prop (Workspace rail drives it);
+  // standalone → the local _railTab/_feedType buttons drive it. (Was a fragile $effect that
+  // mirrored extView into local state and desynced rail vs content on tab switch.)
+  let railTab: 'brain' | 'audit' | 'graph' = $derived(embedded && extView ? extView.tab : _railTab);
+  $effect(() => { if (embedded && extView) { extView.tab; extView.feed; sel = null; } });  // close any open reader on rail nav
 
   // ===== UNIFIED BRAIN FEED (Scout-style single knowledge feed) =====
   type FeedItem = {
@@ -62,7 +61,8 @@
   };
   let feedItems = $state<FeedItem[]>([]);
   let feedLoading = $state(false);
-  let feedType = $state<'all' | 'doc' | 'fact' | 'qa'>('doc');   // chip filter → search type param ('all' tab dropped)
+  let _feedType = $state<'all' | 'doc' | 'fact' | 'qa'>('doc');  // backing state — standalone mode only
+  let feedType: 'all' | 'doc' | 'fact' | 'qa' = $derived(embedded && extView?.feed ? extView.feed : _feedType);  // embedded → from prop
   let feedErr = $state('');
   let feedSeq = 0;                                         // ignore stale responses
   function authHeaders(): Record<string, string> {        // mirror api.ts Bearer auth
@@ -146,7 +146,7 @@
   let sel = $state<{ type: 'doc' | 'fact' | 'teach'; id: number } | null>(null);
   let addOpen = $state(false);
   let dragOver = $state(false);
-  let uploads = $state<{ name: string; status: string }[]>([]);   // only used for upload ERRORS now
+  let uploads = $state<{ name: string; status: string; dup?: boolean }[]>([]);   // only used for upload ERRORS / skipped now
   let fileInput: HTMLInputElement;
 
   let loadingFlight = false;                                       // guard against overlapping loads
@@ -527,7 +527,9 @@
         okN++;
         await load(false);   // new queued doc appears immediately; polling takes over
       } catch (e: any) {
-        uploads = [{ name: f.name, status: '✗ ' + (e.message || 'failed') }, ...uploads];
+        const msg = e?.message || 'failed';
+        const dup = /already exists/i.test(msg);
+        uploads = [{ name: f.name, status: dup ? '⚠ already exists — skipped' : '✗ ' + msg, dup }, ...uploads];
       }
       sync = { ...sync, done: sync.done + 1 };
     }
@@ -921,7 +923,7 @@
     tBusy = false;
     teachOpen = false;
     const newId = r?.id ?? r?.memory?.id;
-    if (newId) { railTab = 'brain'; loadFeed(); const nf = facts.find((f) => f.id === newId); if (nf) factModal = nf; }
+    if (newId) { _railTab = 'brain'; loadFeed(); const nf = facts.find((f) => f.id === newId); if (nf) factModal = nf; }
   }
 
   // ================= KNOWLEDGE GRAPH (Obsidian-style, echarts force) =================
@@ -1449,16 +1451,16 @@
   <aside class="shrink-0 w-[200px] flex flex-col border-r px-2.5 py-4" style="background:var(--sand); border-color:#efefec">
     <div class="brail-grp">Brain</div>
     <nav class="space-y-0.5">
-      <button class="brail {railTab === 'brain' && !sel ? 'on' : ''}" onclick={() => { railTab = 'brain'; sel = null; }}>
+      <button class="brail {railTab === 'brain' && !sel ? 'on' : ''}" onclick={() => { _railTab = 'brain'; sel = null; }}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 2a4.5 4.5 0 0 0-4.5 4.5c-1.2.5-2 1.7-2 3 0 .8.3 1.5.8 2-.5.5-.8 1.2-.8 2 0 1.6 1.3 3 3 3a3 3 0 0 0 3 3 2.5 2.5 0 0 0 2.5-2.5V4.5A2.5 2.5 0 0 0 9.5 2zM14.5 2A2.5 2.5 0 0 0 12 4.5v14.5a2.5 2.5 0 0 0 2.5 2.5 3 3 0 0 0 3-3c1.7 0 3-1.4 3-3 0-.8-.3-1.5-.8-2 .5-.5.8-1.2.8-2 0-1.3-.8-2.5-2-3A4.5 4.5 0 0 0 14.5 2z"/></svg>
         Brain
         <span class="bn">{(stats?.docs ?? docs.length)}</span>{#if pending > 0}<span class="tabpill">+{pending}</span>{/if}
       </button>
-      <button class="brail {railTab === 'graph' && !sel ? 'on' : ''}" onclick={() => { railTab = 'graph'; sel = null; }}>
+      <button class="brail {railTab === 'graph' && !sel ? 'on' : ''}" onclick={() => { _railTab = 'graph'; sel = null; }}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7 7.5 10.5 16M17 7.5 13.5 16M7 6h10"/></svg>
         Graph
       </button>
-      <button class="brail {railTab === 'audit' && !sel ? 'on' : ''}" onclick={() => { railTab = 'audit'; sel = null; }}>
+      <button class="brail {railTab === 'audit' && !sel ? 'on' : ''}" onclick={() => { _railTab = 'audit'; sel = null; }}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
         Audit
         <span class="bn" style={audit ? `color:${band(audit.score)}` : ''}>{audit ? audit.score : '—'}</span>
@@ -1467,15 +1469,15 @@
     <div class="my-3 border-t" style="border-color:#efefec"></div>
     <div class="brail-grp">Library</div>
     <nav class="space-y-0.5">
-      <button class="brail {railTab === 'brain' && !sel && feedType === 'doc' ? 'on' : ''}" onclick={() => { railTab = 'brain'; sel = null; feedType = 'doc'; }}>
+      <button class="brail {railTab === 'brain' && !sel && feedType === 'doc' ? 'on' : ''}" onclick={() => { _railTab = 'brain'; sel = null; _feedType = 'doc'; }}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>
         Documents
       </button>
-      <button class="brail {railTab === 'brain' && !sel && feedType === 'fact' ? 'on' : ''}" onclick={() => { railTab = 'brain'; sel = null; feedType = 'fact'; }}>
+      <button class="brail {railTab === 'brain' && !sel && feedType === 'fact' ? 'on' : ''}" onclick={() => { _railTab = 'brain'; sel = null; _feedType = 'fact'; }}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V18h6v-1.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg>
         Facts
       </button>
-      <button class="brail {railTab === 'brain' && !sel && feedType === 'qa' ? 'on' : ''}" onclick={() => { railTab = 'brain'; sel = null; feedType = 'qa'; }}>
+      <button class="brail {railTab === 'brain' && !sel && feedType === 'qa' ? 'on' : ''}" onclick={() => { _railTab = 'brain'; sel = null; _feedType = 'qa'; }}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         Q&amp;A{#if qaCounts.pending > 0}<span class="tabpill">{qaCounts.pending}</span>{/if}
       </button>
@@ -1499,11 +1501,11 @@
     <!-- combined Brain + Audit: top-tabs when embedded in Workspace (Graph stays its own rail item) -->
     {#if embedded && showTabs && railTab !== 'graph'}
       <div class="bktabs">
-        <button class="bktab" class:on={railTab === 'brain' && feedType === 'doc'} onclick={() => { railTab = 'brain'; feedType = 'doc'; sel = null; }}>Documents</button>
-        <button class="bktab" class:on={railTab === 'brain' && feedType === 'fact'} onclick={() => { railTab = 'brain'; feedType = 'fact'; sel = null; }}>Facts</button>
-        <button class="bktab" class:on={railTab === 'brain' && feedType === 'qa'} onclick={() => { railTab = 'brain'; feedType = 'qa'; sel = null; }}>Q&amp;A{#if qaCounts.pending > 0}<span class="bktab-badge" style="color:var(--clay)">{qaCounts.pending}</span>{/if}</button>
+        <button class="bktab" class:on={railTab === 'brain' && feedType === 'doc'} onclick={() => { _railTab = 'brain'; _feedType = 'doc'; sel = null; }}>Documents</button>
+        <button class="bktab" class:on={railTab === 'brain' && feedType === 'fact'} onclick={() => { _railTab = 'brain'; _feedType = 'fact'; sel = null; }}>Facts</button>
+        <button class="bktab" class:on={railTab === 'brain' && feedType === 'qa'} onclick={() => { _railTab = 'brain'; _feedType = 'qa'; sel = null; }}>Q&amp;A{#if qaCounts.pending > 0}<span class="bktab-badge" style="color:var(--clay)">{qaCounts.pending}</span>{/if}</button>
         {#if isAdmin}
-          <button class="bktab" class:on={railTab === 'audit'} onclick={() => { railTab = 'audit'; sel = null; }}>
+          <button class="bktab" class:on={railTab === 'audit'} onclick={() => { _railTab = 'audit'; sel = null; }}>
             Health{#if audit}<span class="bktab-badge" style="color:{band(audit.score)}">{audit.score}</span>{/if}
           </button>
         {/if}
@@ -1538,8 +1540,9 @@
       <!-- upload ERRORS only — successful uploads show live status on their doc row -->
       <div class="mt-3 space-y-1">
         {#each uploads.slice(0, 4) as u}
-          <div class="flex justify-between text-[12.5px] px-3 py-1.5 rounded-lg border" style="background:#fdf3ef; border-color:#e6c4b8">
-            <span class="truncate" style="color:#52504a">{u.name}</span><span class="shrink-0 ml-3" style="color:#cf6a4c">{u.status}</span>
+          <div class="flex justify-between text-[12.5px] px-3 py-1.5 rounded-lg border"
+            style={u.dup ? 'background:#fbf6ec; border-color:#e6d2a8' : 'background:#fdf3ef; border-color:#e6c4b8'}>
+            <span class="truncate" style="color:#52504a">{u.name}</span><span class="shrink-0 ml-3" style="color:{u.dup ? '#a9742a' : '#cf6a4c'}">{u.status}</span>
           </div>
         {/each}
       </div>

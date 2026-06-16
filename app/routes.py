@@ -207,57 +207,106 @@ _STARTER_FALLBACK = [
 def suggestions():
     """Home hero starter chips — derived from the real corpus (zero LLM).
 
-    Order: proven served Q&A (most-cited) first, then top doc-section titles as
-    questions, then curated fallbacks so a fresh install is never empty. Public-
-    safe; never raises (home/login must not break)."""
-    out: list[dict] = []
-    seen: set[str] = set()
+    COVERAGE, not popularity: each of the 4 chips comes from a DIFFERENT document
+    (and a different category where possible), so the chips represent the whole
+    corpus instead of clustering on the few most-cited docs. The candidate pool is
+    shuffled each load, so over repeated visits every document rotates through.
+    Sources, in priority: proven answered Q&A (best question per doc) → doc-section
+    titles for docs not yet covered → curated fallbacks. Public-safe; never raises."""
+    import random
 
-    def _add(cat: str, q: str) -> None:
-        q = (q or "").strip()
-        k = re.sub(r"\s+", " ", q.lower())
-        if not q or k in seen:
-            return
-        seen.add(k)
-        out.append({"cat": (cat or "DOCS").upper()[:10], "q": q})
+    def _norm(q: str) -> str:
+        return re.sub(r"\s+", " ", (q or "").strip().lower())
 
+    def _doc_topic(name: str) -> str:
+        """Clean an SOP filename into a human topic.
+        '92909c72__SOP_IT_CMHL_AMS_GLDCENTRAL_002_User Creation.pdf' -> 'User Creation'."""
+        t = name or ""
+        t = re.sub(r"\.[A-Za-z0-9]{2,5}$", "", t)          # drop extension
+        t = re.sub(r"^[0-9a-f]{6,}__", "", t)               # drop storage hash prefix
+        t = re.sub(r"^SOP[_\s]+(?:[A-Z]+[_\s]+){0,6}\d+[_\s]+", "", t)  # drop SOP_..._NNN_
+        t = re.sub(r"[_]+", " ", t).strip()
+        return re.sub(r"\s+", " ", t)
+
+    # candidate pool: at most ONE entry per document (its best/most-cited question)
+    pool: list[dict] = []
+    seen_docs: set = set()
     try:
         with get_conn() as conn:
-            # 1) real, proven questions the system has actually answered
+            # best proven question per document
             for r in conn.execute(
-                "SELECT q.question AS q, COALESCE(NULLIF(d.category,''), 'DOCS') AS cat "
+                "SELECT q.question AS q, q.doc_id AS doc_id, "
+                "COALESCE(NULLIF(d.category,''), 'DOCS') AS cat "
                 "FROM qa_pairs q LEFT JOIN docs d ON d.id = q.doc_id "
                 "WHERE q.status='active' AND length(q.question) BETWEEN 8 AND 90 "
-                # skip generic doc-mine boilerplate ("purpose of this SOP", "this document depends") —
-                # these read as filler chips; we want specific, action questions.
+                # skip generic doc-mine boilerplate — these read as filler chips.
                 "AND q.question !~* '(this sop|this document|this runbook|this procedure|purpose of)' "
                 "ORDER BY q.cited_count DESC, q.last_cited_at DESC NULLS LAST, q.created_at DESC "
-                "LIMIT 12"
+                "LIMIT 200"
             ).fetchall():
-                _add(r["cat"], r["q"])
-                if len(out) >= 4:
-                    break
-            # 2) top doc-section titles phrased as a lookup question
-            if len(out) < 4:
-                for r in conn.execute(
-                    "SELECT n.title AS t, COALESCE(NULLIF(d.category,''), 'DOCS') AS cat "
-                    "FROM nodes n JOIN docs d ON d.id = n.doc_id "
-                    "WHERE d.status='ready' AND length(coalesce(n.title,'')) BETWEEN 4 AND 60 "
-                    "ORDER BY n.id DESC LIMIT 40"
-                ).fetchall():
-                    t = (r["t"] or "").strip().rstrip("?.")
-                    if t:
-                        _add(r["cat"], f"Where do I find {t}?")
-                    if len(out) >= 4:
-                        break
+                key = r["doc_id"] if r["doc_id"] is not None else _norm(r["q"])
+                if key in seen_docs:
+                    continue
+                seen_docs.add(key)
+                pool.append({"q": r["q"], "cat": r["cat"], "doc_id": r["doc_id"]})
+            # broaden: docs with no Q&A yet -> derive a chip from the DOCUMENT NAME.
+            # (SOP section titles are generic boilerplate — Preface/Scope/Dos — so they
+            #  read as unrelated to the doc; the filename is the real topic.)
+            for r in conn.execute(
+                "SELECT id AS doc_id, name, "
+                "COALESCE(NULLIF(category,''), 'DOCS') AS cat "
+                "FROM docs WHERE status='ready' ORDER BY id"
+            ).fetchall():
+                if r["doc_id"] in seen_docs:
+                    continue
+                seen_docs.add(r["doc_id"])
+                topic = _doc_topic(r["name"])
+                if 3 <= len(topic) <= 60:
+                    pool.append({"q": f"What is the procedure for {topic}?", "cat": r["cat"], "doc_id": r["doc_id"]})
     except Exception:
         pass
 
-    # 3) top up with curated fallbacks (fresh install / sparse corpus)
+    # rotate which docs surface across visits (each chip is still a distinct doc)
+    random.shuffle(pool)
+
+    out: list[dict] = []
+    seen_q: set[str] = set()
+    used_docs: set = set()
+    used_cats: set = set()
+
+    def _take(it: dict, require_new_cat: bool) -> None:
+        if len(out) >= 4:
+            return
+        k = _norm(it["q"])
+        if not k or k in seen_q:
+            return
+        if it["doc_id"] is not None and it["doc_id"] in used_docs:
+            return
+        if require_new_cat and it["cat"] in used_cats:
+            return
+        seen_q.add(k)
+        if it["doc_id"] is not None:
+            used_docs.add(it["doc_id"])
+        used_cats.add(it["cat"])
+        out.append({"cat": (it["cat"] or "DOCS").upper()[:10], "q": it["q"].strip()})
+
+    # pass 1: distinct document AND distinct category (max spread)
+    for it in pool:
+        _take(it, require_new_cat=True)
+    # pass 2: relax category — still distinct documents
+    for it in pool:
+        _take(it, require_new_cat=False)
+
+    # top up with curated fallbacks (fresh install / sparse corpus)
     for f in _STARTER_FALLBACK:
         if len(out) >= 4:
             break
-        _add(f["cat"], f["q"])
+        k = _norm(f["q"])
+        if k in seen_q:
+            continue
+        seen_q.add(k)
+        out.append({"cat": (f["cat"] or "DOCS").upper()[:10], "q": f["q"]})
+
     return {"suggestions": out[:4]}
 
 
@@ -714,6 +763,21 @@ def upload(file: UploadFile = File(...), user: dict = Depends(current_user)):
     Returns instantly; the background worker renders + reads the pages and the
     doc flips queued -> processing -> ready (poll GET /documents for status)."""
     name = file.filename or "upload"
+    # duplicate guard: refuse a doc whose name already exists and is live
+    # (queued/processing/ready). Re-uploading a previously failed/cancelled name
+    # is allowed (acts as a retry). Marker phrase "already exists" lets the UI
+    # render a friendly "skipped" row instead of a hard error.
+    with get_conn() as conn:
+        dup = conn.execute(
+            "SELECT id FROM docs WHERE name = %s "
+            "AND status IN ('queued', 'processing', 'ready') LIMIT 1",
+            (name,),
+        ).fetchone()
+    if dup:
+        raise HTTPException(
+            status_code=409,
+            detail=f'A document named "{name}" already exists — upload skipped.',
+        )
     try:
         key = storage.save_to_inbox(file.file, name)
     except Exception as e:
