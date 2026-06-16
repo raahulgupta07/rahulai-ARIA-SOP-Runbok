@@ -33,11 +33,13 @@ _TIMEOUT = 60.0
 
 KINDS = ("sharepoint", "onedrive")
 
-# Config fields persisted per kind. Secret is NEVER here (env only).
+# Plain (non-secret) config fields persisted per kind, returned to the UI as-is.
 _FIELDS = {
     "sharepoint": ("tenant_id", "client_id", "site_host", "site_path", "drive_id", "folder"),
     "onedrive":   ("tenant_id", "client_id", "user_upn", "drive_id", "folder"),
 }
+# Boolean fields (per kind) — auto-sync toggle, editable in the UI.
+_BOOLS = ("sync_enabled",)
 
 
 def _norm(kind: str) -> str:
@@ -56,21 +58,33 @@ def _raw(kind: str) -> dict:
 
 
 def config(kind: str = "sharepoint") -> dict:
-    """Non-secret config for one source from integration_config. Secret from env."""
+    """Non-secret config for one source. The client secret is NEVER returned raw —
+    only a has_secret flag (true if set in DB or via env)."""
     kind = _norm(kind)
     cfg = _raw(kind)
-    out = {"kind": kind, "has_secret": bool(_secret())}
+    out = {"kind": kind, "has_secret": bool(_secret(kind))}
     for k in _FIELDS[kind]:
         out[k] = cfg.get(k, "")
+    for b in _BOOLS:
+        out[b] = bool(cfg.get(b))
     return out
 
 
 def save_config(patch: dict, kind: str = "sharepoint") -> dict:
     kind = _norm(kind)
+    patch = patch or {}
     cur = _raw(kind)
     for k in _FIELDS[kind]:
-        if k in (patch or {}):
+        if k in patch:
             cur[k] = (patch[k] or "").strip()
+    for b in _BOOLS:
+        if b in patch:
+            cur[b] = bool(patch[b])
+    # Secret: only overwrite when a non-blank value is sent (blank = keep existing).
+    if "client_secret" in patch:
+        sec = (patch["client_secret"] or "").strip()
+        if sec:
+            cur["client_secret"] = sec
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO integration_config (key, data, updated_at) "
@@ -81,7 +95,26 @@ def save_config(patch: dict, kind: str = "sharepoint") -> dict:
     return config(kind)
 
 
-def _secret() -> str:
+def clear_secret(kind: str = "sharepoint") -> dict:
+    """Remove the DB-stored client secret for one source (env fallback still applies)."""
+    kind = _norm(kind)
+    cur = _raw(kind)
+    cur.pop("client_secret", None)
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO integration_config (key, data, updated_at) "
+            "VALUES (%s, %s::jsonb, now()) "
+            "ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_at = now()",
+            (kind, json.dumps(cur)),
+        )
+    return config(kind)
+
+
+def _secret(kind: str = "sharepoint") -> str:
+    """DB-stored secret for this source first, then the shared env var."""
+    db = (_raw(_norm(kind)).get("client_secret") or "").strip()
+    if db:
+        return db
     return os.getenv("GRAPH_CLIENT_SECRET", "") or os.getenv("SHAREPOINT_CLIENT_SECRET", "")
 
 
@@ -95,11 +128,17 @@ def enabled(kind: str = "sharepoint") -> bool:
     return bool(c["user_upn"])
 
 
+def sync_on(kind: str) -> bool:
+    """Auto-sync active for this source: env master flag OR per-source UI toggle."""
+    from .config import SHAREPOINT_SYNC_ENABLED
+    return bool(SHAREPOINT_SYNC_ENABLED or _raw(_norm(kind)).get("sync_enabled"))
+
+
 def _token(c: dict) -> str:
     url = f"https://login.microsoftonline.com/{c['tenant_id']}/oauth2/v2.0/token"
     data = {
         "client_id": c["client_id"],
-        "client_secret": _secret(),
+        "client_secret": _secret(c.get("kind", "sharepoint")),
         "scope": "https://graph.microsoft.com/.default",
         "grant_type": "client_credentials",
     }
@@ -250,7 +289,8 @@ def _loop():
     while True:
         for kind in KINDS:
             try:
-                if enabled(kind):
+                # per-source UI toggle (or env master flag), re-read every cycle
+                if sync_on(kind) and enabled(kind):
                     res = import_all(uploaded_by=f"{kind}-sync", kind=kind)
                     if res.get("queued"):
                         print(f"[{kind}] auto-sync queued {res['queued']} new file(s)")
@@ -260,11 +300,17 @@ def _loop():
 
 
 def start() -> None:
-    """Launch the auto-sync thread once (called from app lifespan, leader only)."""
+    """Launch the auto-sync thread once (called from app lifespan, leader only).
+
+    Runs whenever auto-sync could be turned on from the UI, so the per-source
+    toggle works without an env var or restart. The loop itself is cheap (sleeps
+    between cycles) and only imports sources whose toggle is on.
+    """
     global _started
-    from .config import SHAREPOINT_SYNC_ENABLED, SHAREPOINT_SYNC_INTERVAL_H
-    if _started or not SHAREPOINT_SYNC_ENABLED:
+    from .config import SHAREPOINT_SYNC_INTERVAL_H
+    if _started:
         return
     _started = True
     threading.Thread(target=_loop, name="graph-sync", daemon=True).start()
-    print(f"[graph] SharePoint/OneDrive auto-sync on — every {SHAREPOINT_SYNC_INTERVAL_H}h")
+    print(f"[graph] SharePoint/OneDrive auto-sync thread on — every {SHAREPOINT_SYNC_INTERVAL_H}h "
+          "(per-source toggle in UI)")

@@ -221,6 +221,9 @@ export const api = {
   async graphSaveConfig(kind: string, cfg: Record<string, string>) {
     return jsonOrThrow(await fetch(`${BASE}/ingest/graph/${kind}/config`, { method: 'POST', headers: headers(), body: JSON.stringify(cfg) }));
   },
+  async graphClearSecret(kind: string) {
+    return jsonOrThrow(await fetch(`${BASE}/ingest/graph/${kind}/secret/clear`, { method: 'POST', headers: headers(false) }));
+  },
   async graphTest(kind: string) {
     return jsonOrThrow(await fetch(`${BASE}/ingest/graph/${kind}/test`, { method: 'POST', headers: headers(false) }));
   },

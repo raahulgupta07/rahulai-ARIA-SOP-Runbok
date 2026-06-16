@@ -6,12 +6,23 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.11.0"
+VERSION = "2.12.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.12.0",
+        "date": "2026-06-16",
+        "title": "Configure SharePoint & OneDrive entirely in the UI",
+        "lines": [
+            "Admin sets the app client secret right in the dialog — no server access needed",
+            "Per-source auto-sync toggle in the UI (no env var, no restart)",
+            "Test, preview and import all from the same dialog",
+            "Secret is stored securely and never shown back; one click to clear it",
+        ],
+    },
     {
         "version": "2.11.0",
         "date": "2026-06-16",

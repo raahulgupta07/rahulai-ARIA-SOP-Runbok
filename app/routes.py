@@ -972,6 +972,15 @@ def graph_save_config(kind: str, body: dict, user: dict = Depends(require_admin)
     return cfg
 
 
+@router.post("/ingest/graph/{kind}/secret/clear")
+def graph_clear_secret(kind: str, user: dict = Depends(require_admin)):
+    from . import sharepoint
+    kind = _graph_kind(kind)
+    cfg = sharepoint.clear_secret(kind)
+    audit_mod.log(user, f"{kind}.secret_clear", "config", 0, {})
+    return cfg
+
+
 @router.post("/ingest/graph/{kind}/test")
 def graph_test(kind: str, user: dict = Depends(require_admin)):
     from . import sharepoint
