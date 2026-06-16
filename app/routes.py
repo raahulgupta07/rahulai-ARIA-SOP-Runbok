@@ -194,6 +194,73 @@ def stats_public():
         }
 
 
+# curated fallbacks — shown only when the corpus has no served Q&A yet (fresh install)
+_STARTER_FALLBACK = [
+    {"cat": "SETUP", "q": "How do I create a new site in Gold Central?"},
+    {"cat": "USERS", "q": "How to disable a user account?"},
+    {"cat": "BATCH", "q": "Night batch job ကျသွားရင် ဘာလုပ်ရမလဲ?"},
+    {"cat": "DISCOVER", "q": "Where is the refund approval flow?"},
+]
+
+
+@router.get("/suggestions")
+def suggestions():
+    """Home hero starter chips — derived from the real corpus (zero LLM).
+
+    Order: proven served Q&A (most-cited) first, then top doc-section titles as
+    questions, then curated fallbacks so a fresh install is never empty. Public-
+    safe; never raises (home/login must not break)."""
+    out: list[dict] = []
+    seen: set[str] = set()
+
+    def _add(cat: str, q: str) -> None:
+        q = (q or "").strip()
+        k = re.sub(r"\s+", " ", q.lower())
+        if not q or k in seen:
+            return
+        seen.add(k)
+        out.append({"cat": (cat or "DOCS").upper()[:10], "q": q})
+
+    try:
+        with get_conn() as conn:
+            # 1) real, proven questions the system has actually answered
+            for r in conn.execute(
+                "SELECT q.question AS q, COALESCE(NULLIF(d.category,''), 'DOCS') AS cat "
+                "FROM qa_pairs q LEFT JOIN docs d ON d.id = q.doc_id "
+                "WHERE q.status='active' AND length(q.question) BETWEEN 8 AND 90 "
+                # skip generic doc-mine boilerplate ("purpose of this SOP", "this document depends") —
+                # these read as filler chips; we want specific, action questions.
+                "AND q.question !~* '(this sop|this document|this runbook|this procedure|purpose of)' "
+                "ORDER BY q.cited_count DESC, q.last_cited_at DESC NULLS LAST, q.created_at DESC "
+                "LIMIT 12"
+            ).fetchall():
+                _add(r["cat"], r["q"])
+                if len(out) >= 4:
+                    break
+            # 2) top doc-section titles phrased as a lookup question
+            if len(out) < 4:
+                for r in conn.execute(
+                    "SELECT n.title AS t, COALESCE(NULLIF(d.category,''), 'DOCS') AS cat "
+                    "FROM nodes n JOIN docs d ON d.id = n.doc_id "
+                    "WHERE d.status='ready' AND length(coalesce(n.title,'')) BETWEEN 4 AND 60 "
+                    "ORDER BY n.id DESC LIMIT 40"
+                ).fetchall():
+                    t = (r["t"] or "").strip().rstrip("?.")
+                    if t:
+                        _add(r["cat"], f"Where do I find {t}?")
+                    if len(out) >= 4:
+                        break
+    except Exception:
+        pass
+
+    # 3) top up with curated fallbacks (fresh install / sparse corpus)
+    for f in _STARTER_FALLBACK:
+        if len(out) >= 4:
+            break
+        _add(f["cat"], f["q"])
+    return {"suggestions": out[:4]}
+
+
 @router.get("/notifications", dependencies=[Depends(require_key)])
 def notifications(filter: str = "all"):
     return notify.list_notifications(filter)

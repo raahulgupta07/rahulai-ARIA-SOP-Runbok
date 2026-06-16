@@ -41,6 +41,12 @@ export const api = {
     catch { return null; }
   },
 
+  // corpus-derived hero starter chips (zero LLM; safe fallbacks server-side)
+  async suggestions() {
+    try { const r = await fetch(`${BASE}/suggestions`, { headers: headers(false) }); return r.ok ? await r.json() : null; }
+    catch { return null; }
+  },
+
   // 👍/👎 (+ optional note) on an answer
   async feedback(body: { conversation_id: number | null; vote: 'up' | 'down'; text?: string; answer?: string }) {
     try { return await jsonOrThrow(await fetch(`${BASE}/feedback`, { method: 'POST', headers: headers(), body: JSON.stringify(body) })); }

@@ -380,13 +380,17 @@
     return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
   }
 
-  // quiet suggestion chips (claude-style) — click fills the composer to edit/send
-  const starters = [
+  // quiet suggestion chips (claude-style) — corpus-derived (zero LLM), click fills the composer.
+  // server returns proven Q&A first, then doc-section titles, then curated fallbacks.
+  let starters = $state<{ cat: string; q: string }[]>([
     { cat: 'SETUP',    q: 'How do I create a new site in Gold Central?' },
     { cat: 'USERS',    q: 'How to disable a user account?' },
     { cat: 'BATCH',    q: 'Night batch job ကျသွားရင် ဘာလုပ်ရမလဲ?' },
     { cat: 'DISCOVER', q: 'Where is the refund approval flow?' }
-  ];
+  ]);
+  $effect(() => {
+    api.suggestions().then((r) => { if (r?.suggestions?.length) starters = r.suggestions; }).catch(() => {});
+  });
   let taEl = $state<HTMLTextAreaElement | null>(null);
   function useSuggestion(q: string) { input = q; send(); }
   function shortDoc(raw: string) { const t = parseDocName(raw || '').title || raw || ''; return t.length > 22 ? t.slice(0, 21) + '…' : t; }
