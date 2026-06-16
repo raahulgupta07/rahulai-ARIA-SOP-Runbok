@@ -6,12 +6,21 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.6.0"
+VERSION = "2.7.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.7.0",
+        "date": "2026-06-16",
+        "title": "SharePoint auto-sync",
+        "lines": [
+            "Optional background sync keeps pulling new SharePoint files on a schedule",
+            "Off by default; enable with SHAREPOINT_SYNC_ENABLED, runs on the leader worker",
+        ],
+    },
     {
         "version": "2.6.0",
         "date": "2026-06-16",

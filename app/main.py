@@ -43,6 +43,8 @@ async def lifespan(app: FastAPI):
         _learn.start_auto_learn_daemon()  # nightly fact mining (AUTO_LEARN_ENABLED + MODE=nightly)
         from . import auto_qa_gaps as _qagaps
         _qagaps.start()  # gap-driven Q&A daemon (flag AUTO_QA_GAP_ENABLED, default OFF)
+        from . import sharepoint as _sp
+        _sp.start()  # SharePoint auto-sync (flag SHAREPOINT_SYNC_ENABLED, default OFF)
         try:
             from . import s3client
             if s3client.enabled():

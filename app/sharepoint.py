@@ -14,6 +14,8 @@ status dict, never raises into the caller.
 import io
 import json
 import os
+import threading
+import time
 
 import httpx
 
@@ -215,3 +217,32 @@ def import_all(uploaded_by: str | None = None) -> dict:
             print(f"[sharepoint] {name} failed: {e!r}")
     return {"ok": True, "configured": True, "found": found,
             "queued": queued, "skipped": skipped}
+
+
+# ---- auto-sync daemon (leader-gated, flag-gated, default OFF) ----
+_started = False
+
+
+def _loop():
+    from .config import SHAREPOINT_SYNC_INTERVAL_H
+    time.sleep(120)                          # let boot settle
+    while True:
+        try:
+            if enabled():
+                res = import_all(uploaded_by="sharepoint-sync")
+                if res.get("queued"):
+                    print(f"[sharepoint] auto-sync queued {res['queued']} new file(s)")
+        except Exception as e:
+            print(f"[sharepoint] sync loop skipped: {e!r}")
+        time.sleep(max(1, SHAREPOINT_SYNC_INTERVAL_H) * 3600)
+
+
+def start() -> None:
+    """Launch the auto-sync thread once (called from app lifespan, leader only)."""
+    global _started
+    from .config import SHAREPOINT_SYNC_ENABLED, SHAREPOINT_SYNC_INTERVAL_H
+    if _started or not SHAREPOINT_SYNC_ENABLED:
+        return
+    _started = True
+    threading.Thread(target=_loop, name="sharepoint-sync", daemon=True).start()
+    print(f"[sharepoint] auto-sync on — every {SHAREPOINT_SYNC_INTERVAL_H}h")

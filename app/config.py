@@ -90,6 +90,10 @@ AUTO_QA_HARVEST = os.getenv("AUTO_QA_HARVEST", "1") == "1"   # ON by default
 AUTO_QA_GAP_ENABLED = os.getenv("AUTO_QA_GAP_ENABLED", "0") == "1"     # default OFF (costs LLM)
 AUTO_QA_GAP_PER_DAY = int(os.getenv("AUTO_QA_GAP_PER_DAY", "5"))       # cap new gap pairs/day
 AUTO_QA_GAP_INTERVAL_H = int(os.getenv("AUTO_QA_GAP_INTERVAL_H", "24"))  # how often to run the fill
+# SharePoint auto-sync: periodically pull new files from the configured library.
+# Default OFF. Reuses sharepoint.import_all (dedup by name → only new files ingest).
+SHAREPOINT_SYNC_ENABLED = os.getenv("SHAREPOINT_SYNC_ENABLED", "0") == "1"
+SHAREPOINT_SYNC_INTERVAL_H = int(os.getenv("SHAREPOINT_SYNC_INTERVAL_H", "6"))
 # Phase 4: SERVE a cached answer from the bank when an incoming question near-matches an
 # APPROVED pair → instant, zero-agent, zero-cost. Conservative similarity floor.
 AUTO_QA_SERVE_ENABLED = os.getenv("AUTO_QA_SERVE_ENABLED", "1") == "1"   # ON by default
