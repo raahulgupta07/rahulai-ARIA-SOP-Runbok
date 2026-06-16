@@ -151,7 +151,7 @@ A **full-width top bar** is the shell: the **brand logo** (left) · top nav **�
   - **Graph** — a full-screen **living "deep-learning brain"**: glowing neurons, synapses firing along the edges, gentle breathing, and **newly-learned docs/facts flashing in real time** (a live "consolidating / learned" ticker; Pause toggle). Toggle **Knowledge** (whole brain) or **People** (who-knows-what). Click any node → jump to it in Brain.
   - **People** — top-user leaderboard. **Review** — an inline **work-queue**: audit score + pillars, **pending facts with Approve / Reject in place**, downvote corrections, blind-spot questions to document, and the latest digest.
   - **Topics** *(privacy-safe)* — keyword analysis over **all** chats that **never exposes a message**: chip-cloud, phrases, intent mix, rising terms, an **EN / မြန်မာ split**, and a **demand-vs-coverage** table that flags topics asked a lot but rarely sourced (what to document next). Aggregate counts only; anything mentioned fewer than twice is hidden.
-- **Chat** — a Claude-style home: a **centered hero** (time-of-day greeting + your name) with the composer as the focal point, **quiet suggestion chips** (one click sends), and a single tiny line of stats. Ask in EN or မြန်မာ; the answer streams with:
+- **Chat** — a Claude-style home: a **centered hero** (time-of-day greeting + your name) with the composer as the focal point, a **2×2 grid of starter cards** (category icon + question, one click sends) and a single tiny line of stats. The starter cards are **corpus-derived, not hardcoded** (`GET /api/suggestions`, zero LLM): real most-asked Q&A from the bank first, then top document sections, with curated fallbacks so a fresh install is never empty. Ask in EN or မြန်မာ — Burmese renders via bundled **Padauk / Noto Sans Myanmar** webfonts (no fallback boxes); the answer streams with:
   - a **live thinking trace** (each step the agent takes — understanding → searching N runbooks → reading pages → composing),
   - a collapsing **"Thought for Ns"** reasoning trace and a blinking streaming caret,
   - **source coins** — compact numbered circles (`Doc·pN`); click one (or the `N sources →` pill) to open the **Sources drawer** with a **provenance mini-map** ("how this answer connects"), per-page summaries, and the full page images (with a Page / Text toggle + inline zoom),
@@ -185,6 +185,7 @@ A **full-width top bar** is the shell: the **brand logo** (left) · top nav **�
 | `/api/auth/{config,signup,login,ldap,oidc/login,oidc/callback,me}` | auth |
 | `/api/ask/stream` | streamed answer (NDJSON: `step`* → `token`* → `done`) `{q, conversation_id, mode}` |
 | `/api/followups` · `/api/feedback` | AI follow-up Qs · 👍/👎 |
+| `/api/suggestions` | corpus-derived home starter chips (zero LLM) — most-served Q&A → top doc sections → curated fallbacks |
 | `/api/conversations[/{id}]` | per-user chat history (list/new/get/rename/delete) |
 | `/api/upload` | queue a SOP for async ingest (returns `{doc_id, status:"queued"}` instantly; records uploader) |
 | `/api/ingest/scan` (GET/POST) | server-folder bulk import (admin) — GET previews `{found,new,skipped}`, POST queues every new file from `IMPORT_DIR`, dedup by filename |
