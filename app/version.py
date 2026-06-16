@@ -6,12 +6,22 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.5.0"
+VERSION = "2.6.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.6.0",
+        "date": "2026-06-16",
+        "title": "Import documents straight from SharePoint",
+        "lines": [
+            "New SharePoint lane: pull every PDF/image from a Microsoft 365 library",
+            "Add menu -> Import from SharePoint: configure, test, and import in one place",
+            "Files flow through the normal pipeline with duplicate-name skipping",
+        ],
+    },
     {
         "version": "2.5.0",
         "date": "2026-06-16",

@@ -932,6 +932,49 @@ def ingest_s3_import(user: dict = Depends(require_admin)):
     return res
 
 
+# ---- SharePoint / Microsoft Graph ingest lane ----
+@router.get("/ingest/sharepoint/config")
+def sharepoint_config(user: dict = Depends(require_admin)):
+    from . import sharepoint
+    return sharepoint.config()
+
+
+@router.post("/ingest/sharepoint/config")
+def sharepoint_save_config(body: dict, user: dict = Depends(require_admin)):
+    from . import sharepoint
+    cfg = sharepoint.save_config(body or {})
+    audit_mod.log(user, "sharepoint.config", "config", 0, {"site": cfg.get("site_path")})
+    return cfg
+
+
+@router.post("/ingest/sharepoint/test")
+def sharepoint_test(user: dict = Depends(require_admin)):
+    from . import sharepoint
+    return sharepoint.test_connection()
+
+
+@router.get("/ingest/sharepoint/scan")
+def sharepoint_preview(user: dict = Depends(require_admin)):
+    """What a SharePoint import WOULD queue (no writes)."""
+    from . import sharepoint
+    return sharepoint.preview()
+
+
+@router.post("/ingest/sharepoint/import")
+def sharepoint_import(user: dict = Depends(require_admin)):
+    """Pull every new file from the configured SharePoint library and queue it."""
+    from . import sharepoint
+    if not sharepoint.enabled():
+        raise HTTPException(status_code=400,
+                            detail="SharePoint not configured (set creds + SHAREPOINT_CLIENT_SECRET)")
+    res = sharepoint.import_all(uploaded_by=user.get("email"))
+    if res.get("queued"):
+        notify.emit("ingest", f"Imported {res['queued']} document(s) from SharePoint",
+                    f"{res.get('skipped', 0)} already present", "info")
+    audit_mod.log(user, "doc.sharepoint_import", "doc", 0, res)
+    return res
+
+
 # ---------------- Storage config (super-admin, Settings → Storage) ----------------
 @router.get("/storage/config", dependencies=[Depends(require_admin)])
 def storage_config():

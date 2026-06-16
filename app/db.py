@@ -190,6 +190,13 @@ CREATE TABLE IF NOT EXISTS chip_events (
 CREATE INDEX IF NOT EXISTS idx_chipev_chip ON chip_events(chip_id);
 CREATE INDEX IF NOT EXISTS idx_chipev_time ON chip_events(created_at);
 
+-- generic non-secret config for integrations (SharePoint, etc.). Secrets stay in env.
+CREATE TABLE IF NOT EXISTS integration_config (
+    key         TEXT PRIMARY KEY,
+    data        JSONB NOT NULL DEFAULT '{}',
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS chat_log (
     id          BIGSERIAL PRIMARY KEY,
     q           TEXT,
