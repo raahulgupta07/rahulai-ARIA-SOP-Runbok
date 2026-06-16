@@ -191,11 +191,32 @@ def _process(activity: dict) -> None:
     except Exception as e:
         print(f"[teams] identity resolution skipped: {e!r}")
     try:
-        seed = search_pages(q, k=DEFAULT_K)
-        if not seed:
-            out = {"text": "I couldn't find that in the runbooks yet.", "page_ids": []}
+        # Phase-4 Q&A bank: serve an approved cached answer with ZERO agent/LLM.
+        # Repeat SOP questions over Teams are common — this is the cache that the
+        # web /api/ask path already uses; wire it in here too (flag-gated).
+        from .. import config as _cfg
+        served = None
+        if getattr(_cfg, "AUTO_QA_SERVE_ENABLED", True):
+            try:
+                from .. import qa as _qa
+                served = _qa.serve_match(q, min_sim=getattr(_cfg, "AUTO_QA_SERVE_MIN_SIM", 0.72))
+            except Exception as e:
+                print(f"[teams] qa serve skipped: {e!r}")
+        if served:
+            page_ids = served.get("page_ids") or []
+            out = {"text": served["answer"], "page_ids": page_ids}
+            try:
+                from .. import qa as _qa
+                _qa.bump_served(served["id"])
+            except Exception:
+                pass
+            print(f"[teams] served from Q&A bank id={served['id']} sim={served.get('sim'):.2f} (no LLM)")
         else:
-            out = agent_mod.answer(q, seed, mode="quick")   # quick = fast for chat
+            seed = search_pages(q, k=DEFAULT_K)
+            if not seed:
+                out = {"text": "I couldn't find that in the runbooks yet.", "page_ids": []}
+            else:
+                out = agent_mod.answer(q, seed, mode="quick")   # quick = fast for chat
     except Exception as e:
         out = {"text": f"Sorry, something went wrong: {e}", "page_ids": []}
     _reply(service_url, conv, aid, _card(out["text"], out.get("page_ids", [])))
