@@ -56,6 +56,7 @@ export const WS_ITEMS: WsItem[] = [
 
   { id: 'brain-docs',   label: 'Documents', group: 'Brain', kind: 'knowledge', roles: ['admin', 'user'], view: { tab: 'brain', feed: 'doc' } },
   { id: 'brain-facts',  label: 'Facts',     group: 'Brain', kind: 'knowledge', roles: ['admin', 'user'], view: { tab: 'brain', feed: 'fact' } },
+  { id: 'brain-graph',  label: 'Graph',     group: 'Brain', kind: 'knowledge', roles: ['admin', 'user'], view: { tab: 'graph' } },
   { id: 'brain-health', label: 'Health',    group: 'Brain', kind: 'knowledge', roles: ['admin', 'user'], view: { tab: 'audit' }, badge: 'health' },
 
   { id: 'exec',     label: 'Exec',     group: 'Insights', kind: 'insight', roles: ['admin'] },
@@ -92,7 +93,7 @@ wsItem.subscribe((v) => { if (typeof localStorage !== 'undefined') localStorage.
 const WS_HREF: Record<string, string> = {
   '/dashboard': 'overview', '/dashboard/users': 'users', '/dashboard/exec': 'exec',
   '/dashboard/perf': 'overview', '/dashboard/performance': 'overview',
-  '/dashboard/knowledge': 'brain-health', '/dashboard/graph': 'brain-docs',
+  '/dashboard/knowledge': 'brain-health', '/dashboard/graph': 'brain-graph',
   '/dashboard/review': 'review', '/dashboard/system': 'system',
   '/dashboard/learning': 'learning', '/brain': 'brain-docs'
 };
