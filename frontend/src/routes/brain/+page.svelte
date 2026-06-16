@@ -84,7 +84,11 @@
     } catch (e: any) {
       if (seq === feedSeq) { feedItems = []; feedErr = e?.message || 'search failed'; }
     } finally {
-      if (seq === feedSeq) feedLoading = false;
+      // ALWAYS clear loading — never gate behind the seq guard. A remount (Workspace
+      // mounts Brain inside {#key active.id}) or a superseding call bumps feedSeq; if
+      // this finally skipped the reset, feedLoading stuck true forever → skeleton-hang.
+      // Keep seq only for DATA writes (feedItems/feedErr) above.
+      feedLoading = false;
     }
   }
   let feedDebounce: ReturnType<typeof setTimeout> | null = null;
@@ -94,6 +98,14 @@
   }
   // re-search whenever the query or chip changes (and we're on the Brain tab, not in the reader)
   $effect(() => { q; feedType; if (railTab === 'brain') scheduleFeed(); });
+  // Load once immediately on mount/remount (don't wait out the 280ms debounce, which a
+  // fast remount could cancel mid-flight) + clear any pending timer when this instance
+  // dies. One-shot guard — an empty result is valid, must NOT re-fetch in a loop.
+  let feedKicked = false;
+  $effect(() => {
+    if (!feedKicked && railTab === 'brain') { feedKicked = true; loadFeed(); }
+    return () => { if (feedDebounce) clearTimeout(feedDebounce); };
+  });
   // single-letter type chip (no emoji): F fact / D document / P page
   function typeIcon(t: string) { return t === 'fact' ? 'F' : t === 'doc' ? 'D' : 'P'; }
   // Clean a feed-row PREVIEW snippet (display-only — never mutates stored data, never the title).

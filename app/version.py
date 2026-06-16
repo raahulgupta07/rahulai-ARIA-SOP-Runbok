@@ -6,12 +6,21 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.1.1"
+VERSION = "2.1.2"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.1.2",
+        "date": "2026-06-16",
+        "title": "Fix Brain knowledge feed stuck on loading",
+        "lines": [
+            "Agent Brain → Documents / Facts / Q&A no longer hangs on skeleton loaders",
+            "Feed loads instantly on open and on every tab switch (no remount stall)",
+        ],
+    },
     {
         "version": "2.1.1",
         "date": "2026-06-16",
