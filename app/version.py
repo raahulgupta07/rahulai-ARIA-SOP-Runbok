@@ -6,12 +6,23 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.14.1"
+VERSION = "2.14.2"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.14.2",
+        "date": "2026-06-16",
+        "title": "Fix: Documents show instantly in Workspace (no empty flash)",
+        "lines": [
+            "Landing on Workspace now shows your documents immediately, first time",
+            "No more empty 'No documents yet' before the list appears",
+            "Brain documents, facts and Q&A share one cache — loaded once, shown everywhere",
+            "Cold reload paints the last-known list instantly, then refreshes in the background",
+        ],
+    },
     {
         "version": "2.14.1",
         "date": "2026-06-16",

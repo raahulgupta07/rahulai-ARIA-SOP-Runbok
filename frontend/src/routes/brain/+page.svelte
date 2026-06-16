@@ -9,7 +9,7 @@
   import { parseDocName, cleanText } from '$lib/docname';
   import Lightbox from '$lib/Lightbox.svelte';
   import { auth } from '$lib/auth';
-  import { brainTeachSignal, brainFilesSignal, brainScanSignal, brainS3Signal } from '$lib/dashstore';
+  import { brainTeachSignal, brainFilesSignal, brainScanSignal, brainS3Signal, brainData, loadBrainData } from '$lib/dashstore';
   let _me = $state<any>(auth.cachedUser());
   $effect(() => { if (!_me) auth.me().then((u) => (_me = u)).catch(() => {}); });
   let isAdmin = $derived(_me?.role === 'admin');
@@ -24,11 +24,14 @@
   type Fact = { id: number; key?: string; value: string; source?: string; created_by?: string;
     status?: string; cited_count?: number; last_cited_at?: string; created_at?: string };
 
-  let docs = $state<Doc[]>([]);
-  let facts = $state<Fact[]>([]);
-  let pending = $state(0);                              // chat-learned facts awaiting review
-  let stats = $state<any>(null);
-  let loading = $state(true);
+  // The Brain data bundle now lives in ONE shared store (loaded at the Workspace
+  // shell + hydrated from localStorage) so the Documents grid paints instantly on
+  // every tab and never races first paint. These are read-only $derived views.
+  let docs = $derived<Doc[]>($brainData.docs);
+  let facts = $derived<Fact[]>($brainData.facts);
+  let pending = $derived($brainData.pending);          // chat-learned facts awaiting review
+  let stats = $derived<any>($brainData.stats);
+  let loading = $derived(!$brainData.loaded);
 
   // ── Q&A bank (auto-mined from docs + harvested from upvoted chat) ──
   type QAPair = {
@@ -37,8 +40,8 @@
     page_ids?: number[]; origin?: string | null; cited_count?: number;
     created_at?: string;
   };
-  let qaPairs = $state<QAPair[]>([]);
-  let qaCounts = $state<{ active: number; pending: number; rejected: number }>({ active: 0, pending: 0, rejected: 0 });
+  let qaPairs = $derived<QAPair[]>($brainData.qaPairs);
+  let qaCounts = $derived<{ active: number; pending: number; rejected: number }>($brainData.qaCounts);
   let qaFilter = $state<'all' | 'active' | 'pending' | 'rejected'>('all');
 
   let q = $state('');                                  // one search over docs + facts
@@ -161,31 +164,13 @@
   let uploads = $state<{ name: string; status: string; dup?: boolean }[]>([]);   // only used for upload ERRORS / skipped now
   let fileInput: HTMLInputElement;
 
-  let loadingFlight = false;                                       // guard against overlapping loads
-  async function load(showSpinner = true) {
-    if (loadingFlight) return;
-    loadingFlight = true;
-    if (showSpinner) loading = true;
-    try {
-      // fire all three in parallel — they're independent (was serial ~40ms → ~15ms)
-      const [docsR, mem, usageR, qaR] = await Promise.all([
-        api.documents(),
-        api.memory(),
-        api.usage().catch(() => ({ stats: undefined })),
-        api.qa().catch(() => ({ qa: [], counts: { active: 0, pending: 0, rejected: 0 } })),
-      ]);
-      docs = docsR.docs || [];
-      facts = mem.memory || [];
-      pending = mem.pending || 0;
-      qaPairs = qaR.qa || [];
-      qaCounts = qaR.counts || { active: 0, pending: 0, rejected: 0 };
-      if (usageR.stats) stats = usageR.stats;
-    } finally {
-      loading = false;
-      loadingFlight = false;
-    }
-  }
-  $effect(() => { load(); loadAudit(); });   // audit loads on mount too → tab chip + dashboard
+  // Thin wrapper over the shared store loader. force=true so explicit reloads
+  // after mutations (approve/reject/upload/retry/qa edit) always refetch.
+  // Dedup + stale-while-revalidate now live in loadBrainData.
+  async function load(_show = true) { await loadBrainData(true); }
+  // Standalone /brain route has no Workspace shell to kick the load → trigger it
+  // here (loadBrainData dedups + SWR-guards, so it's cheap when the shell already did).
+  $effect(() => { loadBrainData(); loadAudit(); });   // audit loads on mount too → tab chip + dashboard
 
   function band(s: number) { return s >= 85 ? '#5fa463' : s >= 60 ? '#d3a13e' : '#cf6a4c'; }
   function scoreVerdict(s: number) { return s >= 90 ? 'Excellent' : s >= 75 ? 'Healthy' : s >= 55 ? 'Needs work' : 'At risk'; }
@@ -2151,7 +2136,7 @@
           </div>
         </div>
 
-      {:else if loading && docs.length === 0 && feedItems.length === 0}
+      {:else if !$brainData.loaded && docs.length === 0 && feedItems.length === 0}
         <!-- SKELETON — only while NOTHING has loaded yet. Never gate already-loaded
              content behind the `loading` flag: if the flag ever sticks true (stale
              remount / superseded call), real docs would be hidden forever. Once docs

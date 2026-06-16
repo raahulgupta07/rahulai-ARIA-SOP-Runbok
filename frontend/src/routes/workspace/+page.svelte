@@ -2,7 +2,7 @@
   import '$lib/dashboard.css';
   import { auth, type User } from '$lib/auth';
   import { api } from '$lib/api';
-  import { range, tick, wsItem, WS_ITEMS, brainTeachSignal, brainFilesSignal, brainScanSignal, brainS3Signal } from '$lib/dashstore';
+  import { range, tick, wsItem, WS_ITEMS, brainTeachSignal, brainFilesSignal, brainScanSignal, brainS3Signal, loadBrainData } from '$lib/dashstore';
   import { RANGES } from '$lib/dashutil';
   import { onMount } from 'svelte';
   import Overview from '$lib/dashboard/sections/Overview.svelte';
@@ -36,7 +36,10 @@
 
   // Health badge (audit score) for the BRAIN → Health rail row
   let healthScore = $state<number | null>(null);
-  onMount(() => { api.auditCoverage(30).then((r) => (healthScore = r?.score ?? null)).catch(() => {}); });
+  onMount(() => {
+    loadBrainData();   // revalidate the shared Brain bundle (store already hydrated → instant paint everywhere)
+    api.auditCoverage(30).then((r) => (healthScore = r?.score ?? null)).catch(() => {});
+  });
 
   // ---- master kill switch ----
   let ingState = $state<any>(null);

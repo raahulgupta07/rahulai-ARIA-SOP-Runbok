@@ -1,5 +1,6 @@
 // Shared dashboard state across the /dashboard sub-routes (the time-range filter).
-import { writable } from 'svelte/store';
+import { writable, get } from 'svelte/store';
+import { api } from './api';
 
 const KEY = 'aria_dash_range';
 function initRange(): number {
@@ -86,6 +87,80 @@ export const brainS3Signal = writable(0);   // bulk import from S3 bucket
 
 export const wsItem = writable<string>(initWs());
 wsItem.subscribe((v) => { if (typeof localStorage !== 'undefined') localStorage.setItem(WKEY, v); });
+
+// ---- Shared Brain data bundle (loaded once at the Workspace shell) ----
+// The embedded Brain used to fill its own `docs`/`facts`/… via an async load()
+// that races first paint and never retriggers on tab switch (single-mounted, no
+// {#key}) → landing on Documents showed "No documents yet" until you toggled to
+// Facts and back. Fix: ONE shared store, hydrated from localStorage synchronously
+// (instant paint) + stale-while-revalidate refetch.
+export type BrainData = {
+  docs: any[]; facts: any[]; pending: number;
+  qaPairs: any[]; qaCounts: { active: number; pending: number; rejected: number };
+  stats: any; loaded: boolean; fetchedAt: number;
+};
+const BKEY = 'aria_brain_cache';
+function emptyBrain(): BrainData {
+  return { docs: [], facts: [], pending: 0, qaPairs: [], qaCounts: { active: 0, pending: 0, rejected: 0 }, stats: undefined, loaded: false, fetchedAt: 0 };
+}
+function initBrain(): BrainData {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const v = JSON.parse(localStorage.getItem(BKEY) || '');
+      if (v && typeof v === 'object') {
+        const e = emptyBrain();
+        return {
+          docs: v.docs || e.docs,
+          facts: v.facts || e.facts,
+          pending: v.pending || e.pending,
+          qaPairs: v.qaPairs || e.qaPairs,
+          qaCounts: v.qaCounts || e.qaCounts,
+          stats: v.stats,
+          loaded: !!v.loaded,
+          fetchedAt: v.fetchedAt || 0
+        };
+      }
+    } catch {}
+  }
+  return emptyBrain();
+}
+export const brainData = writable<BrainData>(initBrain());
+
+let _brainInflight: Promise<void> | null = null;
+const BRAIN_TTL_MS = 60000;   // stale-while-revalidate window
+export function loadBrainData(force = false): Promise<void> {
+  if (_brainInflight) return _brainInflight;            // dedup concurrent callers
+  const cur = get(brainData);
+  if (!force && cur.loaded && Date.now() - cur.fetchedAt < BRAIN_TTL_MS) {
+    return Promise.resolve();                           // fresh enough → skip fetch
+  }
+  _brainInflight = (async () => {
+    try {
+      const [docsR, mem, usageR, qaR] = await Promise.all([
+        api.documents(),
+        api.memory(),
+        api.usage().catch(() => ({ stats: undefined })),
+        api.qa().catch(() => ({ qa: [], counts: { active: 0, pending: 0, rejected: 0 } }))
+      ]);
+      const prev = get(brainData);
+      const next: BrainData = {
+        docs: docsR.docs || [],
+        facts: mem.memory || [],
+        pending: mem.pending || 0,
+        qaPairs: qaR.qa || [],
+        qaCounts: qaR.counts || { active: 0, pending: 0, rejected: 0 },
+        stats: usageR.stats ?? prev.stats,              // preserve prior stats if usage failed
+        loaded: true,
+        fetchedAt: Date.now()
+      };
+      brainData.set(next);
+      try { if (typeof localStorage !== 'undefined') localStorage.setItem(BKEY, JSON.stringify(next)); } catch {}
+    } finally {
+      _brainInflight = null;
+    }
+  })();
+  return _brainInflight;
+}
 
 // Cross-links inside dashboard sections used to goto('/dashboard/..') / '/brain',
 // which jumps OUT of the unified Workspace. When inside /workspace, switch the
