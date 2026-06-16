@@ -6,12 +6,22 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.3.1"
+VERSION = "2.4.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.4.0",
+        "date": "2026-06-16",
+        "title": "Starter questions that learn from what you click",
+        "lines": [
+            "Home starter questions now adapt over time — popular ones surface more",
+            "New questions still get a fair chance to be seen (explore vs exploit)",
+            "A POPULAR badge marks the most-clicked question this week",
+        ],
+    },
     {
         "version": "2.3.1",
         "date": "2026-06-16",

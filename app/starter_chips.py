@@ -162,25 +162,100 @@ def refresh() -> int:
     return _store(chips)
 
 
+import random
+
+# rolling window (days) for the bandit's click/impression counts
+_WINDOW_DAYS = 14
+
+
 def read(lang: str = "en", limit: int = 4) -> list[dict]:
-    """Read curated chips for the home hero. lang 'my' → Burmese (falls back to EN).
-    Returns [] when the table is empty (caller falls through to live DB logic)."""
+    """Pick chips for the home hero via a Thompson-sampling bandit over click data.
+
+    Each chip is an arm scored by sampling Beta(clicks+1, no_clicks+1) on a rolling
+    window. High-click chips win most of the time; low-impression (cold-start) chips
+    keep high variance so they still get explored. lang 'my' → Burmese (falls back
+    to EN). Returns [] when the table is empty → caller uses the live DB logic.
+    The chosen chips are logged as impressions. Each carries its `id` so the client
+    can report a click."""
     try:
         with get_conn() as conn:
             rows = conn.execute(
-                "SELECT sc.q_en, sc.q_my, sc.cat, sc.doc_id, d.name AS doc_name "
+                "SELECT sc.id, sc.q_en, sc.q_my, sc.cat, sc.doc_id, d.name AS doc_name "
                 "FROM starter_chips sc LEFT JOIN docs d ON d.id = sc.doc_id "
-                "ORDER BY sc.rank LIMIT %s",
-                (limit,),
+                "ORDER BY sc.rank"
             ).fetchall()
+            if not rows:
+                return []
+            stats = conn.execute(
+                "SELECT chip_id, "
+                "count(*) FILTER (WHERE event='shown')   AS shown, "
+                "count(*) FILTER (WHERE event='clicked') AS clicked "
+                "FROM chip_events "
+                "WHERE created_at > now() - make_interval(days => %s) "
+                "GROUP BY chip_id",
+                (_WINDOW_DAYS,),
+            ).fetchall()
+            # 7-day hottest (most clicks) for a "trending" badge
+            hot = conn.execute(
+                "SELECT chip_id FROM chip_events "
+                "WHERE event='clicked' AND created_at > now() - make_interval(days => 7) "
+                "GROUP BY chip_id ORDER BY count(*) DESC LIMIT 1"
+            ).fetchone()
     except Exception:
         return []
-    out = []
+
+    by_id = {s["chip_id"]: s for s in stats}
+    hot_id = hot["chip_id"] if hot else None
+
+    scored = []
     for r in rows:
+        s = by_id.get(r["id"]) or {}
+        shown = int(s.get("shown") or 0)
+        clicked = int(s.get("clicked") or 0)
+        no_click = max(0, shown - clicked)
+        # Thompson sample — Beta(clicks+1, non-clicks+1). vary alpha/beta by index so
+        # repeated identical states still differ (Math.random-free determinism not needed
+        # here; this is normal app code).
+        sample = random.betavariate(clicked + 1, no_click + 1)
+        scored.append((sample, r))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    picked = [r for _, r in scored[:limit]]
+
+    out = []
+    for r in picked:
         q = (r["q_my"] if lang == "my" and r["q_my"] else r["q_en"]) or r["q_en"]
         out.append({
+            "id": r["id"],
             "cat": (r["cat"] or "DOCS"),
             "q": q,
             "doc": _doc_topic(r["doc_name"]) if r["doc_name"] else None,
+            "hot": r["id"] == hot_id,
         })
+    _log_shown([r["id"] for r in picked], lang)
     return out
+
+
+def _log_shown(chip_ids: list, lang: str) -> None:
+    if not chip_ids:
+        return
+    try:
+        with get_conn() as conn:
+            for cid in chip_ids:
+                conn.execute(
+                    "INSERT INTO chip_events (chip_id, event, lang) VALUES (%s, 'shown', %s)",
+                    (cid, lang),
+                )
+    except Exception:
+        pass
+
+
+def log_click(chip_id: int, lang: str = "en") -> None:
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT INTO chip_events (chip_id, event, lang) VALUES (%s, 'clicked', %s)",
+                (int(chip_id), lang),
+            )
+    except Exception:
+        pass

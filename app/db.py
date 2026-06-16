@@ -179,6 +179,17 @@ CREATE TABLE IF NOT EXISTS starter_chips (
 );
 CREATE INDEX IF NOT EXISTS idx_starter_rank ON starter_chips(rank);
 
+-- behavioral signal for the chip bandit: one row per impression / click.
+CREATE TABLE IF NOT EXISTS chip_events (
+    id          BIGSERIAL PRIMARY KEY,
+    chip_id     BIGINT NOT NULL,                -- references starter_chips.id (soft)
+    event       TEXT NOT NULL,                  -- 'shown' | 'clicked'
+    lang        TEXT,                           -- 'en' | 'my'
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_chipev_chip ON chip_events(chip_id);
+CREATE INDEX IF NOT EXISTS idx_chipev_time ON chip_events(created_at);
+
 CREATE TABLE IF NOT EXISTS chat_log (
     id          BIGSERIAL PRIMARY KEY,
     q           TEXT,

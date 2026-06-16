@@ -343,6 +343,19 @@ def _suggestions_live():
     return {"suggestions": out[:4]}
 
 
+@router.post("/suggestions/click")
+def suggestions_click(req: dict):
+    """Record a starter-chip click (bandit reward signal). Public, fail-soft."""
+    try:
+        cid = int(req.get("id"))
+    except (TypeError, ValueError):
+        return {"ok": False}
+    from . import starter_chips as _sc
+    lang = "my" if str(req.get("lang", "")).lower().startswith("my") else "en"
+    _sc.log_click(cid, lang)
+    return {"ok": True}
+
+
 @router.post("/suggestions/refresh", dependencies=[Depends(require_admin)])
 def suggestions_refresh():
     """Rebuild the LLM-curated bilingual starter chips (one LLM call). Admin-only."""

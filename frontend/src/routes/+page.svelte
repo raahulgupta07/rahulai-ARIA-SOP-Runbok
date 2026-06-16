@@ -384,7 +384,7 @@
 
   // quiet suggestion chips (claude-style) — corpus-derived (zero LLM), click fills the composer.
   // server returns proven Q&A first, then doc-section titles, then curated fallbacks.
-  let starters = $state<{ cat: string; q: string; doc?: string | null }[]>([
+  let starters = $state<{ cat: string; q: string; doc?: string | null; id?: number; hot?: boolean }[]>([
     { cat: 'SETUP',    q: 'How do I create a new site in Gold Central?' },
     { cat: 'USERS',    q: 'How to disable a user account?' },
     { cat: 'BATCH',    q: 'Night batch job ကျသွားရင် ဘာလုပ်ရမလဲ?' },
@@ -399,6 +399,10 @@
   });
   let taEl = $state<HTMLTextAreaElement | null>(null);
   function useSuggestion(q: string) { input = q; send(); }
+  function clickStarter(s: { id?: number; q: string }) {
+    if (s.id != null) api.chipClick(s.id, chipLang);   // bandit reward signal
+    useSuggestion(s.q);
+  }
 
   // pick a line-icon name for a starter card from its category/question text
   function chipIcon(s: { cat: string; q: string }): string {
@@ -614,7 +618,7 @@
           <!-- corpus-derived starter cards (2×2) -->
           <div class="mt-8 sgrid">
             {#each starters as s}
-              <button class="scard" onclick={() => useSuggestion(s.q)}>
+              <button class="scard" onclick={() => clickStarter(s)}>
                 <span class="scard-eyebrow">
                   <span class="scard-ic">
                     {#if chipIcon(s) === 'user'}
@@ -632,6 +636,7 @@
                     {/if}
                   </span>
                   <span class="scard-cat">{chipLabel(s)}</span>
+                  {#if s.hot}<span class="scard-hot" title="Popular this week">POPULAR</span>{/if}
                   <svg class="scard-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
                 </span>
                 <span class="scard-q">{s.q}</span>
@@ -948,6 +953,11 @@
   .scard-doc {
     display: block; margin-top: 7px; font-size: 11px; color: var(--muted);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .85;
+  }
+  .scard-hot {
+    margin-left: 6px; font-size: 8.5px; font-weight: 700; letter-spacing: .06em;
+    color: var(--clay); border: 1px solid var(--clay); border-radius: 999px;
+    padding: 1px 6px; opacity: .9;
   }
   @media (max-width: 560px) { .sgrid { grid-template-columns: 1fr; } }
 

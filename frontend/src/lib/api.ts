@@ -46,6 +46,10 @@ export const api = {
     try { const r = await fetch(`${BASE}/suggestions?lang=${lang}`, { headers: headers(false) }); return r.ok ? await r.json() : null; }
     catch { return null; }
   },
+  // bandit reward — record a starter-chip click (fail-soft)
+  chipClick(id: number, lang: 'en' | 'my' = 'en') {
+    try { fetch(`${BASE}/suggestions/click`, { method: 'POST', headers: headers(), body: JSON.stringify({ id, lang }) }).catch(() => {}); } catch {}
+  },
 
   // 👍/👎 (+ optional note) on an answer
   async feedback(body: { conversation_id: number | null; vote: 'up' | 'down'; text?: string; answer?: string }) {
