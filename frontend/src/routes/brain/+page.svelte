@@ -832,6 +832,18 @@
     if (!confirm('Delete this Q&A pair?')) return;
     qaBusy = p.id; try { await api.deleteQa(p.id); await load(false); } catch {} finally { qaBusy = null; }
   }
+  // inline rewrite — fix a demoted/weak pair instead of only approve/reject
+  let qaEditId = $state<number | null>(null);
+  let qaEditQ = $state('');
+  let qaEditA = $state('');
+  function startQaEdit(p: QAPair) { qaEditId = p.id; qaEditQ = p.question; qaEditA = p.answer; }
+  function cancelQaEdit() { qaEditId = null; qaEditQ = ''; qaEditA = ''; }
+  async function saveQaEdit(p: QAPair) {
+    if (!qaEditQ.trim() || !qaEditA.trim()) return;
+    qaBusy = p.id;
+    try { await api.updateQa(p.id, qaEditQ.trim(), qaEditA.trim()); qaEditId = null; await load(false); }
+    catch {} finally { qaBusy = null; }
+  }
   let qaShown = $derived(qaFilter === 'all' ? qaPairs : qaPairs.filter((p) => (p.status || 'pending') === qaFilter));
   let pendingFacts = $derived(facts.filter((f) => f.status === 'pending'));
   let activeFacts = $derived(facts.filter((f) => f.status !== 'pending' && f.status !== 'rejected'));
@@ -2447,6 +2459,14 @@
               {#each qaShown as p (p.id)}
                 {@const st = p.status || 'pending'}
                 <div class="panel p-4 flex flex-col gap-2" style="border-left:3px solid {st === 'active' ? '#5fa463' : st === 'rejected' ? '#cf6a4c' : '#c98a2e'}">
+                  {#if qaEditId === p.id}
+                    <input bind:value={qaEditQ} class="w-full rounded-[8px] border px-2.5 py-1.5 text-[13.5px] font-semibold outline-none" style="border-color:var(--border); background:var(--paper); color:var(--ink)" placeholder="Question" />
+                    <textarea bind:value={qaEditA} rows="4" class="w-full rounded-[8px] border px-2.5 py-1.5 text-[12.5px] leading-relaxed outline-none resize-y" style="border-color:var(--border); background:var(--paper); color:var(--ink)" placeholder="Answer"></textarea>
+                    <div class="flex gap-1.5 mt-1">
+                      <button disabled={qaBusy === p.id || !qaEditQ.trim() || !qaEditA.trim()} onclick={() => saveQaEdit(p)} class="text-[12px] px-3 py-1.5 rounded-[8px] text-white disabled:opacity-50" style="background:var(--clay)">Save</button>
+                      <button disabled={qaBusy === p.id} onclick={cancelQaEdit} class="text-[12px] px-3 py-1.5 rounded-[8px] border disabled:opacity-50" style="border-color:var(--border); color:var(--muted); background:#fff">Cancel</button>
+                    </div>
+                  {:else}
                   <div class="flex items-start justify-between gap-3">
                     <div class="text-[13.5px] font-semibold leading-snug" style="color:var(--ink)">{p.question}</div>
                     <span class="ftag shrink-0" style="background:{st === 'active' ? '#eef3ef' : st === 'rejected' ? '#fbe9e6' : '#fbf1df'}; color:{st === 'active' ? '#3f8f5f' : st === 'rejected' ? '#c0492f' : '#a9742a'}">{st.toUpperCase()}</span>
@@ -2461,8 +2481,10 @@
                   <div class="flex gap-1.5 mt-1">
                     {#if st !== 'active'}<button disabled={qaBusy === p.id} onclick={() => approveQa(p)} class="text-[12px] px-3 py-1.5 rounded-[8px] text-white disabled:opacity-50" style="background:var(--clay)">✓ Approve</button>{/if}
                     {#if st !== 'rejected'}<button disabled={qaBusy === p.id} onclick={() => rejectQa(p)} class="text-[12px] px-3 py-1.5 rounded-[8px] border disabled:opacity-50" style="border-color:var(--border); color:var(--muted); background:#fff">Reject</button>{/if}
+                    <button disabled={qaBusy === p.id} onclick={() => startQaEdit(p)} class="text-[12px] px-3 py-1.5 rounded-[8px] border disabled:opacity-50" style="border-color:var(--border); color:var(--muted); background:#fff">Edit</button>
                     <button disabled={qaBusy === p.id} onclick={() => delQa(p)} class="text-[12px] px-2.5 py-1.5 rounded-[8px] border disabled:opacity-50 ml-auto" style="border-color:var(--border); color:var(--muted); background:#fff" title="Delete">Delete</button>
                   </div>
+                  {/if}
                 </div>
               {/each}
             </div>

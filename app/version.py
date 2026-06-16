@@ -6,12 +6,22 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.4.0"
+VERSION = "2.5.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.5.0",
+        "date": "2026-06-16",
+        "title": "Rewrite Q&A in place + a more responsive app under load",
+        "lines": [
+            "Edit any Q&A pair right in Brain - rewrite weak answers instead of just hiding",
+            "The app stays responsive while large documents are processing",
+            "Burmese questions reliably get Burmese answers (verified end to end)",
+        ],
+    },
     {
         "version": "2.4.0",
         "date": "2026-06-16",

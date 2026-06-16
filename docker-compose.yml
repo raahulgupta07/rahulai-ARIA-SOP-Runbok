@@ -28,7 +28,7 @@ services:
     container_name: docsensei-app
     # Multi-worker uvicorn. Background daemons are leader-gated (app/leader.py)
     # so only one worker runs them. ${WEB_CONCURRENCY} workers.
-    command: ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8077 --workers ${WEB_CONCURRENCY:-2}"]
+    command: ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8077 --workers ${WEB_CONCURRENCY:-4}"]
     depends_on:
       db:
         condition: service_healthy
@@ -37,7 +37,7 @@ services:
       DB_POOL_MIN: ${DB_POOL_MIN:-2}
       DB_POOL_MAX: ${DB_POOL_MAX:-20}
       DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
-      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
       LLM_MAX_CONCURRENCY: ${LLM_MAX_CONCURRENCY:-6}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       INGEST_MODEL: ${INGEST_MODEL:-openrouter/google/gemini-3.1-flash-lite}
@@ -53,7 +53,8 @@ services:
       COMPILE_MODEL: ${COMPILE_MODEL:-}
       AUTO_CATEGORIZE: ${AUTO_CATEGORIZE:-1}
       VISION_PREREAD: ${VISION_PREREAD:-1}
-      VISION_WORKERS: ${VISION_WORKERS:-6}
+      # 3 keeps ingest from starving HTTP under the GIL (was 6). Tune per host.
+      VISION_WORKERS: ${VISION_WORKERS:-3}
       # ---- auth / runtime ----
       APP_ENV: ${APP_ENV:-dev}
       JWT_SECRET: ${JWT_SECRET:-dev-docsensei-change-me}
