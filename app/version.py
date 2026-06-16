@@ -6,12 +6,22 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.1.2"
+VERSION = "2.2.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.2.0",
+        "date": "2026-06-16",
+        "title": "Fuller Q&A coverage & a self-correcting answer cache",
+        "lines": [
+            "Every document now has mined Q&A — better starter chips and instant answers",
+            "A thumbs-down on a cached answer retires it automatically (out of serve)",
+            "Removed a duplicate uploaded SOP so sources and chips no longer double",
+        ],
+    },
     {
         "version": "2.1.2",
         "date": "2026-06-16",

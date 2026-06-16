@@ -82,6 +82,7 @@ class FeedbackRequest(BaseModel):
     page_ids: list[int] | None = None
     note: str | None = None
     correction: str | None = None
+    served_qa_id: int | None = None   # set when the answer came from the Q&A cache
 
 
 def _is_downvote(vote: str | None) -> bool:
@@ -140,6 +141,20 @@ def feedback(req: FeedbackRequest, user: dict = Depends(current_principal)):
                         correction[:80], "info")
         except Exception as e:
             print(f"[feedback] learn skipped: {e!r}")
+
+    # Close the cache loop: a 👎 on a cache-SERVED answer demotes that pair out of
+    # active serve (→ pending) so it stops being handed out, and an admin can rewrite
+    # or re-approve it in the Q&A queue. One downvote is enough — a served pair is a
+    # curated answer, so a thumbs-down means it's wrong/unhelpful as-is.
+    if _is_downvote(req.vote) and req.served_qa_id:
+        try:
+            from . import qa as qa_mod
+            if qa_mod.set_qa_status(req.served_qa_id, "pending"):
+                audit_mod.log(user, "qa.demote_on_downvote", "qa", req.served_qa_id)
+                notify.emit("memory", "Cached Q&A demoted after a downvote",
+                            (req.question or "")[:80], "info")
+        except Exception as e:
+            print(f"[feedback] qa demote skipped: {e!r}")
 
     # Phase 2: harvest a Q&A pair FREE from an UPVOTED, SOURCED answer (zero LLM —
     # reuse the answer the user already liked). Only when it cited pages (grounded)
@@ -407,7 +422,8 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
             qa_mod.bump_served(hit["id"])
             title = convo.autotitle(conv_id, req.q) if first_turn else None
             return {"answer": ans, "pages": cited, "conversation_id": conv_id,
-                    "title": title, "served_from_bank": True}
+                    "title": title, "served_from_bank": True,
+                    "served_qa_id": hit["id"]}
 
     seed = search_pages(req.q, k=req.k or DEFAULT_K)
     if not seed:
@@ -496,6 +512,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
                                   "tokens": {"in": 0, "out": 0, "total": 0},
                                   "cost": 0, "cited_n": len(cited),
                                   "followups": [], "served_from_bank": True,
+                                  "served_qa_id": hit["id"],
                                   "grounded": len(cited) > 0}) + "\n"
                 return
 

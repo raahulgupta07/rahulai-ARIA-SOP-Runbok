@@ -16,7 +16,7 @@
 
   type Src = { page_id: number; doc_id?: number; doc_name: string; page_no: number; image_url: string; has_image?: boolean };
   type Step = { label: string; detail?: string; state?: string };
-  type Msg = { role: 'user' | 'bot'; text: string; pages?: Src[]; loading?: boolean; follows?: string[]; steps?: Step[]; thinking?: boolean; stepsOpen?: boolean; stopped?: boolean; vote?: 'up' | 'down'; copied?: boolean; shared?: boolean; streaming?: boolean; t0?: number; thoughtMs?: number; q?: string; blind?: boolean; nearest?: string | null; related?: any[]; messageId?: number; tokens?: { in: number; out: number; total: number }; cost?: number; grounded?: boolean; citedN?: number; accuracy?: number | null; checking?: boolean };
+  type Msg = { role: 'user' | 'bot'; text: string; pages?: Src[]; loading?: boolean; follows?: string[]; steps?: Step[]; thinking?: boolean; stepsOpen?: boolean; stopped?: boolean; vote?: 'up' | 'down'; copied?: boolean; shared?: boolean; streaming?: boolean; t0?: number; thoughtMs?: number; q?: string; blind?: boolean; nearest?: string | null; related?: any[]; messageId?: number; tokens?: { in: number; out: number; total: number }; cost?: number; grounded?: boolean; citedN?: number; accuracy?: number | null; checking?: boolean; servedQaId?: number | null };
   type Conv = { id: number; title: string; updated_at: string };
 
   let activeId = $state<number | null>(null);
@@ -116,6 +116,7 @@
         m.tokens = obj.tokens;
         m.cost = obj.cost;
         m.grounded = !!obj.grounded;
+        m.servedQaId = obj.served_qa_id ?? null;   // set when answer came from Q&A cache
         m.citedN = obj.cited_n ?? (obj.pages || []).length;
         messages = messages;
         // accuracy is on-demand: user clicks the ✦ check-accuracy button (saves an LLM call/answer)
@@ -300,7 +301,8 @@
       vote: 'down',
       answer: m.text,
       question: questionFor(m),
-      page_ids: (m.pages || []).map((p) => p.page_id)
+      page_ids: (m.pages || []).map((p) => p.page_id),
+      served_qa_id: m.servedQaId ?? null   // 👎 on a cache-served answer demotes that pair
     };
     if (!skip) {
       if (downNote.trim()) body.note = downNote.trim();
