@@ -18,6 +18,15 @@ DATABASE_URL = os.getenv(
     "postgresql://docsensei:docsensei@localhost:5436/docsensei",
 )
 
+# ---- DB connection pool (psycopg_pool) ----
+# Previously get_conn() opened a brand-new connection per call (no pool) -> PG
+# max_connections exhausts under ~15 concurrent requests. Pool reuses conns.
+# Size for: pool fits inside PG max_connections across all uvicorn workers
+# (DB_POOL_MAX * WEB_CONCURRENCY < pg max_connections).
+DB_POOL_MIN     = int(os.getenv("DB_POOL_MIN", "2"))
+DB_POOL_MAX     = int(os.getenv("DB_POOL_MAX", "20"))
+DB_POOL_TIMEOUT = float(os.getenv("DB_POOL_TIMEOUT", "30"))  # secs to wait for a free conn
+
 DATA_DIR = ROOT / os.getenv("DATA_DIR", "./data").lstrip("./")
 PAGES_DIR = ROOT / os.getenv("PAGES_DIR", "./data/pages").lstrip("./")
 UPLOADS_DIR = ROOT / os.getenv("UPLOADS_DIR", "./data/uploads").lstrip("./")

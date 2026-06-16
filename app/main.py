@@ -44,6 +44,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[s3] init skipped: {e!r}")
     yield
+    from .db import close_pool
+    close_pool()  # drain DB connection pool on shutdown
 
 
 app = FastAPI(title="DocSensei", version="0.1.0", lifespan=lifespan)

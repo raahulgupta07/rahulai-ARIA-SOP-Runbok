@@ -28,6 +28,9 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://docsensei:docsensei@db:5432/docsensei
+      DB_POOL_MIN: ${DB_POOL_MIN:-2}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       INGEST_MODEL: ${INGEST_MODEL:-openrouter/google/gemini-3.1-flash-lite}
       CHAT_MODEL: ${CHAT_MODEL:-google/gemini-3.1-flash-lite}

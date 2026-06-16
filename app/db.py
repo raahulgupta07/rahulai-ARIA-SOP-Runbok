@@ -1,12 +1,52 @@
+import threading
+
 import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
-from .config import DATABASE_URL
+from .config import DATABASE_URL, DB_POOL_MIN, DB_POOL_MAX, DB_POOL_TIMEOUT
+
+# ---- shared connection pool ----
+# One pool per process, lazily built on first use (thread-safe). Replaces the
+# old "new psycopg.connect() per call" which exhausted PG max_connections at
+# ~15 concurrent requests. Pooled conns are autocommit + dict_row, same as before.
+# Callers keep using `with get_conn() as conn:` unchanged — pool.connection() is a
+# context manager that RETURNS the conn to the pool on exit (does not close it).
+_pool: ConnectionPool | None = None
+_pool_lock = threading.Lock()
+
+
+def _get_pool() -> ConnectionPool:
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                _pool = ConnectionPool(
+                    DATABASE_URL,
+                    min_size=DB_POOL_MIN,
+                    max_size=DB_POOL_MAX,
+                    timeout=DB_POOL_TIMEOUT,
+                    kwargs={"row_factory": dict_row, "autocommit": True},
+                    open=True,
+                )
+    return _pool
 
 
 def get_conn():
-    """Open a new autocommit connection with dict rows."""
-    return psycopg.connect(DATABASE_URL, row_factory=dict_row, autocommit=True)
+    """Borrow an autocommit dict-row connection from the shared pool.
+
+    Returns a context manager — use `with get_conn() as conn:`. On exit the
+    connection is returned to the pool (not closed). Drop-in for the old API.
+    """
+    return _get_pool().connection()
+
+
+def close_pool() -> None:
+    """Close the pool on shutdown (lifespan). Safe if never opened."""
+    global _pool
+    if _pool is not None:
+        _pool.close()
+        _pool = None
 
 
 SCHEMA = """
