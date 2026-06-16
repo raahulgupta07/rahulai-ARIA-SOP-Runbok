@@ -58,6 +58,9 @@
 
   let me = $state<User | null>(null);
   let menuOpen = $state(false);
+  // single source of truth for role: admin manages the knowledge base, everyone
+  // else is chat-only (no Workspace/Brain/Settings, no upload/teach/edit).
+  let isAdmin = $derived(me?.role === 'admin');
 
   let isLogin = $derived($page.url.pathname === '/login');
   let isEmbed = $derived($page.url.pathname === '/embed');  // bare iframe widget
@@ -66,6 +69,11 @@
     if (isLogin || isEmbed || isShare) return;
     if (!auth.isAuthed()) { goto('/login'); return; }
     if (!me) auth.me().then((u) => { me = u; if (!u) goto('/login'); });
+  });
+  // chat-only users can't reach admin areas even by typing the URL
+  $effect(() => {
+    if (isLogin || isEmbed || isShare || !me) return;
+    if (!isAdmin && (/^\/(workspace|settings|brain)/.test($page.url.pathname))) goto('/');
   });
 
   // primary nav — Chat is implicit (New chat + history), so only sections here
@@ -110,7 +118,7 @@
       <img src="/brand-logo.png" alt="City Agent Aria" class="h-9 w-auto" />
     </a>
     <div class="w-2"></div>
-    {#each topnav as t}
+    {#each (isAdmin ? topnav : topnav.filter((t) => t.href === '/')) as t}
       {@const on = sectionActive(t.section)}
       <a href={t.href} class="flex items-center gap-2 rounded-[9px] h-9 px-3 text-[14px] transition"
          style={on ? 'background:#f0efed; color:var(--ink); font-weight:600;' : 'color:#46443f;'}
@@ -138,7 +146,7 @@
             <div class="absolute right-0 top-full mt-1.5 w-48 rounded-xl border shadow-lg py-1.5 z-50" style="background:var(--paper); border-color:var(--border)"
                  role="presentation" onmouseleave={() => (menuOpen = false)}>
               <div class="px-3 py-1.5 text-[11px]" style="color:var(--muted)">{me.email}</div>
-              <a href="/settings" onclick={() => (menuOpen = false)} class="block px-3 py-2 text-[13.5px] hover:bg-[#ece9e0]" style="color:#46443f">Settings</a>
+              {#if isAdmin}<a href="/settings" onclick={() => (menuOpen = false)} class="block px-3 py-2 text-[13.5px] hover:bg-[#ece9e0]" style="color:#46443f">Settings</a>{/if}
               <button onclick={logout} class="w-full text-left px-3 py-2 text-[13.5px] hover:bg-[#ece9e0]" style="color:#46443f">Sign out</button>
             </div>
           {/if}

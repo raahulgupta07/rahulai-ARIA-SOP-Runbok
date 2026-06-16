@@ -6,12 +6,22 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.9.0"
+VERSION = "2.10.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.10.0",
+        "date": "2026-06-16",
+        "title": "Admin owns the knowledge base; everyone else just chats",
+        "lines": [
+            "Only admins can upload, edit, approve or delete knowledge (docs, facts, Q&A)",
+            "Regular users get a clean chat-only experience — Workspace/Brain/Settings hidden",
+            "All knowledge-management APIs now require admin (were open to any logged-in user)",
+        ],
+    },
     {
         "version": "2.9.0",
         "date": "2026-06-16",

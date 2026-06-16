@@ -146,7 +146,7 @@ def feedback(req: FeedbackRequest, user: dict = Depends(current_principal)):
     # active serve (→ pending) so it stops being handed out, and an admin can rewrite
     # or re-approve it in the Q&A queue. One downvote is enough — a served pair is a
     # curated answer, so a thumbs-down means it's wrong/unhelpful as-is.
-    if _is_downvote(req.vote) and req.served_qa_id:
+    if _is_downvote(req.vote) and req.served_qa_id and user.get("role") == "admin":
         try:
             from . import qa as qa_mod
             if qa_mod.set_qa_status(req.served_qa_id, "pending"):
@@ -833,7 +833,7 @@ def delete_conversation(conv_id: int, user: dict = Depends(current_user)):
 
 
 @router.post("/upload")
-def upload(file: UploadFile = File(...), user: dict = Depends(current_user)):
+def upload(file: UploadFile = File(...), user: dict = Depends(require_admin)):
     """Accept a SOP/policy (PDF or image) and queue it for async ingest.
     Returns instantly; the background worker renders + reads the pages and the
     doc flips queued -> processing -> ready (poll GET /documents for status)."""
@@ -1023,7 +1023,7 @@ def storage_test(req: dict | None = None, user: dict = Depends(require_admin)):
 
 
 @router.post("/documents/{doc_id}/retry", dependencies=[Depends(require_key)])
-def retry_doc(doc_id: int, user: dict = Depends(current_user)):
+def retry_doc(doc_id: int, user: dict = Depends(require_admin)):
     """Re-queue a failed (or stuck) document for ingest."""
     with get_conn() as conn:
         row = conn.execute(
@@ -1107,7 +1107,7 @@ def cancel_doc_route(doc_id: int, user: dict = Depends(current_user)):
 
 
 @router.post("/memory")
-def teach(req: MemoryRequest, user: dict = Depends(current_user)):
+def teach(req: MemoryRequest, user: dict = Depends(require_admin)):
     """Teach DocSensei a fact (self-learning). Recalled on every /ask.
     Status follows the governance policy for source='human' (default: auto-approve)."""
     from . import governance
@@ -1163,7 +1163,7 @@ def approve_bulk(req: dict, user: dict = Depends(require_admin)):
 
 
 @router.post("/memory/{mem_id}/approve", dependencies=[Depends(require_key)])
-def approve_fact(mem_id: int, user: dict = Depends(current_user)):
+def approve_fact(mem_id: int, user: dict = Depends(require_admin)):
     """Approve a pending (chat-learned) fact so it counts in answers."""
     ok = set_status(mem_id, "active")
     if not ok:
@@ -1174,7 +1174,7 @@ def approve_fact(mem_id: int, user: dict = Depends(current_user)):
 
 
 @router.post("/memory/{mem_id}/reject", dependencies=[Depends(require_key)])
-def reject_fact(mem_id: int, user: dict = Depends(current_user)):
+def reject_fact(mem_id: int, user: dict = Depends(require_admin)):
     """Reject a pending fact (keeps the row, marks it rejected)."""
     ok = set_status(mem_id, "rejected")
     if not ok:
@@ -1189,7 +1189,7 @@ class MemoryEdit(BaseModel):
 
 
 @router.patch("/memory/{mem_id}", dependencies=[Depends(require_key)])
-def edit_fact(mem_id: int, body: MemoryEdit, user: dict = Depends(current_user)):
+def edit_fact(mem_id: int, body: MemoryEdit, user: dict = Depends(require_admin)):
     """Edit a fact's key and/or value in place."""
     ok = update_memory(mem_id, body.key, body.value)
     if not ok:
@@ -1210,7 +1210,7 @@ def get_qa(status: str | None = None, limit: int = 200):
 
 
 @router.post("/qa/{qa_id}/approve", dependencies=[Depends(require_key)])
-def approve_qa(qa_id: int, user: dict = Depends(current_user)):
+def approve_qa(qa_id: int, user: dict = Depends(require_admin)):
     """Approve a pending Q&A pair so it can serve/seed answers."""
     from . import qa as qa_mod
     if not qa_mod.set_qa_status(qa_id, "active"):
@@ -1220,7 +1220,7 @@ def approve_qa(qa_id: int, user: dict = Depends(current_user)):
 
 
 @router.post("/qa/{qa_id}/reject", dependencies=[Depends(require_key)])
-def reject_qa(qa_id: int, user: dict = Depends(current_user)):
+def reject_qa(qa_id: int, user: dict = Depends(require_admin)):
     """Reject a pending Q&A pair (keeps the row, marks it rejected)."""
     from . import qa as qa_mod
     if not qa_mod.set_qa_status(qa_id, "rejected"):
@@ -1252,7 +1252,7 @@ class QaEdit(BaseModel):
 
 
 @router.patch("/qa/{qa_id}", dependencies=[Depends(require_key)])
-def edit_qa(qa_id: int, body: QaEdit, user: dict = Depends(current_user)):
+def edit_qa(qa_id: int, body: QaEdit, user: dict = Depends(require_admin)):
     """Edit a Q&A pair's question and/or answer in place."""
     from . import qa as qa_mod
     if not qa_mod.update_qa(qa_id, body.question, body.answer):
@@ -1262,7 +1262,7 @@ def edit_qa(qa_id: int, body: QaEdit, user: dict = Depends(current_user)):
 
 
 @router.delete("/qa/{qa_id}", dependencies=[Depends(require_key)])
-def delete_qa_pair(qa_id: int, user: dict = Depends(current_user)):
+def delete_qa_pair(qa_id: int, user: dict = Depends(require_admin)):
     """Delete a Q&A pair permanently."""
     from . import qa as qa_mod
     if not qa_mod.delete_qa(qa_id):
@@ -1516,7 +1516,7 @@ def doc_pages(doc_id: int):
 
 
 @router.delete("/documents/{doc_id}", dependencies=[Depends(require_key)])
-def delete_doc(doc_id: int, user: dict = Depends(current_user)):
+def delete_doc(doc_id: int, user: dict = Depends(require_admin)):
     """Delete a document + its pages + nodes (cascade) + page images."""
     with get_conn() as conn:
         name = conn.execute("SELECT name FROM docs WHERE id = %s", (doc_id,)).fetchone()
@@ -1543,7 +1543,7 @@ def delete_doc(doc_id: int, user: dict = Depends(current_user)):
 
 
 @router.delete("/memory/{mem_id}", dependencies=[Depends(require_key)])
-def delete_memory(mem_id: int, user: dict = Depends(current_user)):
+def delete_memory(mem_id: int, user: dict = Depends(require_admin)):
     with get_conn() as conn:
         conn.execute("DELETE FROM memory WHERE id = %s", (mem_id,))
     audit_mod.log(user, "fact.delete", "fact", mem_id)
