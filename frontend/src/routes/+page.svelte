@@ -393,6 +393,21 @@
   });
   let taEl = $state<HTMLTextAreaElement | null>(null);
   function useSuggestion(q: string) { input = q; send(); }
+
+  // pick a line-icon name for a starter card from its category/question text
+  function chipIcon(s: { cat: string; q: string }): string {
+    const t = ((s.cat || '') + ' ' + (s.q || '')).toLowerCase();
+    if (/user|account|login|password|disable|role|permission/.test(t)) return 'user';
+    if (/setup|create|install|configure|new site|provision/.test(t)) return 'setup';
+    if (/batch|job|cron|schedule|night|run/.test(t)) return 'batch';
+    if (/error|issue|fail|trouble|fix|problem|incident/.test(t)) return 'alert';
+    if (/refund|approval|finance|payment|flow|process/.test(t)) return 'flow';
+    return 'doc';
+  }
+  function chipLabel(s: { cat: string; q: string }): string {
+    const c = (s.cat || 'DOCS').trim();
+    return (c.length > 14 ? c.slice(0, 14) : c).toUpperCase();
+  }
   function shortDoc(raw: string) { const t = parseDocName(raw || '').title || raw || ''; return t.length > 22 ? t.slice(0, 21) + '…' : t; }
 
   // live stat tiles for the welcome hero
@@ -585,10 +600,31 @@
             Runbooks &amp; IT assistance — ask me anything from your SOPs · English &amp; မြန်မာ
           </p>
 
-          <!-- quiet suggestion chips -->
-          <div class="mt-8 flex flex-wrap justify-center gap-2.5">
+          <!-- corpus-derived starter cards (2×2) -->
+          <div class="mt-8 sgrid">
             {#each starters as s}
-              <button class="suggest" onclick={() => useSuggestion(s.q)}>{s.q}</button>
+              <button class="scard" onclick={() => useSuggestion(s.q)}>
+                <span class="scard-eyebrow">
+                  <span class="scard-ic">
+                    {#if chipIcon(s) === 'user'}
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    {:else if chipIcon(s) === 'setup'}
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                    {:else if chipIcon(s) === 'batch'}
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                    {:else if chipIcon(s) === 'alert'}
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    {:else if chipIcon(s) === 'flow'}
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M9 6h6a3 3 0 0 1 3 3v6"/></svg>
+                    {:else}
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+                    {/if}
+                  </span>
+                  <span class="scard-cat">{chipLabel(s)}</span>
+                  <svg class="scard-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                </span>
+                <span class="scard-q">{s.q}</span>
+              </button>
             {/each}
           </div>
 
@@ -856,6 +892,49 @@
     transition: border-color .12s ease, background .12s ease, color .12s ease;
   }
   .suggest:hover { border-color: var(--clay); color: var(--clay); background: #f3f3f1; }
+
+  /* corpus-derived starter cards — 2×2 grid, icon + category eyebrow + wrapping question */
+  .sgrid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px; width: 100%; max-width: 560px;
+  }
+  .scard {
+    display: flex; flex-direction: column; gap: 9px; text-align: left;
+    padding: 15px 16px; border: 1px solid var(--border); border-radius: 14px;
+    background: var(--paper);
+    transition: border-color .14s ease, background .14s ease,
+                box-shadow .16s ease, transform .16s ease;
+  }
+  .scard:hover {
+    border-color: #d8d6cf; background: #fcfbfa;
+    box-shadow: 0 6px 18px rgba(0,0,0,.06); transform: translateY(-2px);
+  }
+  .scard-eyebrow { display: flex; align-items: center; gap: 7px; }
+  .scard-ic {
+    width: 24px; height: 24px; border-radius: 7px; flex: none;
+    display: grid; place-items: center;
+    background: #f4f3f0; color: var(--brand);
+    transition: background .14s ease, color .14s ease;
+  }
+  .scard-ic svg { width: 14px; height: 14px; }
+  .scard:hover .scard-ic { background: var(--brand); color: #fff; }
+  .scard-cat {
+    font-size: 10.5px; font-weight: 700; letter-spacing: .07em;
+    color: var(--muted); text-transform: uppercase;
+  }
+  .scard-arrow {
+    width: 15px; height: 15px; margin-left: auto; color: var(--muted);
+    opacity: 0; transform: translateX(-3px);
+    transition: opacity .14s ease, transform .14s ease, color .14s ease;
+  }
+  .scard:hover .scard-arrow { opacity: 1; transform: translateX(0); color: var(--ink); }
+  .scard-q {
+    font-size: 13.5px; line-height: 1.45; color: var(--ink);
+    display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3;
+    -webkit-box-orient: vertical; overflow: hidden;
+  }
+  @media (max-width: 560px) { .sgrid { grid-template-columns: 1fr; } }
+
   .caret { display: inline-block; width: 7px; color: var(--clay); animation: caret 1s steps(1) infinite; }
   @keyframes caret { 50% { opacity: 0; } }
   /* compact source coins (was big page thumbnails — those live in the drawer now) */
