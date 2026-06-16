@@ -6,12 +6,22 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.10.0"
+VERSION = "2.10.1"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.10.1",
+        "date": "2026-06-16",
+        "title": "Fuller answers — complete step-by-step procedures",
+        "lines": [
+            "Answers now give the full numbered procedure with every code and value",
+            "Cached answers are detailed too (no more one-line replies)",
+            "Re-mined the whole corpus with the richer answer format",
+        ],
+    },
     {
         "version": "2.10.0",
         "date": "2026-06-16",

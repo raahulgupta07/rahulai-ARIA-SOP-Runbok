@@ -25,13 +25,17 @@ if OPENROUTER_API_KEY:
 
 _SYS = (
     "You build a Q&A study set from ONE IT SOP/runbook. Produce the natural "
-    "questions a user would ask about this document, each with a correct, concise "
+    "questions a user would ask about this document, each with a correct, COMPLETE "
     "answer grounded ONLY in the text.\n"
     "RULES:\n"
     "- Each question = standalone, how a real user would phrase it (no 'according to "
     "the document').\n"
-    "- Each answer = concise and factual, drawn ONLY from the provided text. Keep exact "
-    "values, codes, thresholds and names verbatim. Never invent.\n"
+    "- Each answer = COMPLETE and actionable, not a one-liner. For any procedure give "
+    "ALL the steps as a numbered list (1., 2., 3. …) in order; include every exact "
+    "value, code, path, screen/menu name, field and threshold verbatim. If the doc "
+    "shows prerequisites, warnings (DOS/DON'TS) or escalation, fold the relevant ones "
+    "in. Drawn ONLY from the provided text — never invent or pad. A simple factual "
+    "question can still be one sentence, but a 'how do I…' answer MUST be full steps.\n"
     "- Cite the page number(s) the answer comes from (the '=== Page N ===' markers). "
     "Use the page numbers shown.\n"
     "- Preserve the original language (English or Burmese) of the document.\n"
@@ -92,7 +96,7 @@ def extract_doc_qa(doc_id: int, display_name: str = "") -> int:
                 {"role": "system", "content": _SYS.format(n=AUTO_QA_MAX)},
                 {"role": "user", "content": f"DOCUMENT: {title or display_name}\n\n{body}"},
             ],
-            max_tokens=1400, temperature=0.0,
+            max_tokens=3000, temperature=0.0,
         )
         raw = (resp.choices[0].message.content or "").strip()
         raw = re.sub(r"^```(json)?|```$", "", raw, flags=re.IGNORECASE).strip()
