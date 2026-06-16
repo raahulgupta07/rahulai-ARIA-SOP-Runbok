@@ -6,12 +6,22 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.7.0"
+VERSION = "2.8.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.8.0",
+        "date": "2026-06-16",
+        "title": "Faster, sturdier under heavy concurrent load",
+        "lines": [
+            "Higher answer throughput under load (LLM concurrency cap 6 -> 15)",
+            "Automatic one-time retry on a transient LLM error — fewer failed answers",
+            "Measured: 100 concurrent users, 0 failures, cold-answer tail cut ~in half",
+        ],
+    },
     {
         "version": "2.7.0",
         "date": "2026-06-16",

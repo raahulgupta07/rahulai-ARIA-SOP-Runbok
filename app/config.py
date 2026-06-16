@@ -109,7 +109,7 @@ AUTO_QA_SERVE_MIN_LEN = int(os.getenv("AUTO_QA_SERVE_MIN_LEN", "24"))
 # Global ceiling on simultaneous user-facing LLM calls (quick + deep). Under a
 # burst (1000 users) this queues requests instead of firing 1000 concurrent
 # OpenRouter calls -> avoids provider rate-limit storms. 0 = unlimited.
-LLM_MAX_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", "6"))
+LLM_MAX_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", "15"))
 
 # ---- auto complexity routing (quick vs deep, picked per question) ----
 AUTO_ROUTE_ENABLED = os.getenv("AUTO_ROUTE_ENABLED", "1") == "1"   # ON by default

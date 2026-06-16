@@ -173,6 +173,30 @@ def _context(query: str, seed_pages: list[dict]) -> str:
 
 
 # ---------------- QUICK: direct streamed completion ----------------
+def _is_transient_llm_error(e: Exception) -> bool:
+    """5xx / rate-limit / connection blip from the LLM provider — worth one retry."""
+    code = getattr(e, "status_code", None) or getattr(getattr(e, "response", None), "status_code", None)
+    if isinstance(code, int) and (code >= 500 or code == 429):
+        return True
+    name = type(e).__name__.lower()
+    return any(k in name for k in ("ratelimit", "apiconnection", "internalserver", "timeout", "serviceunavailable"))
+
+
+def _chat_stream_with_retry(**kwargs):
+    """_client.chat.completions.create with one retry on a transient provider error.
+    The request stream is established here (under saturation a 5xx fires at request
+    time, before any token) — retrying once removes most of those failures."""
+    import time as _t
+    try:
+        return _client.chat.completions.create(**kwargs)
+    except Exception as e:
+        if not _is_transient_llm_error(e):
+            raise
+        print(f"[agent] transient LLM error ({e!r}) — retrying once")
+        _t.sleep(1.2)
+        return _client.chat.completions.create(**kwargs)
+
+
 def _quick_stream(query: str, seed_pages: list[dict], history: list[dict] | None = None,
                   meter: dict | None = None):
     """Yield answer token deltas (single LLM call, full page text, no images).
@@ -194,7 +218,7 @@ def _quick_stream(query: str, seed_pages: list[dict], history: list[dict] | None
         role = "assistant" if h.get("role") == "bot" else "user"
         messages.append({"role": role, "content": txt[:1200]})
     messages.append({"role": "user", "content": _context(query, seed_pages)})
-    stream = _client.chat.completions.create(
+    stream = _chat_stream_with_retry(
         model=CHAT_MODEL, messages=messages,
         max_tokens=8000, temperature=0.2, stream=True,
         stream_options={"include_usage": True},          # final chunk carries usage
