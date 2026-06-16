@@ -384,14 +384,18 @@
 
   // quiet suggestion chips (claude-style) — corpus-derived (zero LLM), click fills the composer.
   // server returns proven Q&A first, then doc-section titles, then curated fallbacks.
-  let starters = $state<{ cat: string; q: string }[]>([
+  let starters = $state<{ cat: string; q: string; doc?: string | null }[]>([
     { cat: 'SETUP',    q: 'How do I create a new site in Gold Central?' },
     { cat: 'USERS',    q: 'How to disable a user account?' },
     { cat: 'BATCH',    q: 'Night batch job ကျသွားရင် ဘာလုပ်ရမလဲ?' },
     { cat: 'DISCOVER', q: 'Where is the refund approval flow?' }
   ]);
+  // home chip language (persisted) — 'en' English, 'my' Burmese
+  let chipLang = $state<'en' | 'my'>('en');
+  $effect(() => { try { const v = localStorage.getItem('aria_lang'); if (v === 'my' || v === 'en') chipLang = v; } catch {} });
+  function setChipLang(l: 'en' | 'my') { chipLang = l; try { localStorage.setItem('aria_lang', l); } catch {} }
   $effect(() => {
-    api.suggestions().then((r) => { if (r?.suggestions?.length) starters = r.suggestions; }).catch(() => {});
+    api.suggestions(chipLang).then((r) => { if (r?.suggestions?.length) starters = r.suggestions; }).catch(() => {});
   });
   let taEl = $state<HTMLTextAreaElement | null>(null);
   function useSuggestion(q: string) { input = q; send(); }
@@ -599,8 +603,13 @@
             {greeting()}{firstName ? ', ' + firstName : ''}
           </h1>
           <p class="mt-2.5 text-[14px] leading-relaxed" style="color:var(--muted)">
-            Runbooks &amp; IT assistance — ask me anything from your SOPs · English &amp; မြန်မာ
+            Runbooks &amp; IT assistance — ask me anything from your SOPs
           </p>
+          <!-- starter-chip language toggle -->
+          <div class="langtog mt-3" role="group" aria-label="Question language">
+            <button class="langbtn {chipLang === 'en' ? 'on' : ''}" onclick={() => setChipLang('en')}>English</button>
+            <button class="langbtn {chipLang === 'my' ? 'on' : ''}" onclick={() => setChipLang('my')}>မြန်မာ</button>
+          </div>
 
           <!-- corpus-derived starter cards (2×2) -->
           <div class="mt-8 sgrid">
@@ -626,6 +635,7 @@
                   <svg class="scard-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
                 </span>
                 <span class="scard-q">{s.q}</span>
+                {#if s.doc}<span class="scard-doc">{s.doc}</span>{/if}
               </button>
             {/each}
           </div>
@@ -935,7 +945,17 @@
     display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3;
     -webkit-box-orient: vertical; overflow: hidden;
   }
+  .scard-doc {
+    display: block; margin-top: 7px; font-size: 11px; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: .85;
+  }
   @media (max-width: 560px) { .sgrid { grid-template-columns: 1fr; } }
+
+  /* starter-chip language toggle */
+  .langtog { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 999px; background: #fff; }
+  .langbtn { font-size: 12px; padding: 3px 12px; border-radius: 999px; color: var(--muted); transition: background .12s ease, color .12s ease; }
+  .langbtn.on { background: var(--clay); color: #fff; }
+  .langbtn:not(.on):hover { color: var(--ink); }
 
   .caret { display: inline-block; width: 7px; color: var(--clay); animation: caret 1s steps(1) infinite; }
   @keyframes caret { 50% { opacity: 0; } }

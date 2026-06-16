@@ -6,12 +6,23 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.3.0",
+        "date": "2026-06-16",
+        "title": "Bilingual, LLM-curated home starter questions",
+        "lines": [
+            "Home starter questions now offer English and မြန်မာ — switch with one tap",
+            "Questions are AI-curated from your real Q&A to span the whole corpus",
+            "Each starter shows the document it comes from",
+            "Chips refresh automatically when you add documents (and on demand)",
+        ],
+    },
     {
         "version": "2.2.0",
         "date": "2026-06-16",

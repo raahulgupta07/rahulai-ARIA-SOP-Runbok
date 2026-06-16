@@ -166,6 +166,19 @@ CREATE INDEX IF NOT EXISTS idx_qa_dedupe ON qa_pairs(dedupe_key);
 CREATE INDEX IF NOT EXISTS idx_qa_doc ON qa_pairs(doc_id);
 CREATE INDEX IF NOT EXISTS idx_qa_q_trgm ON qa_pairs USING GIN (question gin_trgm_ops);
 
+-- LLM-curated bilingual home starter chips (rebuilt by a refresh job, served zero-LLM).
+-- One row per chip; rank orders them. q_en always set; q_my = Burmese translation.
+CREATE TABLE IF NOT EXISTS starter_chips (
+    id          BIGSERIAL PRIMARY KEY,
+    rank        INT NOT NULL DEFAULT 0,         -- display order (0 = first)
+    q_en        TEXT NOT NULL,                  -- English question
+    q_my        TEXT,                           -- Burmese translation (nullable → fall back to EN)
+    cat         TEXT,                           -- category label (eyebrow)
+    doc_id      INT,                            -- source document (for the "from <doc>" subtitle)
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_starter_rank ON starter_chips(rank);
+
 CREATE TABLE IF NOT EXISTS chat_log (
     id          BIGSERIAL PRIMARY KEY,
     q           TEXT,

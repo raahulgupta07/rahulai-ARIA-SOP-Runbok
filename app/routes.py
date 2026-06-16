@@ -219,8 +219,26 @@ _STARTER_FALLBACK = [
 
 
 @router.get("/suggestions")
-def suggestions():
-    """Home hero starter chips — derived from the real corpus (zero LLM).
+def suggestions(lang: str = "en"):
+    """Home hero starter chips — zero LLM at request time.
+
+    Primary source: the LLM-curated bilingual `starter_chips` table (rebuilt by a
+    refresh job). lang='my' returns Burmese (falls back to EN per chip). If the
+    table is empty (fresh install / never refreshed), fall through to the live
+    corpus-derived logic below."""
+    lang = "my" if (lang or "").lower().startswith("my") else "en"
+    try:
+        from . import starter_chips as _sc
+        curated = _sc.read(lang=lang, limit=4)
+        if curated:
+            return {"suggestions": curated}
+    except Exception:
+        pass
+    return _suggestions_live()
+
+
+def _suggestions_live():
+    """Live corpus-derived chips (zero LLM). Fallback when the curated table is empty.
 
     COVERAGE, not popularity: each of the 4 chips comes from a DIFFERENT document
     (and a different category where possible), so the chips represent the whole
@@ -323,6 +341,14 @@ def suggestions():
         out.append({"cat": (f["cat"] or "DOCS").upper()[:10], "q": f["q"]})
 
     return {"suggestions": out[:4]}
+
+
+@router.post("/suggestions/refresh", dependencies=[Depends(require_admin)])
+def suggestions_refresh():
+    """Rebuild the LLM-curated bilingual starter chips (one LLM call). Admin-only."""
+    from . import starter_chips as _sc
+    n = _sc.refresh()
+    return {"ok": True, "chips": n}
 
 
 @router.get("/notifications", dependencies=[Depends(require_key)])

@@ -41,9 +41,9 @@ export const api = {
     catch { return null; }
   },
 
-  // corpus-derived hero starter chips (zero LLM; safe fallbacks server-side)
-  async suggestions() {
-    try { const r = await fetch(`${BASE}/suggestions`, { headers: headers(false) }); return r.ok ? await r.json() : null; }
+  // curated bilingual hero starter chips (zero LLM at request; lang 'en' | 'my')
+  async suggestions(lang: 'en' | 'my' = 'en') {
+    try { const r = await fetch(`${BASE}/suggestions?lang=${lang}`, { headers: headers(false) }); return r.ok ? await r.json() : null; }
     catch { return null; }
   },
 

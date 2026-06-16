@@ -267,6 +267,13 @@ def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=No
         except Exception as e:
             print(f"[ingest] extract_doc_qa({doc_id}) failed (non-fatal): {e!r}")
 
+    # refresh the curated bilingual home starter chips now the corpus grew (1 LLM call)
+    try:
+        from .starter_chips import refresh as _refresh_chips
+        _refresh_chips()
+    except Exception as e:
+        print(f"[ingest] starter_chips refresh failed (non-fatal): {e!r}")
+
     log_ingest(doc_id, "ready", f"✓ ready · indexed {len(pages)} pages")
     return {
         "doc_id": doc_id,
