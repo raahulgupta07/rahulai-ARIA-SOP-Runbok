@@ -71,14 +71,15 @@
   function fireScan() { brainScanSignal.update((n) => n + 1); upMenu = false; }
   function fireS3() { brainS3Signal.update((n) => n + 1); upMenu = false; }
 
-  // ---- Cloud import: SharePoint + OneDrive (Microsoft Graph) ----
-  type GraphCfg = { tenant_id: string; client_id: string; site_host: string; site_path: string; user_upn: string; drive_id: string; folder: string; client_secret?: string; sync_enabled?: boolean; sync_interval_h?: number; has_secret?: boolean };
-  const emptyCfg = (): GraphCfg => ({ tenant_id: '', client_id: '', site_host: '', site_path: '', user_upn: '', drive_id: '', folder: '', client_secret: '', sync_enabled: false, sync_interval_h: 6 });
+  // ---- Cloud import: SharePoint + OneDrive (location only; creds live in Settings) ----
+  type GraphCfg = { site_host: string; site_path: string; user_upn: string; drive_id: string; folder: string; sync_enabled?: boolean; sync_interval_h?: number; creds_ready?: boolean; kind_enabled?: boolean };
+  const emptyCfg = (): GraphCfg => ({ site_host: '', site_path: '', user_upn: '', drive_id: '', folder: '', sync_enabled: false, sync_interval_h: 6, creds_ready: false, kind_enabled: true });
   let spOpen = $state(false);
   let spKind = $state<'sharepoint' | 'onedrive'>('sharepoint');
   let spCfg = $state<GraphCfg>(emptyCfg());
   let spBusy = $state(false);
   let spMsg = $state('');
+  let spReady = $derived(!!spCfg.creds_ready && spCfg.kind_enabled !== false);
   function loadGraphCfg() {
     spMsg = '';
     api.graphConfig(spKind).then((r) => { spCfg = { ...emptyCfg(), ...r }; }).catch(() => { spCfg = emptyCfg(); });
@@ -92,13 +93,8 @@
   }
   async function spSave() {
     spBusy = true; spMsg = '';
-    try { const r = await api.graphSaveConfig(spKind, spCfg as any); spCfg = { ...spCfg, ...r, client_secret: '' }; spMsg = 'Saved.'; }
+    try { const r = await api.graphSaveConfig(spKind, spCfg as any); spCfg = { ...spCfg, ...r }; spMsg = 'Saved.'; }
     catch (e: any) { spMsg = e?.message || 'save failed'; } finally { spBusy = false; }
-  }
-  async function spClearSecret() {
-    spBusy = true; spMsg = '';
-    try { const r = await api.graphClearSecret(spKind); spCfg = { ...spCfg, ...r, client_secret: '' }; spMsg = 'Secret cleared.'; }
-    catch (e: any) { spMsg = e?.message || 'clear failed'; } finally { spBusy = false; }
   }
   async function spTest() {
     spBusy = true; spMsg = 'Testing…';
@@ -301,45 +297,44 @@
     </div>
     <p class="sp-sub">
       {#if spKind === 'sharepoint'}Pulls every PDF/image from a Microsoft 365 document library into Aria.{:else}Pulls every PDF/image from a user's OneDrive into Aria.{/if}
-      Configure everything here — including the app secret.
     </p>
-    <div class="sp-grid">
-      <label class="sp-f"><span>Tenant ID</span><input bind:value={spCfg.tenant_id} placeholder="aaaa-bbbb-…" /></label>
-      <label class="sp-f"><span>Client ID</span><input bind:value={spCfg.client_id} placeholder="app registration id" /></label>
-      {#if spKind === 'sharepoint'}
-        <label class="sp-f"><span>Site host</span><input bind:value={spCfg.site_host} placeholder="contoso.sharepoint.com" /></label>
-        <label class="sp-f"><span>Site path</span><input bind:value={spCfg.site_path} placeholder="/sites/IT" /></label>
-      {:else}
-        <label class="sp-f sp-f-wide"><span>User (UPN / email)</span><input bind:value={spCfg.user_upn} placeholder="alice@contoso.com" /></label>
+    {#if !spReady}
+      <div class="sp-gate">
+        {#if !spCfg.creds_ready}
+          Microsoft 365 isn't connected yet. <a href="/settings/microsoft">Set it up in Settings →</a>
+        {:else}
+          {spKind === 'sharepoint' ? 'SharePoint' : 'OneDrive'} is turned off. Enable it in <a href="/settings/microsoft">Settings → Microsoft 365 →</a>
+        {/if}
+      </div>
+    {:else}
+      <div class="sp-grid">
+        {#if spKind === 'sharepoint'}
+          <label class="sp-f"><span>Site host</span><input bind:value={spCfg.site_host} placeholder="contoso.sharepoint.com" /></label>
+          <label class="sp-f"><span>Site path</span><input bind:value={spCfg.site_path} placeholder="/sites/IT" /></label>
+        {:else}
+          <label class="sp-f sp-f-wide"><span>User (UPN / email)</span><input bind:value={spCfg.user_upn} placeholder="alice@contoso.com" /></label>
+        {/if}
+        <label class="sp-f"><span>Drive ID <i>(optional)</i></span><input bind:value={spCfg.drive_id} placeholder="default drive if blank" /></label>
+        <label class="sp-f"><span>Folder <i>(optional)</i></span><input bind:value={spCfg.folder} placeholder="Runbooks/SOPs" /></label>
+      </div>
+      <label class="sp-toggle">
+        <input type="checkbox" bind:checked={spCfg.sync_enabled} />
+        <span>Auto-sync — keep pulling new files on a schedule</span>
+      </label>
+      {#if spCfg.sync_enabled}
+        <label class="sp-interval">
+          <span>Sync every</span>
+          <input type="number" min="1" max="168" bind:value={spCfg.sync_interval_h} />
+          <span>hours</span>
+        </label>
       {/if}
-      <label class="sp-f"><span>Drive ID <i>(optional)</i></span><input bind:value={spCfg.drive_id} placeholder="default drive if blank" /></label>
-      <label class="sp-f"><span>Folder <i>(optional)</i></span><input bind:value={spCfg.folder} placeholder="Runbooks/SOPs" /></label>
-      <label class="sp-f sp-f-wide">
-        <span>Client secret {#if spCfg.has_secret}<i>(stored — leave blank to keep)</i>{/if}</span>
-        <input type="password" autocomplete="new-password" bind:value={spCfg.client_secret} placeholder={spCfg.has_secret ? '•••••••• stored' : 'paste app client secret'} />
-      </label>
-    </div>
-    <div class="sp-row">
-      <div class="sp-secret {spCfg.has_secret ? 'ok' : 'no'}">{spCfg.has_secret ? 'Client secret set ✓' : 'No client secret yet'}</div>
-      {#if spCfg.has_secret}<button class="sp-link" disabled={spBusy} onclick={spClearSecret}>Clear secret</button>{/if}
-    </div>
-    <label class="sp-toggle">
-      <input type="checkbox" bind:checked={spCfg.sync_enabled} />
-      <span>Auto-sync — keep pulling new files on a schedule</span>
-    </label>
-    {#if spCfg.sync_enabled}
-      <label class="sp-interval">
-        <span>Sync every</span>
-        <input type="number" min="1" max="168" bind:value={spCfg.sync_interval_h} />
-        <span>hours</span>
-      </label>
+      {#if spMsg}<div class="sp-msg">{spMsg}</div>{/if}
+      <div class="sp-actions">
+        <button class="sp-btn ghost" disabled={spBusy} onclick={spSave}>Save</button>
+        <button class="sp-btn ghost" disabled={spBusy} onclick={spTest}>Test</button>
+        <button class="sp-btn" disabled={spBusy} onclick={spImport}>Import all</button>
+      </div>
     {/if}
-    {#if spMsg}<div class="sp-msg">{spMsg}</div>{/if}
-    <div class="sp-actions">
-      <button class="sp-btn ghost" disabled={spBusy} onclick={spSave}>Save</button>
-      <button class="sp-btn ghost" disabled={spBusy} onclick={spTest}>Test</button>
-      <button class="sp-btn" disabled={spBusy} onclick={spImport}>Import all</button>
-    </div>
   </div>
 {/if}
 
@@ -456,9 +451,8 @@
   .sp-tab.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
   .sp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .sp-f-wide { grid-column: 1 / -1; }
-  .sp-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; }
-  .sp-link { border: 0; background: transparent; color: var(--clay); font-size: 12px; cursor: pointer; padding: 0; }
-  .sp-link:disabled { opacity: .5; cursor: default; }
+  .sp-gate { margin-top: 14px; padding: 14px 16px; background: var(--bg-alt, #f4f3f0); border: 1px solid var(--border, #e0dfda); border-radius: 10px; font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .sp-gate a { color: var(--clay); font-weight: 600; }
   .sp-toggle { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
   .sp-toggle input { width: 15px; height: 15px; accent-color: var(--clay); }
   .sp-interval { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
@@ -468,9 +462,6 @@
   .sp-f i { font-style: normal; opacity: .7; }
   .sp-f input { border: 1px solid var(--border, #e0dfda); border-radius: 8px; padding: 7px 9px; font-size: 13px; color: var(--ink); background: #fff; outline: none; }
   .sp-f input:focus { border-color: var(--clay); }
-  .sp-secret { margin-top: 12px; font-size: 11.5px; padding: 6px 10px; border-radius: 8px; }
-  .sp-secret.ok { background: #eef3ef; color: #3f8f5f; }
-  .sp-secret.no { background: #fbf1df; color: #a9742a; }
   .sp-msg { margin-top: 10px; font-size: 12.5px; color: var(--ink); }
   .sp-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
   .sp-btn { font-size: 13px; padding: 7px 16px; border-radius: 9px; background: var(--clay); color: #fff; }

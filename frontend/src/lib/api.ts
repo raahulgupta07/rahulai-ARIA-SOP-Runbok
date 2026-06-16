@@ -214,15 +214,25 @@ export const api = {
   async s3Import() {
     return jsonOrThrow(await fetch(`${BASE}/ingest/s3-import`, { method: 'POST', headers: headers(false) }));
   },
-  // ---- SharePoint / OneDrive (Microsoft Graph) ingest ----
+  // ---- Microsoft 365 credentials (Settings) ----
+  async msConfig() {
+    return jsonOrThrow(await fetch(`${BASE}/integrations/microsoft/config`, { headers: headers(false) }));
+  },
+  async msSaveConfig(cfg: Record<string, any>) {
+    return jsonOrThrow(await fetch(`${BASE}/integrations/microsoft/config`, { method: 'POST', headers: headers(), body: JSON.stringify(cfg) }));
+  },
+  async msClearSecret() {
+    return jsonOrThrow(await fetch(`${BASE}/integrations/microsoft/secret/clear`, { method: 'POST', headers: headers(false) }));
+  },
+  async msTest() {
+    return jsonOrThrow(await fetch(`${BASE}/integrations/microsoft/test`, { method: 'POST', headers: headers(false) }));
+  },
+  // ---- SharePoint / OneDrive location + import ----
   async graphConfig(kind: string) {
     return jsonOrThrow(await fetch(`${BASE}/ingest/graph/${kind}/config`, { headers: headers(false) }));
   },
-  async graphSaveConfig(kind: string, cfg: Record<string, string>) {
+  async graphSaveConfig(kind: string, cfg: Record<string, any>) {
     return jsonOrThrow(await fetch(`${BASE}/ingest/graph/${kind}/config`, { method: 'POST', headers: headers(), body: JSON.stringify(cfg) }));
-  },
-  async graphClearSecret(kind: string) {
-    return jsonOrThrow(await fetch(`${BASE}/ingest/graph/${kind}/secret/clear`, { method: 'POST', headers: headers(false) }));
   },
   async graphTest(kind: string) {
     return jsonOrThrow(await fetch(`${BASE}/ingest/graph/${kind}/test`, { method: 'POST', headers: headers(false) }));

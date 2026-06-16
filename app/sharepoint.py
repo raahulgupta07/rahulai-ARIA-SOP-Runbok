@@ -5,16 +5,20 @@ from a SharePoint document library OR a user's OneDrive into the normal pipeline
 Mirrors s3_import — list -> dedup by docs.name -> download -> storage.save_to_inbox
 -> docs row 'queued' -> the async worker ingests it.
 
-TWO SOURCES, ONE LANE. Both use Microsoft Graph and the same app-only token; only
-the drive-resolution step differs:
-  - sharepoint: site_host + site_path -> /sites/{id}/drive
-  - onedrive:   user_upn             -> /users/{upn}/drive
+CONFIG IS SPLIT IN TWO (so admins set it up cleanly):
+  1. CREDENTIALS — one Azure app, shared by both sources. Stored once in
+     integration_config[key='microsoft']: tenant_id, client_id, client_secret
+     (env GRAPH_CLIENT_SECRET as fallback), plus sp_enabled / od_enabled flags.
+     Set in Settings -> Integrations -> Microsoft 365.
+  2. LOCATION — per source, in integration_config[key=<kind>]: where to read from
+     (site_host+site_path for SharePoint, user_upn for OneDrive), optional drive_id
+     and folder, plus the auto-sync toggle + interval. Set in the Add menu.
+
+TWO SOURCES, ONE LANE. Both use the same app-only token; only drive-resolution
+differs: sharepoint -> /sites/{id}/drive, onedrive -> /users/{upn}/drive.
 Everything downstream (walk, download, dedup, queue, auto-sync) is identical.
 
-CONFIG (super-admin) lives per-kind in integration_config[key=<kind>]. The client
-SECRET is read from the GRAPH_CLIENT_SECRET / SHAREPOINT_CLIENT_SECRET env var
-(never stored in the DB), mirroring OPENROUTER_API_KEY. Fail-soft: every public
-entry point returns a status dict, never raises into the caller.
+Fail-soft: every public entry point returns a status dict, never raises.
 """
 import io
 import json
@@ -32,13 +36,13 @@ _GRAPH = "https://graph.microsoft.com/v1.0"
 _TIMEOUT = 60.0
 
 KINDS = ("sharepoint", "onedrive")
+_CREDS_KEY = "microsoft"
 
-# Plain (non-secret) config fields persisted per kind, returned to the UI as-is.
+# Per-kind LOCATION fields (no credentials here).
 _FIELDS = {
-    "sharepoint": ("tenant_id", "client_id", "site_host", "site_path", "drive_id", "folder"),
-    "onedrive":   ("tenant_id", "client_id", "user_upn", "drive_id", "folder"),
+    "sharepoint": ("site_host", "site_path", "drive_id", "folder"),
+    "onedrive":   ("user_upn", "drive_id", "folder"),
 }
-# Boolean fields (per kind) — auto-sync toggle, editable in the UI.
 _BOOLS = ("sync_enabled",)
 
 
@@ -47,7 +51,6 @@ def _norm(kind: str) -> str:
 
 
 def _default_interval() -> int:
-    """Effective auto-sync interval (hours) when not overridden per source in the DB."""
     try:
         from .config import SHAREPOINT_SYNC_INTERVAL_H
         return max(1, int(SHAREPOINT_SYNC_INTERVAL_H or 6))
@@ -55,23 +58,112 @@ def _default_interval() -> int:
         return 6
 
 
-def _raw(kind: str) -> dict:
+def _raw(key: str) -> dict:
     try:
         with get_conn() as conn:
             row = conn.execute(
-                "SELECT data FROM integration_config WHERE key=%s", (kind,)
+                "SELECT data FROM integration_config WHERE key=%s", (key,)
             ).fetchone()
         return (row["data"] if row else {}) or {}
     except Exception:
         return {}
 
 
+def _write(key: str, data: dict) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO integration_config (key, data, updated_at) "
+            "VALUES (%s, %s::jsonb, now()) "
+            "ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_at = now()",
+            (key, json.dumps(data)),
+        )
+
+
+# ----------------------------- credentials (shared) -----------------------------
+def _secret() -> str:
+    """DB-stored client secret first, then the shared env var."""
+    db = (_raw(_CREDS_KEY).get("client_secret") or "").strip()
+    if db:
+        return db
+    return os.getenv("GRAPH_CLIENT_SECRET", "") or os.getenv("SHAREPOINT_CLIENT_SECRET", "")
+
+
+def _creds() -> dict:
+    """Internal: full credentials incl. secret (never returned to the UI)."""
+    c = _raw(_CREDS_KEY)
+    return {
+        "tenant_id": (c.get("tenant_id") or "").strip(),
+        "client_id": (c.get("client_id") or "").strip(),
+        "secret": _secret(),
+    }
+
+
+def creds_config() -> dict:
+    """Non-secret credential config for Settings. Secret exposed only as has_secret."""
+    c = _raw(_CREDS_KEY)
+    return {
+        "tenant_id": (c.get("tenant_id") or "").strip(),
+        "client_id": (c.get("client_id") or "").strip(),
+        "has_secret": bool(_secret()),
+        "sp_enabled": bool(c.get("sp_enabled", True)),
+        "od_enabled": bool(c.get("od_enabled", True)),
+    }
+
+
+def save_creds(patch: dict) -> dict:
+    patch = patch or {}
+    cur = _raw(_CREDS_KEY)
+    for k in ("tenant_id", "client_id"):
+        if k in patch:
+            cur[k] = (patch[k] or "").strip()
+    for b in ("sp_enabled", "od_enabled"):
+        if b in patch:
+            cur[b] = bool(patch[b])
+    if "client_secret" in patch:
+        sec = (patch["client_secret"] or "").strip()
+        if sec:
+            cur["client_secret"] = sec
+    _write(_CREDS_KEY, cur)
+    return creds_config()
+
+
+def clear_creds_secret() -> dict:
+    cur = _raw(_CREDS_KEY)
+    cur.pop("client_secret", None)
+    _write(_CREDS_KEY, cur)
+    return creds_config()
+
+
+def creds_ready() -> bool:
+    c = _creds()
+    return bool(c["tenant_id"] and c["client_id"] and c["secret"])
+
+
+def kind_enabled(kind: str) -> bool:
+    """Source allowed by the admin's enable flags in Settings."""
+    c = _raw(_CREDS_KEY)
+    return bool(c.get("sp_enabled", True)) if _norm(kind) == "sharepoint" \
+        else bool(c.get("od_enabled", True))
+
+
+def test_creds() -> dict:
+    """Verify the Azure app registration by fetching a Graph token. No location."""
+    if not creds_ready():
+        return {"ok": False, "configured": False, "detail": "Microsoft 365 not configured"}
+    try:
+        _token()
+        return {"ok": True, "configured": True, "detail": "Credentials valid"}
+    except Exception as e:
+        return {"ok": False, "configured": True, "detail": str(e)[:200]}
+
+
+# ----------------------------- location (per source) -----------------------------
 def config(kind: str = "sharepoint") -> dict:
-    """Non-secret config for one source. The client secret is NEVER returned raw —
-    only a has_secret flag (true if set in DB or via env)."""
+    """Per-source LOCATION config (no credentials). Includes a creds_ready hint so
+    the Add UI can gate itself, and the effective sync interval."""
     kind = _norm(kind)
     cfg = _raw(kind)
-    out = {"kind": kind, "has_secret": bool(_secret(kind))}
+    out = {"kind": kind, "creds_ready": creds_ready(), "kind_enabled": kind_enabled(kind)}
     for k in _FIELDS[kind]:
         out[k] = cfg.get(k, "")
     for b in _BOOLS:
@@ -95,71 +187,38 @@ def save_config(patch: dict, kind: str = "sharepoint") -> dict:
             cur["sync_interval_h"] = max(1, int(patch["sync_interval_h"] or 6))
         except Exception:
             cur["sync_interval_h"] = 6
-    # Secret: only overwrite when a non-blank value is sent (blank = keep existing).
-    if "client_secret" in patch:
-        sec = (patch["client_secret"] or "").strip()
-        if sec:
-            cur["client_secret"] = sec
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO integration_config (key, data, updated_at) "
-            "VALUES (%s, %s::jsonb, now()) "
-            "ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_at = now()",
-            (kind, json.dumps(cur)),
-        )
+    _write(kind, cur)
     return config(kind)
-
-
-def clear_secret(kind: str = "sharepoint") -> dict:
-    """Remove the DB-stored client secret for one source (env fallback still applies)."""
-    kind = _norm(kind)
-    cur = _raw(kind)
-    cur.pop("client_secret", None)
-    with get_conn() as conn:
-        conn.execute(
-            "INSERT INTO integration_config (key, data, updated_at) "
-            "VALUES (%s, %s::jsonb, now()) "
-            "ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data, updated_at = now()",
-            (kind, json.dumps(cur)),
-        )
-    return config(kind)
-
-
-def _secret(kind: str = "sharepoint") -> str:
-    """DB-stored secret for this source first, then the shared env var."""
-    db = (_raw(_norm(kind)).get("client_secret") or "").strip()
-    if db:
-        return db
-    return os.getenv("GRAPH_CLIENT_SECRET", "") or os.getenv("SHAREPOINT_CLIENT_SECRET", "")
 
 
 def enabled(kind: str = "sharepoint") -> bool:
+    """Source is fully ready to import: creds + enabled flag + location present."""
     kind = _norm(kind)
-    c = config(kind)
-    if not (c["tenant_id"] and c["client_id"] and c["has_secret"]):
+    if not (creds_ready() and kind_enabled(kind)):
         return False
+    c = config(kind)
     if kind == "sharepoint":
         return bool(c["site_host"] and c["site_path"])
     return bool(c["user_upn"])
 
 
 def sync_on(kind: str) -> bool:
-    """Auto-sync active for this source: env master flag OR per-source UI toggle."""
     from .config import SHAREPOINT_SYNC_ENABLED
     return bool(SHAREPOINT_SYNC_ENABLED or _raw(_norm(kind)).get("sync_enabled"))
 
 
 def interval_h(kind: str) -> int:
-    """Per-source auto-sync interval in hours (DB override, else env/default), min 1."""
     raw = int(_raw(_norm(kind)).get("sync_interval_h") or 0) or _default_interval()
     return max(1, raw)
 
 
-def _token(c: dict) -> str:
+# ----------------------------- Graph plumbing -----------------------------
+def _token() -> str:
+    c = _creds()
     url = f"https://login.microsoftonline.com/{c['tenant_id']}/oauth2/v2.0/token"
     data = {
         "client_id": c["client_id"],
-        "client_secret": _secret(c.get("kind", "sharepoint")),
+        "client_secret": c["secret"],
         "scope": "https://graph.microsoft.com/.default",
         "grant_type": "client_credentials",
     }
@@ -217,7 +276,7 @@ def _walk(tok: str, drive_id: str, item_url: str, out: list) -> None:
 
 def _list_files(kind: str) -> list[dict]:
     c = config(kind)
-    tok = _token(c)
+    tok = _token()
     drive_id = _drive_for(kind, tok, c)
     root = f"{_GRAPH}/drives/{drive_id}/root"
     if c["folder"].strip("/"):
@@ -229,14 +288,15 @@ def _list_files(kind: str) -> list[dict]:
 
 
 def test_connection(kind: str = "sharepoint") -> dict:
-    """Verify creds + source resolve. Returns {ok, detail/drive_id}."""
+    """Verify the configured LOCATION resolves to a drive. Returns {ok, detail/drive_id}."""
     kind = _norm(kind)
+    if not creds_ready():
+        return {"ok": False, "configured": False, "detail": "Set up Microsoft 365 in Settings first"}
     if not enabled(kind):
-        return {"ok": False, "configured": False, "detail": f"{kind} not configured"}
+        return {"ok": False, "configured": False, "detail": f"{kind} location not set"}
     try:
-        c = config(kind)
-        tok = _token(c)
-        did = _drive_for(kind, tok, c)
+        tok = _token()
+        did = _drive_for(kind, tok, config(kind))
         return {"ok": True, "configured": True, "drive_id": did}
     except Exception as e:
         return {"ok": False, "configured": True, "detail": str(e)[:200]}
@@ -300,20 +360,16 @@ def import_all(uploaded_by: str | None = None, kind: str = "sharepoint") -> dict
             "queued": queued, "skipped": skipped}
 
 
-# ---- auto-sync daemon (leader-gated, flag-gated, default OFF) ----
+# ---- auto-sync daemon (leader-gated, per-source toggle + interval) ----
 _started = False
 
 
 def _loop():
     time.sleep(120)                          # let boot settle
-    # Each source runs on its OWN interval; we tick every 60s and fire a source
-    # only when its per-source interval has elapsed since its last run.
     last = {k: 0.0 for k in KINDS}
     while True:
         for kind in KINDS:
             try:
-                # per-source UI toggle (or env master flag) + per-source interval,
-                # both re-read every tick so UI changes take effect within a minute
                 if sync_on(kind) and enabled(kind) and \
                         time.time() - last[kind] >= interval_h(kind) * 3600:
                     res = import_all(uploaded_by=f"{kind}-sync", kind=kind)
@@ -322,21 +378,15 @@ def _loop():
                     last[kind] = time.time()
             except Exception as e:
                 print(f"[{kind}] sync loop skipped: {e!r}")
-        time.sleep(60)                       # check tick — NOT the full interval
+        time.sleep(60)                       # check tick — toggle/interval apply within a minute
 
 
 def start() -> None:
-    """Launch the auto-sync thread once (called from app lifespan, leader only).
-
-    Runs whenever auto-sync could be turned on from the UI, so the per-source
-    toggle works without an env var or restart. The loop itself is cheap (sleeps
-    between cycles) and only imports sources whose toggle is on.
-    """
+    """Launch the auto-sync thread once (leader only). Cheap — sleeps between cycles;
+    only imports sources whose per-source toggle is on."""
     global _started
-    from .config import SHAREPOINT_SYNC_INTERVAL_H
     if _started:
         return
     _started = True
     threading.Thread(target=_loop, name="graph-sync", daemon=True).start()
-    print(f"[graph] SharePoint/OneDrive auto-sync thread on — every {SHAREPOINT_SYNC_INTERVAL_H}h "
-          "(per-source toggle in UI)")
+    print("[graph] SharePoint/OneDrive auto-sync thread on (per-source toggle + interval in UI)")

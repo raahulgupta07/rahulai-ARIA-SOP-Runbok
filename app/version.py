@@ -6,12 +6,23 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.13.0"
+VERSION = "2.14.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.14.0",
+        "date": "2026-06-16",
+        "title": "Microsoft 365 setup moved to Settings; pick folder in Add",
+        "lines": [
+            "New Settings → Integrations → Microsoft 365: connect once (tenant, client, secret)",
+            "Turn SharePoint and OneDrive on/off there, and test the credentials",
+            "Add → Import from Microsoft 365 now just picks the folder and imports",
+            "Import dialog guides you to Settings when Microsoft 365 isn't connected yet",
+        ],
+    },
     {
         "version": "2.13.0",
         "date": "2026-06-16",

@@ -949,7 +949,38 @@ def ingest_s3_import(user: dict = Depends(require_admin)):
     return res
 
 
-# ---- SharePoint / OneDrive (Microsoft Graph) ingest lane ----
+# ---- Microsoft 365 credentials (Settings → Integrations → Microsoft 365) ----
+@router.get("/integrations/microsoft/config")
+def ms_config(user: dict = Depends(require_admin)):
+    from . import sharepoint
+    return sharepoint.creds_config()
+
+
+@router.post("/integrations/microsoft/config")
+def ms_save_config(body: dict, user: dict = Depends(require_admin)):
+    from . import sharepoint
+    cfg = sharepoint.save_creds(body or {})
+    audit_mod.log(user, "microsoft.config", "config", 0,
+                  {"tenant": cfg.get("tenant_id"), "sp": cfg.get("sp_enabled"),
+                   "od": cfg.get("od_enabled")})
+    return cfg
+
+
+@router.post("/integrations/microsoft/secret/clear")
+def ms_clear_secret(user: dict = Depends(require_admin)):
+    from . import sharepoint
+    cfg = sharepoint.clear_creds_secret()
+    audit_mod.log(user, "microsoft.secret_clear", "config", 0, {})
+    return cfg
+
+
+@router.post("/integrations/microsoft/test")
+def ms_test(user: dict = Depends(require_admin)):
+    from . import sharepoint
+    return sharepoint.test_creds()
+
+
+# ---- SharePoint / OneDrive (Microsoft Graph) ingest lane — per-source location ----
 def _graph_kind(kind: str) -> str:
     if kind not in ("sharepoint", "onedrive"):
         raise HTTPException(status_code=404, detail="unknown source")
@@ -969,15 +1000,6 @@ def graph_save_config(kind: str, body: dict, user: dict = Depends(require_admin)
     cfg = sharepoint.save_config(body or {}, kind=kind)
     audit_mod.log(user, f"{kind}.config", "config", 0,
                   {"loc": cfg.get("site_path") or cfg.get("user_upn")})
-    return cfg
-
-
-@router.post("/ingest/graph/{kind}/secret/clear")
-def graph_clear_secret(kind: str, user: dict = Depends(require_admin)):
-    from . import sharepoint
-    kind = _graph_kind(kind)
-    cfg = sharepoint.clear_secret(kind)
-    audit_mod.log(user, f"{kind}.secret_clear", "config", 0, {})
     return cfg
 
 
@@ -1001,7 +1023,7 @@ def graph_import(kind: str, user: dict = Depends(require_admin)):
     kind = _graph_kind(kind)
     if not sharepoint.enabled(kind):
         raise HTTPException(status_code=400,
-                            detail=f"{kind} not configured (set creds + GRAPH_CLIENT_SECRET)")
+                            detail=f"{kind} not ready — set up Microsoft 365 in Settings and a location here")
     res = sharepoint.import_all(uploaded_by=user.get("email"), kind=kind)
     if res.get("queued"):
         label = "SharePoint" if kind == "sharepoint" else "OneDrive"
