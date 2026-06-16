@@ -115,31 +115,27 @@
   <div class="wscol">
     {#if isAdmin && vit}
       <div class="statbar" class:flash>
-        <div class="stile">
-          <span class="sl"><span class="livedot"></span> ONLINE</span>
-          <span class="sv">{vit.active_now ?? 0}</span>
+        <div class="spills">
+          <span class="spill" title="Users online now"><span class="livedot"></span><b>{vit.active_now ?? 0}</b> online</span>
+          <span class="spill" title="Questions today">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            <b>{vit.questions_today ?? 0}</b> today
+          </span>
+          <span class="spill" title="Spend today">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            <b>${(vit.cost_today ?? 0).toFixed(2)}</b>
+          </span>
+          <span class="spill" class:warn={vit.ingest_queue > 0} title="Ingest queue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            <b>{vit.ingest_queue ?? 0}</b> queued
+          </span>
+          <span class="spill" title="Background daemons"><span class="ddot" class:bad={!daemonsOk}></span>{daemonsOk ? 'Healthy' : 'Stale'}</span>
+          <span class="spill" title="Database size">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 11v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>
+            <b>{fmtBytes(vit.db_bytes)}</b>
+          </span>
         </div>
-        <div class="stile">
-          <span class="sl">Q TODAY</span>
-          <span class="sv">{vit.questions_today ?? 0}</span>
-        </div>
-        <div class="stile">
-          <span class="sl">COST</span>
-          <span class="sv">${(vit.cost_today ?? 0).toFixed(2)}</span>
-        </div>
-        <div class="stile">
-          <span class="sl">QUEUE</span>
-          <span class="sv" class:warn={vit.ingest_queue > 0}>{vit.ingest_queue ?? 0}</span>
-        </div>
-        <div class="stile">
-          <span class="sl">DAEMONS</span>
-          <span class="sv ok"><span class="ddot" class:bad={!daemonsOk}></span>{daemonsOk ? 'Healthy' : 'Stale'}</span>
-        </div>
-        <div class="stile db">
-          <span class="sl">DATABASE</span>
-          <span class="sv">{fmtBytes(vit.db_bytes)}</span>
-        </div>
-        <div class="stile kill">
+        <div class="sacts">
           {#if onBrain}
             <div class="upwrap">
               <button class="tbtn up" onclick={toggleUpMenu} title="Add documents">
@@ -182,11 +178,6 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V18h6v-1.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg>
               Teach fact
             </button>
-          {/if}
-          {#if paused}
-            <button class="killbtn resume" onclick={doResume} disabled={killBusy}><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px"><path d="M8 5v14l11-7z"/></svg> Resume</button>
-          {:else}
-            <button class="killbtn" onclick={() => (killConfirm = true)}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><circle cx="12" cy="12" r="9"/><line x1="9" y1="9" x2="15" y2="15"/></svg> Stop all</button>
           {/if}
         </div>
       </div>
@@ -267,7 +258,7 @@
   .wscol { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 
   /* master kill switch */
-  .stile.kill { padding: 6px 14px; align-items: center; justify-content: center; flex-direction: row; gap: 7px; }
+  .sacts { display: flex; align-items: center; gap: 7px; margin-left: auto; padding: 0 14px; }
   .tbtn { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: #fff; color: var(--ink); cursor: pointer; white-space: nowrap; transition: background .14s; }
   .tbtn:hover { background: var(--hover, #efefec); }
   .tbtn.up { background: var(--clay); color: #fff; border-color: var(--clay); }
@@ -298,10 +289,10 @@
   .kc-body { font-size: 13px; color: var(--muted); line-height: 1.55; margin: 8px 0 16px; }
   .kc-acts { display: flex; justify-content: flex-end; gap: 8px; }
 
-  /* frozen segmented status bar (Option B) — pinned, never scrolls */
+  /* pinned status bar (Option A) — pill stats, dot status, no dividers */
   .statbar {
     position: sticky; top: 0; z-index: 8;
-    display: flex; align-items: stretch;
+    display: flex; align-items: center;
     background: rgba(255,255,255,.85);
     -webkit-backdrop-filter: blur(14px) saturate(1.2); backdrop-filter: blur(14px) saturate(1.2);
     border-bottom: 1px solid var(--border);
@@ -309,28 +300,28 @@
     transition: box-shadow .5s;
   }
   .statbar.flash { box-shadow: none; }
-  .stile {
-    display: flex; flex-direction: column; gap: 3px; justify-content: center;
-    padding: 8px 18px; border-right: 1px solid var(--border); min-width: 0;
+  .spills {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 9px 8px 9px 16px; min-width: 0;
   }
-  .stile:last-child { border-right: 0; }
-  .stile.db { margin-left: auto; text-align: right; align-items: flex-end; }
-  .sl {
-    font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase; font-weight: 600;
-    color: var(--muted); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  .spill {
+    display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+    font-size: 12.5px; color: var(--muted);
+    padding: 5px 11px; border-radius: 999px;
+    border: 1px solid var(--border); background: #faf9f7;
   }
-  .sv { font-size: 16px; font-weight: 700; color: var(--ink); line-height: 1; }
-  .sv.warn { color: #c98a2e; }
-  .sv.ok { font-size: 13.5px; display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+  .spill b { font-weight: 700; color: var(--ink); font-size: 13px; }
+  .spill svg { width: 13px; height: 13px; color: var(--muted); flex: none; }
+  .spill.warn { border-color: #e7cfa0; background: #fdf6e9; color: #9a6a16; }
+  .spill.warn b { color: #9a6a16; }
   .livedot { width: 7px; height: 7px; border-radius: 50%; background: #3f8f5f; flex: none;
     box-shadow: 0 0 0 0 rgba(63,143,95,.55); animation: lvping 2s ease-out infinite; }
   @keyframes lvping { 0% { box-shadow: 0 0 0 0 rgba(63,143,95,.5); } 70%,100% { box-shadow: 0 0 0 5px rgba(63,143,95,0); } }
   .ddot { width: 8px; height: 8px; border-radius: 50%; background: #3f8f5f; flex: none; }
   .ddot.bad { background: #c0492f; }
   @media (max-width: 820px) {
-    .statbar { overflow-x: auto; }
-    .stile { padding: 7px 13px; }
-    .stile.db { margin-left: 0; }
+    .statbar { overflow-x: auto; flex-wrap: nowrap; }
+    .spills { flex-wrap: nowrap; }
   }
   @media (prefers-reduced-motion: reduce) { .livedot { animation: none; } }
 
