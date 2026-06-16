@@ -76,8 +76,11 @@ RULES = (
     "over a taught fact.\n"
     "At the very end output one line exactly: PAGES: <comma-separated SOURCE NUMBERS "
     "[N] you used> (or 'PAGES: none').\n"
-    "Then ONE more line exactly: FOLLOWUPS: <three short natural follow-up questions "
-    "the user might ask next, in the QUESTION's language, separated by ' | '> "
+    "Then ONE more line exactly: FOLLOWUPS: <three follow-up questions the user might "
+    "ask next, separated by ' | '>. Each MUST be a COMPLETE, natural question ending "
+    "with '?' (NOT a topic or phrase like 'User Creation' — write 'How do I create a "
+    "user?'). Ground them in this document's content. Write them in the SAME language "
+    "as the QUESTION (English question -> English; Burmese question -> Burmese). "
     "(or 'FOLLOWUPS: none')."
 )
 

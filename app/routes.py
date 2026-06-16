@@ -449,7 +449,8 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
             title = convo.autotitle(conv_id, req.q) if first_turn else None
             return {"answer": ans, "pages": cited, "conversation_id": conv_id,
                     "title": title, "served_from_bank": True,
-                    "served_qa_id": hit["id"]}
+                    "served_qa_id": hit["id"],
+                    "followups": qa_mod.sibling_questions(hit["id"])}
 
     seed = search_pages(req.q, k=req.k or DEFAULT_K)
     if not seed:
@@ -537,7 +538,8 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
                                   "message_id": bot_id,
                                   "tokens": {"in": 0, "out": 0, "total": 0},
                                   "cost": 0, "cited_n": len(cited),
-                                  "followups": [], "served_from_bank": True,
+                                  "followups": qa_mod.sibling_questions(hit["id"]),
+                                  "served_from_bank": True,
                                   "served_qa_id": hit["id"],
                                   "grounded": len(cited) > 0}) + "\n"
                 return

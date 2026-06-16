@@ -6,12 +6,21 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.3.0"
+VERSION = "2.3.1"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.3.1",
+        "date": "2026-06-16",
+        "title": "Better, bilingual follow-up questions",
+        "lines": [
+            "Follow-up suggestions are now complete questions in your language, not topics",
+            "Instant cached answers now suggest follow-ups too (from the same document)",
+        ],
+    },
     {
         "version": "2.3.0",
         "date": "2026-06-16",

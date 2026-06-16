@@ -101,6 +101,25 @@ def serve_match(question: str, min_sim: float = 0.72,
     return row
 
 
+def sibling_questions(qa_id: int, limit: int = 3) -> list[str]:
+    """Other active questions from the SAME document as `qa_id` — zero-LLM follow-ups
+    for a cache-served answer. Returns [] if the pair has no doc or no siblings."""
+    try:
+        with get_conn() as conn:
+            row = conn.execute("SELECT doc_id FROM qa_pairs WHERE id = %s", (qa_id,)).fetchone()
+            if not row or row["doc_id"] is None:
+                return []
+            rows = conn.execute(
+                "SELECT question FROM qa_pairs WHERE doc_id = %s AND id <> %s "
+                "AND status = 'active' AND length(question) BETWEEN 8 AND 100 "
+                "ORDER BY cited_count DESC, created_at DESC LIMIT %s",
+                (row["doc_id"], qa_id, limit),
+            ).fetchall()
+        return [r["question"] for r in rows]
+    except Exception:
+        return []
+
+
 def bump_served(qa_id: int) -> None:
     """Freshness: record that a pair served an answer (cited_count / last_cited_at)."""
     try:
