@@ -256,7 +256,10 @@ button.uc:hover { color: var(--clay); }
 .mc-livechip i { width: 7px; height: 7px; border-radius: 50%; background: #3f8f5f; animation: lpulse 1.6s ease-in-out infinite; }
 
 /* one tab body visible — entrance on switch */
-.mcbody { animation: mcIn .42s cubic-bezier(.22,1,.36,1) both; }
+/* workspace section wrapper: must stack the section's blocks (hero / KPI grid /
+   bars / charts) with the SAME vertical gap as the /dashboard route's .dpage —
+   otherwise the blocks fall back to block-flow and touch (no vertical gap). */
+.mcbody { display: flex; flex-direction: column; gap: 13px; animation: mcIn .42s cubic-bezier(.22,1,.36,1) both; }
 @keyframes mcIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 
 /* HERO — one big metric per tab. accent variants stay non-coral. */
