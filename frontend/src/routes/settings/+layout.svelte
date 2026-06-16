@@ -15,7 +15,8 @@
     { href: '/settings/embed',       label: 'Embed Widget',    group: 'Integrations', desc: 'Drop the chat widget into any site and manage embed keys.', admin: true, d: 'M16 18l6-6-6-6M8 6l-6 6 6 6' },
     { href: '/settings/api',         label: 'API Access',      group: 'Integrations', desc: 'Call the agent from other systems over REST.', admin: true, d: 'M9 2v6M15 2v6M5 8h14v5a7 7 0 0 1-14 0zM12 20v2' },
     { href: '/settings/teams',       label: 'Microsoft Teams', group: 'Integrations', desc: 'Run Aria as a bot inside Microsoft Teams.', admin: true, d: 'M4 5h16v14H4zM4 9h16M9 9v10' },
-    { href: '/settings/export',      label: 'Knowledge (OKF)', group: 'Integrations', desc: 'Import and export knowledge as Open Knowledge Format bundles.', admin: true, d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3' }
+    { href: '/settings/export',      label: 'Knowledge (OKF)', group: 'Integrations', desc: 'Import and export knowledge as Open Knowledge Format bundles.', admin: true, d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3' },
+    { href: '/settings/storage',     label: 'Storage',         group: 'Integrations', desc: 'Where files live — local disk or S3/MinIO — and bulk-import from a bucket.', admin: true, d: 'M4 7c0 1.66 3.58 3 8 3s8-1.34 8-3-3.58-3-8-3-8 1.34-8 3zM4 7v5c0 1.66 3.58 3 8 3s8-1.34 8-3V7M4 12v5c0 1.66 3.58 3 8 3s8-1.34 8-3v-5' }
   ];
 
   let path = $derived($page.url.pathname);

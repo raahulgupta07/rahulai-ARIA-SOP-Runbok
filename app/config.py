@@ -38,6 +38,7 @@ S3_ACCESS_KEY_ID     = os.getenv("S3_ACCESS_KEY_ID") or os.getenv("AWS_ACCESS_KE
 S3_SECRET_ACCESS_KEY = os.getenv("S3_SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY", "")
 S3_PREFIX            = os.getenv("S3_PREFIX", "docsensei/").strip()   # key namespace for OUR managed files
 S3_FORCE_PATH_STYLE  = os.getenv("S3_FORCE_PATH_STYLE", "1") == "1"   # MinIO needs path-style
+S3_PRESIGN           = os.getenv("S3_PRESIGN", "0") == "1"            # serve page images via presigned redirect (browser pulls direct from S3)
 # bulk import: where source documents to ingest live in the bucket (can differ from S3_PREFIX)
 S3_IMPORT_PREFIX     = os.getenv("S3_IMPORT_PREFIX", "inbox-drop/").strip()
 

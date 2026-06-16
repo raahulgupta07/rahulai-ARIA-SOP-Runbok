@@ -204,6 +204,15 @@ export const api = {
   async s3Import() {
     return jsonOrThrow(await fetch(`${BASE}/ingest/s3-import`, { method: 'POST', headers: headers(false) }));
   },
+  async storageConfig() {
+    return jsonOrThrow(await fetch(`${BASE}/storage/config`, { headers: headers(false) }));
+  },
+  async storageSave(body: any) {
+    return jsonOrThrow(await fetch(`${BASE}/storage/config`, { method: 'POST', headers: headers(), body: JSON.stringify(body) }));
+  },
+  async storageTest() {
+    return jsonOrThrow(await fetch(`${BASE}/storage/test`, { method: 'POST', headers: headers(), body: '{}' }));
+  },
 
   async docDetail(docId: number) {
     return jsonOrThrow(await fetch(`${BASE}/documents/${docId}`, { headers: headers(false) }));

@@ -63,6 +63,61 @@ def save_teams(patch: dict) -> dict:
     return get_teams()
 
 
+# ---- S3 / MinIO object storage config (under app_config.data.s3) ----
+# DB-saved values OVERRIDE env defaults so a super-admin can configure storage
+# entirely from the UI. The secret is stored here (same convention as teams) but
+# NEVER returned by get_s3(reveal=False) — only a has_secret flag.
+_S3_STR_KEYS = {"backend", "bucket", "region", "endpoint_url",
+                "access_key_id", "prefix", "import_prefix"}
+_S3_BOOL_KEYS = {"force_path_style", "presign"}
+
+
+def _s3_env_defaults() -> dict:
+    from . import config as _c
+    return {
+        "backend": _c.STORAGE,
+        "bucket": _c.S3_BUCKET,
+        "region": _c.S3_REGION,
+        "endpoint_url": _c.S3_ENDPOINT_URL,
+        "access_key_id": _c.S3_ACCESS_KEY_ID,
+        "secret_access_key": _c.S3_SECRET_ACCESS_KEY,
+        "prefix": _c.S3_PREFIX,
+        "import_prefix": _c.S3_IMPORT_PREFIX,
+        "force_path_style": _c.S3_FORCE_PATH_STYLE,
+        "presign": _c.S3_PRESIGN,
+    }
+
+
+def get_s3(reveal: bool = False) -> dict:
+    """Effective S3 config = DB over env. reveal=True includes the real secret
+    (internal use only); reveal=False masks it and adds has_secret (API/UI use)."""
+    saved = _raw().get("s3") or {}
+    eff = {**_s3_env_defaults(), **{k: v for k, v in saved.items() if v is not None}}
+    eff["backend"] = "s3" if eff.get("backend") == "s3" else "local"
+    eff["force_path_style"] = bool(eff.get("force_path_style"))
+    eff["presign"] = bool(eff.get("presign"))
+    has_secret = bool(eff.get("secret_access_key"))
+    if not reveal:
+        eff.pop("secret_access_key", None)
+        eff["has_secret"] = has_secret
+    return eff
+
+
+def save_s3(patch: dict) -> dict:
+    data = _raw()
+    cur = data.get("s3") or {}
+    for k, v in (patch or {}).items():
+        if k in _S3_STR_KEYS and v is not None:
+            cur[k] = str(v)
+        elif k in _S3_BOOL_KEYS and v is not None:
+            cur[k] = bool(v)
+        elif k == "secret_access_key" and v:        # only overwrite when a new value is sent
+            cur[k] = str(v)
+    data["s3"] = cur
+    _write(data)
+    return get_s3(reveal=False)
+
+
 def save_config(patch: dict) -> dict:
     allowed = {"minutes_saved_per_answer", "llm_price_per_mtok", "tokens_per_answer"}
     clean = {}

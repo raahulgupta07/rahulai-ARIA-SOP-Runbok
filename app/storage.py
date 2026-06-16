@@ -52,7 +52,9 @@ _S3_OUT = {"processed": "processed/", "failed": "failed/"}
 
 
 def _is_s3() -> bool:
-    return STORAGE == "s3"
+    # effective backend = DB (super-admin UI) over env; bucket must be set
+    from . import s3client
+    return s3client.backend() == "s3" and s3client.enabled()
 
 
 def _s3_key(stage: str, key: str) -> str:

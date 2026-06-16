@@ -10,7 +10,6 @@ import io
 import os
 
 from .db import get_conn
-from .config import S3_IMPORT_PREFIX
 from . import s3client, storage
 
 _EXTS = {".pdf", ".png", ".jpg", ".jpeg"}
@@ -19,7 +18,7 @@ _EXTS = {".pdf", ".png", ".jpg", ".jpeg"}
 def _candidates() -> list[tuple[str, str]]:
     """(object_key, filename) for supported files under the import prefix."""
     out = []
-    for key in s3client.list_keys(S3_IMPORT_PREFIX):
+    for key in s3client.list_keys(s3client.import_prefix()):
         fn = key.rsplit("/", 1)[-1]
         if not fn or fn.startswith("."):
             continue
@@ -38,7 +37,7 @@ def preview() -> dict:
         existing = {r["name"] for r in conn.execute("SELECT name FROM docs").fetchall()}
     new = sum(1 for _, fn in cands if fn not in existing)
     return {"ok": True, "configured": True, "bucket": s3client.bucket(),
-            "prefix": S3_IMPORT_PREFIX, "found": len(cands),
+            "prefix": s3client.import_prefix(), "found": len(cands),
             "new": new, "skipped": len(cands) - new}
 
 
@@ -69,4 +68,4 @@ def import_all(uploaded_by: str | None = None) -> dict:
         except Exception as e:
             print(f"[s3_import] {key} failed: {e!r}")
     return {"ok": True, "configured": True, "bucket": s3client.bucket(),
-            "prefix": S3_IMPORT_PREFIX, "found": found, "queued": queued, "skipped": skipped}
+            "prefix": s3client.import_prefix(), "found": found, "queued": queued, "skipped": skipped}

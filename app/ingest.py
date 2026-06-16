@@ -69,8 +69,7 @@ def render_pages(pdf_path: Path, doc_slug: str) -> list[dict]:
     zoom = RENDER_DPI / 72.0
     mat = fitz.Matrix(zoom, zoom)
     from . import s3client
-    from .config import STORAGE
-    use_s3 = s3client.enabled() and STORAGE == "s3"
+    use_s3 = s3client.backend() == "s3" and s3client.enabled()
     for i, page in enumerate(doc, start=1):
         pix = page.get_pixmap(matrix=mat)
         img_path = out_dir / f"{i}.png"

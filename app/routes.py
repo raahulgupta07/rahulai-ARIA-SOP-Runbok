@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Header, Request
-from fastapi.responses import FileResponse, StreamingResponse, Response
+from fastapi.responses import FileResponse, StreamingResponse, Response, RedirectResponse
 from pydantic import BaseModel
 
 from .config import UPLOADS_DIR, ROOT
@@ -738,6 +738,36 @@ def ingest_s3_import(user: dict = Depends(require_admin)):
                     f"{res.get('skipped', 0)} already present", "info")
     audit_mod.log(user, "doc.s3_import", "doc", 0, res)
     return res
+
+
+# ---------------- Storage config (super-admin, Settings → Storage) ----------------
+@router.get("/storage/config", dependencies=[Depends(require_admin)])
+def storage_config():
+    """Effective storage config (DB over env), secret masked."""
+    from .appcfg import get_s3
+    return get_s3(reveal=False)
+
+
+@router.post("/storage/config")
+def storage_save(req: dict, user: dict = Depends(require_admin)):
+    """Save storage config; reset the S3 client and create the bucket if needed."""
+    from .appcfg import save_s3
+    from . import s3client
+    cfg = save_s3(req or {})
+    s3client.reset()
+    if cfg.get("backend") == "s3" and s3client.enabled():
+        s3client.ensure_bucket()
+    audit_mod.log(user, "storage.config", "config", 0,
+                  {k: v for k, v in cfg.items() if k != "secret_access_key"})
+    return cfg
+
+
+@router.post("/storage/test")
+def storage_test(req: dict | None = None, user: dict = Depends(require_admin)):
+    """Test reaching the bucket with the CURRENTLY SAVED config (Save first)."""
+    from . import s3client
+    s3client.reset()
+    return s3client.test_connection()
 
 
 @router.post("/documents/{doc_id}/retry", dependencies=[Depends(require_key)])
@@ -1758,18 +1788,26 @@ def get_page_image(page_id: int):
     if not row:
         raise HTTPException(status_code=404, detail="page not found")
     path = row["image_path"] or ""
-    # S3-backed page image: stream straight from the bucket
+    # page images are immutable per page id → cache hard so repeat views are free
+    cache = {"Cache-Control": "public, max-age=86400"}
+    # S3-backed page image: presigned redirect (browser pulls direct) or proxy-stream
     if path.startswith("s3:"):
         from . import s3client
+        key = path[3:]
+        if s3client.presign_enabled():
+            try:
+                return RedirectResponse(s3client.presign_get(key), status_code=307)
+            except Exception:
+                pass
         try:
-            body, ctype = s3client.get_stream(path[3:])
+            body, ctype = s3client.get_stream(key)
         except Exception:
             raise HTTPException(status_code=404, detail="page image missing in S3")
-        return StreamingResponse(body, media_type=ctype or "image/png")
+        return StreamingResponse(body, media_type=ctype or "image/png", headers=cache)
     img = _resolve_image(path)
     if not img.is_file():
         raise HTTPException(status_code=404, detail="page image missing on disk")
-    return FileResponse(img, media_type="image/png")
+    return FileResponse(img, media_type="image/png", headers=cache)
 
 
 @router.get("/pages/{page_id}/text", dependencies=[Depends(current_principal)])
