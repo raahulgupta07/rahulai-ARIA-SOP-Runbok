@@ -296,6 +296,7 @@ CREATE INDEX IF NOT EXISTS idx_ametrics_created ON answer_metrics(created_at DES
 -- support the answer, set by the verify daemon. NULL = not yet verified.
 ALTER TABLE answer_metrics ADD COLUMN IF NOT EXISTS verify_score INT;
 ALTER TABLE answer_metrics ADD COLUMN IF NOT EXISTS verify_at TIMESTAMPTZ;
+ALTER TABLE answer_metrics ADD COLUMN IF NOT EXISTS cache_hit BOOLEAN DEFAULT FALSE;
 
 -- ---- per-cited-page verdict: does the page back the answer's claims? ----
 -- written by app/verify.py (LLM judge). One row per (answer, cited page).

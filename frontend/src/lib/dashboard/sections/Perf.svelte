@@ -66,6 +66,12 @@
       <div class="exsub">p95 {ms(k.p95_first_ms)}</div>
       <div class="exrow"><span>full answer p50 {ms(k.p50_total_ms)}</span><span>p95 {ms(k.p95_total_ms)}</span></div>
     </div>
+    <div class="excard">
+      <div class="exh">Cache · zero-LLM serves</div>
+      <div class="exbig" style="color:{hueOk(k.cache_hit_rate ?? 0)}">{k.cache_hit_rate ?? 0}%<span class="exden">hit rate</span></div>
+      <div class="exsub">cached p50 {ms(k.p50_cache_ms)} · cold p50 {ms(k.p50_cold_ms)}</div>
+      <div class="exrow"><span>cold p95 {ms(k.p95_cold_ms)}</span><span>more cache = faster + cheaper</span></div>
+    </div>
     <div class="excard val">
       <div class="exh">Cost · real tokens</div>
       <div class="exbig">{money(k.cost_total)}<span class="exden">{p.days}d</span></div>

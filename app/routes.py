@@ -454,12 +454,20 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
         except Exception:
             hit = None
         if hit:
+            _t0 = time.monotonic()
             ans = (hit.get("answer") or "").strip()
             cited = _pages_by_ids(hit.get("page_ids") or [])
             convo.add_message(conv_id, "user", req.q, [])
-            convo.add_message(conv_id, "bot", ans, cited)
+            bot_id = convo.add_message(conv_id, "bot", ans, cited)
             qa_mod.bump_served(hit["id"])
             title = convo.autotitle(conv_id, req.q) if first_turn else None
+            try:
+                analytics_mod.record_metric(
+                    message_id=bot_id, conversation_id=conv_id, user_id=user.get("id"),
+                    model="qa-bank", mode="cache", ms_total=int((time.monotonic() - _t0) * 1000),
+                    cited_n=len(cited), blind=(len(cited) == 0), cache_hit=True)
+            except Exception:
+                pass
             return {"answer": ans, "pages": cited, "conversation_id": conv_id,
                     "title": title, "served_from_bank": True,
                     "served_qa_id": hit["id"],
@@ -516,6 +524,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
 
     def gen():
         from . import ingest_control as kill
+        _t0_req = time.monotonic()
         yield json.dumps({"type": "meta", "conversation_id": conv_id}) + "\n"
         if kill.chat_stopped():           # master stop active — refuse fast
             yield json.dumps({"type": "token", "v": "⏸ Assistant is paused by an admin. Try again shortly."}) + "\n"
@@ -545,6 +554,14 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
                 convo.add_message(conv_id, "user", req.q, [])
                 bot_id = convo.add_message(conv_id, "bot", ans, cited)
                 qa_mod.bump_served(hit["id"])
+                try:
+                    analytics_mod.record_metric(
+                        message_id=bot_id, conversation_id=conv_id, user_id=user.get("id"),
+                        model="qa-bank", mode="cache",
+                        ms_total=int((time.monotonic() - _t0_req) * 1000),
+                        cited_n=len(cited), blind=(len(cited) == 0), cache_hit=True)
+                except Exception:
+                    pass
                 title = convo.autotitle(conv_id, req.q) if first_turn else None
                 yield json.dumps({"type": "done", "pages": cited, "title": title,
                                   "clean": ans, "blind": False, "nearest": None,

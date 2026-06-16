@@ -6,12 +6,22 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.8.0"
+VERSION = "2.9.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.9.0",
+        "date": "2026-06-16",
+        "title": "Cache-hit observability in the Performance panel",
+        "lines": [
+            "See how often answers are served instantly from cache vs the live model",
+            "Performance panel now splits cached vs cold answer latency (p50/p95)",
+            "Cache hits are now recorded in telemetry (were previously invisible)",
+        ],
+    },
     {
         "version": "2.8.0",
         "date": "2026-06-16",

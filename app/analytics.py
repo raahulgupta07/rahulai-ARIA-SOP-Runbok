@@ -380,20 +380,21 @@ def user_profile(user_id: int, days: int = 90) -> dict:
 def record_metric(*, message_id=None, conversation_id=None, user_id=None,
                   model=None, mode=None, ms_first_token=None, ms_total=None,
                   tok_in=0, tok_out=0, seed_n=0, wide_n=0, wider_fired=False,
-                  cited_n=0, blind=False) -> None:
+                  cited_n=0, blind=False, cache_hit=False) -> None:
     """Persist one answer's telemetry row. Cost derived from the ROI price knob
-    (real token counts × $/Mtok). Fail-soft — caller wraps in try/except."""
+    (real token counts × $/Mtok). cache_hit=True for a zero-LLM Q&A-bank serve.
+    Fail-soft — caller wraps in try/except."""
     price = float(appcfg.get_config().get("llm_price_per_mtok", 0.30))
     cost = round((int(tok_in or 0) + int(tok_out or 0)) / 1_000_000 * price, 6)
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO answer_metrics (message_id, conversation_id, user_id, model, "
             " mode, ms_first_token, ms_total, tok_in, tok_out, cost_usd, seed_n, "
-            " wide_n, wider_fired, cited_n, blind) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            " wide_n, wider_fired, cited_n, blind, cache_hit) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (message_id, conversation_id, user_id, model, mode, ms_first_token,
              ms_total, int(tok_in or 0), int(tok_out or 0), cost, seed_n, wide_n,
-             bool(wider_fired), cited_n, bool(blind)),
+             bool(wider_fired), cited_n, bool(blind), bool(cache_hit)),
         )
 
 
@@ -416,6 +417,10 @@ def perf(days: int = 30) -> dict:
             " count(*) FILTER (WHERE cited_n > 0) AS grounded, "
             " count(*) FILTER (WHERE wider_fired) AS wider, "
             " count(*) FILTER (WHERE blind) AS blind, "
+            " count(*) FILTER (WHERE cache_hit) AS cache_hits, "
+            " COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY ms_total) FILTER (WHERE cache_hit),0) AS p50_cache, "
+            " COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY ms_total) FILTER (WHERE NOT cache_hit),0) AS p50_cold, "
+            " COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY ms_total) FILTER (WHERE NOT cache_hit),0) AS p95_cold, "
             " count(DISTINCT user_id) AS users "
             "FROM answer_metrics "
             "WHERE created_at >= (now()::date - make_interval(days => %s))::date",
@@ -439,6 +444,10 @@ def perf(days: int = 30) -> dict:
             "hit_rate": _pct(a.get("grounded", 0), answers),
             "wider_rate": _pct(a.get("wider", 0), answers),
             "blind_rate": _pct(a.get("blind", 0), answers),
+            "cache_hit_rate": _pct(a.get("cache_hits", 0), answers),
+            "p50_cache_ms": round(a.get("p50_cache") or 0),
+            "p50_cold_ms": round(a.get("p50_cold") or 0),
+            "p95_cold_ms": round(a.get("p95_cold") or 0),
             "users": a.get("users", 0) or 0,
         }
         # daily latency + cost trend
