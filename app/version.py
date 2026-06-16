@@ -6,12 +6,22 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.1.0"
+VERSION = "2.1.1"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.1.1",
+        "date": "2026-06-16",
+        "title": "Don't serve vague cached answers",
+        "lines": [
+            "The instant-answer cache no longer replies with vague escalation stubs",
+            "Questions the cache can't answer well now go to the live agent for a real answer",
+            "Crisp factual cached answers (IPs, commands, run times) still serve instantly",
+        ],
+    },
     {
         "version": "2.1.0",
         "date": "2026-06-16",

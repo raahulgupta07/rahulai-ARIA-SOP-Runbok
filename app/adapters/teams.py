@@ -208,7 +208,8 @@ def _process(activity: dict) -> None:
         if getattr(_cfg, "AUTO_QA_SERVE_ENABLED", True):
             try:
                 from .. import qa as _qa
-                served = _qa.serve_match(q, min_sim=getattr(_cfg, "AUTO_QA_SERVE_MIN_SIM", 0.72))
+                served = _qa.serve_match(q, min_sim=getattr(_cfg, "AUTO_QA_SERVE_MIN_SIM", 0.72),
+                                         min_len=getattr(_cfg, "AUTO_QA_SERVE_MIN_LEN", 140))
             except Exception as e:
                 print(f"[teams] qa serve skipped: {e!r}")
         if served:

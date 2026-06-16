@@ -94,6 +94,12 @@ AUTO_QA_GAP_INTERVAL_H = int(os.getenv("AUTO_QA_GAP_INTERVAL_H", "24"))  # how o
 # APPROVED pair → instant, zero-agent, zero-cost. Conservative similarity floor.
 AUTO_QA_SERVE_ENABLED = os.getenv("AUTO_QA_SERVE_ENABLED", "1") == "1"   # ON by default
 AUTO_QA_SERVE_MIN_SIM = float(os.getenv("AUTO_QA_SERVE_MIN_SIM", "0.72"))  # trigram floor to serve
+# Quality floor: never serve a near-empty cached answer (chars). Low by design —
+# a crisp factual answer ("IP is 10.x.x.x") is valuable; length is NOT the quality
+# signal. The real culprit is vague-deflection stubs ("inform your superior, do not
+# resolve alone") mined from DON'TS/ESCALATIONS sections — those are filtered
+# separately in qa.serve_match and fall through to the live agent instead.
+AUTO_QA_SERVE_MIN_LEN = int(os.getenv("AUTO_QA_SERVE_MIN_LEN", "24"))
 
 # ---- LLM concurrency cap ----
 # Global ceiling on simultaneous user-facing LLM calls (quick + deep). Under a

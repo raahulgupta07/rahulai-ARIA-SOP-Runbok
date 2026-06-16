@@ -72,20 +72,31 @@ def add_qa(question: str, answer: str, source: str = "qa",
     return row["id"]
 
 
-def serve_match(question: str, min_sim: float = 0.72) -> dict | None:
+def serve_match(question: str, min_sim: float = 0.72,
+                min_len: int = 0) -> dict | None:
     """Best ACTIVE pair whose question is near-identical to `question` (trigram).
     Used to serve a cached answer with zero agent. Conservative by threshold —
-    only approved pairs, only very close phrasing. Returns the pair + sim, or None."""
+    only approved pairs, only very close phrasing, only answers with enough
+    substance (`min_len`). Returns the pair + sim, or None."""
     q = (question or "").strip()
     if len(q) < 6:
         return None
+    # Vague-deflection stubs ("inform your superior; do not attempt to resolve it
+    # alone; contact/escalate to ...") are non-answers when they're the WHOLE reply.
+    # Skip them under ~200 chars so the question falls through to the live agent,
+    # which can read the page and give a real procedure. (A long answer that merely
+    # mentions escalation as one step is fine — hence the length ceiling.)
+    deflect = (r"(do not attempt to resolve|inform your superior|"
+               r"request assistance|escalate to|contact your (supervisor|superior|manager|it team))")
     with get_conn() as conn:
         row = conn.execute(
             "SELECT id, question, answer, page_ids, confidence, source, "
             "similarity(question, %(q)s) AS sim FROM qa_pairs "
             "WHERE status = 'active' AND similarity(question, %(q)s) >= %(t)s "
+            "AND length(btrim(answer)) >= %(ml)s "
+            "AND NOT (answer ~* %(df)s AND length(btrim(answer)) < 200) "
             "ORDER BY sim DESC LIMIT 1",
-            {"q": q, "t": min_sim},
+            {"q": q, "t": min_sim, "ml": int(min_len), "df": deflect},
         ).fetchone()
     return row
 
