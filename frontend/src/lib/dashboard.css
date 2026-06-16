@@ -1,10 +1,10 @@
 /* Shared dashboard styles — imported globally by /dashboard/+layout.svelte so every
    sub-route page can use these classes (Svelte scoped styles don't cross files). */
 
-.dash { height: 100%; overflow-y: auto; width: 100%; padding: 0 32px 64px; }
+.dash { height: 100%; overflow-y: auto; width: 100%; padding: 0 32px 64px; background: #f4f3f0; }
 .dhead {
   position: sticky; top: 0; z-index: 20;
-  padding: 16px 0 0; background: var(--cream); border-bottom: 1px solid var(--border);
+  padding: 16px 0 0; background: #f4f3f0; border-bottom: 1px solid var(--border);
 }
 .dhrow { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
 .dtitle { min-width: 0; }
@@ -145,7 +145,7 @@
 /* exec scorecard */
 .exgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 13px; }
 .excard { background: #fff; border: 1px solid var(--border); border-radius: 13px; padding: 14px 15px; }
-.excard.val { background: #f3f3f1; border-color: #dcdcd8; }
+.excard.val { background: #fff; border-color: #cfcdc7; }
 .exh { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
 .exbig { font-size: 26px; font-weight: 700; color: var(--ink); margin-top: 6px; line-height: 1; }
 .exden { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 6px; }
