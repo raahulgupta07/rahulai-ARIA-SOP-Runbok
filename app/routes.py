@@ -6,7 +6,7 @@ import shutil
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Header, Request
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Header, Request, Query
 from fastapi.responses import FileResponse, StreamingResponse, Response, RedirectResponse
 from pydantic import BaseModel
 
@@ -1111,8 +1111,12 @@ def ingest_active():
 
 
 @router.get("/documents", dependencies=[Depends(require_key)])
-def list_docs():
+def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=0)):
+    # Paginated + bounded. Was an unbounded scan of every doc (+ per-doc
+    # subqueries + a full messages-usage GROUP BY) on every poll. Returns `total`
+    # so the client can page. Defaults (500/0) keep existing callers working.
     with get_conn() as conn:
+        total = conn.execute("SELECT count(*) AS n FROM docs").fetchone()["n"]
         rows = conn.execute(
             "SELECT d.id, d.name, d.lang, d.page_count, d.created_at, d.category, "
             "d.status, d.progress, d.pages_done, d.error, d.ready_at, "
@@ -1121,23 +1125,29 @@ def list_docs():
             "(SELECT count(*) FROM pages p WHERE p.doc_id = d.id AND coalesce(p.vision_text,'') <> '') AS vision_pages, "
             "(SELECT count(*) FROM pages p WHERE p.doc_id = d.id AND coalesce(p.text_layer,'') <> '') AS text_pages, "
             "(SELECT p.id FROM pages p WHERE p.doc_id = d.id ORDER BY p.page_no, p.id LIMIT 1) AS cover_page_id "
-            "FROM docs d ORDER BY d.id DESC"
+            "FROM docs d ORDER BY d.id DESC LIMIT %s OFFSET %s",
+            (limit, offset),
         ).fetchall()
-        # one pass over cited pages → per-doc usage (how often the doc answered a question)
-        usage = conn.execute(
-            "SELECT p.doc_id, count(DISTINCT m.id) AS used_count, max(m.created_at) AS last_used_at "
-            "FROM messages m "
-            "JOIN jsonb_array_elements(m.pages) e ON true "
-            "JOIN pages p ON p.id = (e->>'page_id')::int "
-            "WHERE m.role = 'bot' "
-            "GROUP BY p.doc_id"
-        ).fetchall()
+        # per-doc usage (how often the doc answered a question), SCOPED to the
+        # page of docs we're returning so this doesn't scan all messages per doc.
+        doc_ids = [r["id"] for r in rows]
+        usage = []
+        if doc_ids:
+            usage = conn.execute(
+                "SELECT p.doc_id, count(DISTINCT m.id) AS used_count, max(m.created_at) AS last_used_at "
+                "FROM messages m "
+                "JOIN jsonb_array_elements(m.pages) e ON true "
+                "JOIN pages p ON p.id = (e->>'page_id')::int "
+                "WHERE m.role = 'bot' AND p.doc_id = ANY(%s) "
+                "GROUP BY p.doc_id",
+                (doc_ids,),
+            ).fetchall()
     umap = {u["doc_id"]: u for u in usage}
     for r in rows:
         u = umap.get(r["id"])
         r["used_count"] = u["used_count"] if u else 0
         r["last_used_at"] = u["last_used_at"] if u else None
-    return {"docs": rows}
+    return {"docs": rows, "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/documents/{doc_id}", dependencies=[Depends(require_key)])
