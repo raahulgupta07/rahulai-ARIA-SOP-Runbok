@@ -6,12 +6,21 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.14.0"
+VERSION = "2.14.1"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.14.1",
+        "date": "2026-06-16",
+        "title": "Fix: Documents grid could stay stuck on loading skeletons",
+        "lines": [
+            "The Brain → Documents grid now shows your documents even if the loading flag sticks",
+            "Skeletons only show when nothing has loaded yet, never over loaded content",
+        ],
+    },
     {
         "version": "2.14.0",
         "date": "2026-06-16",

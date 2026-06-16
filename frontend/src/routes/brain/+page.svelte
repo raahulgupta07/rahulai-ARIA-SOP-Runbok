@@ -2151,8 +2151,11 @@
           </div>
         </div>
 
-      {:else if loading}
-        <!-- SKELETON -->
+      {:else if loading && docs.length === 0 && feedItems.length === 0}
+        <!-- SKELETON — only while NOTHING has loaded yet. Never gate already-loaded
+             content behind the `loading` flag: if the flag ever sticks true (stale
+             remount / superseded call), real docs would be hidden forever. Once docs
+             or feed items exist, fall through to the feed branch. -->
         <div class="px-7 py-6">
           <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
             {#each Array(10) as _, i (i)}
