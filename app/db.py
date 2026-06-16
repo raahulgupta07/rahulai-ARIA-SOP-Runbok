@@ -198,6 +198,15 @@ CREATE TABLE IF NOT EXISTS auth_config (
 INSERT INTO auth_config (id, data) VALUES (1, '{}'::jsonb)
     ON CONFLICT (id) DO NOTHING;
 
+-- ---- OIDC/SSO CSRF state (cross-worker) ----
+-- one short-lived row per in-flight login. Was an in-process dict, which broke
+-- with multiple uvicorn workers (login on worker A, callback on worker B ->
+-- "invalid state"). Consumed one-shot on callback; expired rows pruned lazily.
+CREATE TABLE IF NOT EXISTS oidc_state (
+    state       TEXT PRIMARY KEY,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ---- per-user chat conversations + messages ----
 CREATE TABLE IF NOT EXISTS conversations (
     id          BIGSERIAL PRIMARY KEY,

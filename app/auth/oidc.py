@@ -8,9 +8,31 @@ import jwt
 from jwt import PyJWKClient
 
 from ..config import PUBLIC_URL
+from ..db import get_conn
 
-# in-memory state store (CSRF) — fine single-process; move to Redis at scale
-_STATES: dict[str, float] = {}
+# CSRF state lives in Postgres (oidc_state table), not an in-process dict, so it
+# survives across uvicorn workers — login can land on a different worker than the
+# callback. Consumed one-shot; expired rows (>10 min) pruned lazily on each use.
+_STATE_TTL_MIN = 10
+
+
+def _state_put(state: str) -> None:
+    with get_conn() as conn:
+        conn.execute("INSERT INTO oidc_state (state) VALUES (%s) "
+                     "ON CONFLICT (state) DO NOTHING", (state,))
+
+
+def _state_consume(state: str) -> bool:
+    """Atomically take a fresh, unexpired state (one-shot). True if valid."""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM oidc_state WHERE created_at < now() - make_interval(mins => %s)",
+                     (_STATE_TTL_MIN,))
+        row = conn.execute(
+            "DELETE FROM oidc_state WHERE state = %s "
+            "AND created_at >= now() - make_interval(mins => %s) RETURNING state",
+            (state, _STATE_TTL_MIN),
+        ).fetchone()
+    return bool(row)
 
 
 class OidcError(Exception):
@@ -35,7 +57,7 @@ def auth_url(cfg: dict, public_url: str | None = None) -> str:
         raise OidcError("OIDC not configured")
     disc = _discover(oc["issuer"])
     state = secrets.token_urlsafe(24)
-    _STATES[state] = 1
+    _state_put(state)
     params = {
         "client_id": oc["client_id"],
         "response_type": "code",
@@ -48,9 +70,8 @@ def auth_url(cfg: dict, public_url: str | None = None) -> str:
 
 def exchange(cfg: dict, code: str, state: str, public_url: str | None = None) -> dict:
     """Returns {email, name, sub}. Verifies state + id_token signature."""
-    if state not in _STATES:
+    if not _state_consume(state):
         raise OidcError("invalid state")
-    _STATES.pop(state, None)
 
     oc = cfg["oidc"]
     disc = _discover(oc["issuer"])
