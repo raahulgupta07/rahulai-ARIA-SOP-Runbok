@@ -6,12 +6,22 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.12.0"
+VERSION = "2.13.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.13.0",
+        "date": "2026-06-16",
+        "title": "Set the auto-sync schedule from the UI too",
+        "lines": [
+            "Choose how often each source syncs (in hours) right in the dialog",
+            "Every SharePoint/OneDrive setting is now configurable in the UI — no env vars",
+            "Each source runs on its own schedule; changes take effect within a minute",
+        ],
+    },
     {
         "version": "2.12.0",
         "date": "2026-06-16",

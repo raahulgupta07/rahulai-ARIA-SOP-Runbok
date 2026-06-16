@@ -46,6 +46,15 @@ def _norm(kind: str) -> str:
     return kind if kind in KINDS else "sharepoint"
 
 
+def _default_interval() -> int:
+    """Effective auto-sync interval (hours) when not overridden per source in the DB."""
+    try:
+        from .config import SHAREPOINT_SYNC_INTERVAL_H
+        return max(1, int(SHAREPOINT_SYNC_INTERVAL_H or 6))
+    except Exception:
+        return 6
+
+
 def _raw(kind: str) -> dict:
     try:
         with get_conn() as conn:
@@ -67,6 +76,7 @@ def config(kind: str = "sharepoint") -> dict:
         out[k] = cfg.get(k, "")
     for b in _BOOLS:
         out[b] = bool(cfg.get(b))
+    out["sync_interval_h"] = int(cfg.get("sync_interval_h") or 0) or _default_interval()
     return out
 
 
@@ -80,6 +90,11 @@ def save_config(patch: dict, kind: str = "sharepoint") -> dict:
     for b in _BOOLS:
         if b in patch:
             cur[b] = bool(patch[b])
+    if "sync_interval_h" in patch:
+        try:
+            cur["sync_interval_h"] = max(1, int(patch["sync_interval_h"] or 6))
+        except Exception:
+            cur["sync_interval_h"] = 6
     # Secret: only overwrite when a non-blank value is sent (blank = keep existing).
     if "client_secret" in patch:
         sec = (patch["client_secret"] or "").strip()
@@ -132,6 +147,12 @@ def sync_on(kind: str) -> bool:
     """Auto-sync active for this source: env master flag OR per-source UI toggle."""
     from .config import SHAREPOINT_SYNC_ENABLED
     return bool(SHAREPOINT_SYNC_ENABLED or _raw(_norm(kind)).get("sync_enabled"))
+
+
+def interval_h(kind: str) -> int:
+    """Per-source auto-sync interval in hours (DB override, else env/default), min 1."""
+    raw = int(_raw(_norm(kind)).get("sync_interval_h") or 0) or _default_interval()
+    return max(1, raw)
 
 
 def _token(c: dict) -> str:
@@ -284,19 +305,24 @@ _started = False
 
 
 def _loop():
-    from .config import SHAREPOINT_SYNC_INTERVAL_H
     time.sleep(120)                          # let boot settle
+    # Each source runs on its OWN interval; we tick every 60s and fire a source
+    # only when its per-source interval has elapsed since its last run.
+    last = {k: 0.0 for k in KINDS}
     while True:
         for kind in KINDS:
             try:
-                # per-source UI toggle (or env master flag), re-read every cycle
-                if sync_on(kind) and enabled(kind):
+                # per-source UI toggle (or env master flag) + per-source interval,
+                # both re-read every tick so UI changes take effect within a minute
+                if sync_on(kind) and enabled(kind) and \
+                        time.time() - last[kind] >= interval_h(kind) * 3600:
                     res = import_all(uploaded_by=f"{kind}-sync", kind=kind)
                     if res.get("queued"):
                         print(f"[{kind}] auto-sync queued {res['queued']} new file(s)")
+                    last[kind] = time.time()
             except Exception as e:
                 print(f"[{kind}] sync loop skipped: {e!r}")
-        time.sleep(max(1, SHAREPOINT_SYNC_INTERVAL_H) * 3600)
+        time.sleep(60)                       # check tick — NOT the full interval
 
 
 def start() -> None:

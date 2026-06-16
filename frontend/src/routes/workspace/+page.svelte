@@ -72,8 +72,8 @@
   function fireS3() { brainS3Signal.update((n) => n + 1); upMenu = false; }
 
   // ---- Cloud import: SharePoint + OneDrive (Microsoft Graph) ----
-  type GraphCfg = { tenant_id: string; client_id: string; site_host: string; site_path: string; user_upn: string; drive_id: string; folder: string; client_secret?: string; sync_enabled?: boolean; has_secret?: boolean };
-  const emptyCfg = (): GraphCfg => ({ tenant_id: '', client_id: '', site_host: '', site_path: '', user_upn: '', drive_id: '', folder: '', client_secret: '', sync_enabled: false });
+  type GraphCfg = { tenant_id: string; client_id: string; site_host: string; site_path: string; user_upn: string; drive_id: string; folder: string; client_secret?: string; sync_enabled?: boolean; sync_interval_h?: number; has_secret?: boolean };
+  const emptyCfg = (): GraphCfg => ({ tenant_id: '', client_id: '', site_host: '', site_path: '', user_upn: '', drive_id: '', folder: '', client_secret: '', sync_enabled: false, sync_interval_h: 6 });
   let spOpen = $state(false);
   let spKind = $state<'sharepoint' | 'onedrive'>('sharepoint');
   let spCfg = $state<GraphCfg>(emptyCfg());
@@ -327,6 +327,13 @@
       <input type="checkbox" bind:checked={spCfg.sync_enabled} />
       <span>Auto-sync — keep pulling new files on a schedule</span>
     </label>
+    {#if spCfg.sync_enabled}
+      <label class="sp-interval">
+        <span>Sync every</span>
+        <input type="number" min="1" max="168" bind:value={spCfg.sync_interval_h} />
+        <span>hours</span>
+      </label>
+    {/if}
     {#if spMsg}<div class="sp-msg">{spMsg}</div>{/if}
     <div class="sp-actions">
       <button class="sp-btn ghost" disabled={spBusy} onclick={spSave}>Save</button>
@@ -454,6 +461,9 @@
   .sp-link:disabled { opacity: .5; cursor: default; }
   .sp-toggle { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
   .sp-toggle input { width: 15px; height: 15px; accent-color: var(--clay); }
+  .sp-interval { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+  .sp-interval input { width: 64px; border: 1px solid var(--border, #e0dfda); border-radius: 8px; padding: 5px 8px; font-size: 13px; color: var(--ink); background: #fff; outline: none; }
+  .sp-interval input:focus { border-color: var(--clay); }
   .sp-f { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--muted); }
   .sp-f i { font-style: normal; opacity: .7; }
   .sp-f input { border: 1px solid var(--border, #e0dfda); border-radius: 8px; padding: 7px 9px; font-size: 13px; color: var(--ink); background: #fff; outline: none; }
