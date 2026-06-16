@@ -2,6 +2,9 @@ services:
   db:
     image: postgres:17
     container_name: docsensei-db
+    # Raise max_connections so DB_POOL_MAX * WEB_CONCURRENCY (+ daemons) fits.
+    # Default 100 was tight; 200 covers ~8 workers * 20-conn pools with headroom.
+    command: ["postgres", "-c", "max_connections=${PG_MAX_CONNECTIONS:-200}"]
     environment:
       POSTGRES_USER: docsensei
       POSTGRES_PASSWORD: docsensei
@@ -23,6 +26,9 @@ services:
         BUILD_SHA: ${BUILD_SHA:-local}
         BUILD_DATE: ${BUILD_DATE:-}
     container_name: docsensei-app
+    # Multi-worker uvicorn. Background daemons are leader-gated (app/leader.py)
+    # so only one worker runs them. ${WEB_CONCURRENCY} workers.
+    command: ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8077 --workers ${WEB_CONCURRENCY:-2}"]
     depends_on:
       db:
         condition: service_healthy
@@ -31,6 +37,7 @@ services:
       DB_POOL_MIN: ${DB_POOL_MIN:-2}
       DB_POOL_MAX: ${DB_POOL_MAX:-20}
       DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-30}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       INGEST_MODEL: ${INGEST_MODEL:-openrouter/google/gemini-3.1-flash-lite}
       CHAT_MODEL: ${CHAT_MODEL:-google/gemini-3.1-flash-lite}

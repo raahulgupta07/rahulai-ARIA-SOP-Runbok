@@ -470,9 +470,19 @@ CREATE TABLE IF NOT EXISTS embed_usage (
 """
 
 
+_DDL_KEY = 0x0D0C5E02  # advisory key: serialize CREATE/ALTER across workers
+
+
 def init_db() -> None:
+    # Multiple uvicorn workers may run init_db() at once; concurrent identical
+    # DDL can race ("tuple concurrently updated"). Serialize with a session
+    # advisory lock so only one worker runs the schema at a time (others no-op).
     with get_conn() as conn:
-        conn.execute(SCHEMA)
+        conn.execute("SELECT pg_advisory_lock(%s)", (_DDL_KEY,))
+        try:
+            conn.execute(SCHEMA)
+        finally:
+            conn.execute("SELECT pg_advisory_unlock(%s)", (_DDL_KEY,))
 
 
 def log_ingest(doc_id, step: str, msg: str, level: str = "info") -> None:
