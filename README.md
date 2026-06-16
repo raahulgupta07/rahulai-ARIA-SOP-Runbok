@@ -28,6 +28,7 @@ backend uses Gemini via OpenRouter.)
 - **Agno** + **Gemini flash-lite** via OpenRouter (one key: ingest + chat + vision + titles)
 - **pymupdf** render + vision pre-read (screenshot text transcribed at ingest)
 - **Auth**: local (bcrypt) + LDAP/AD (ldap3) + SSO/OIDC (JWKS), merged by email, JWT
+- **Roles**: one **admin owns the knowledge base** (upload / edit / approve / delete docs, facts, Q&A; S3 / SharePoint import). Everyone else is **chat-only** — Workspace / Brain / Settings are hidden and every knowledge-management API returns `403`. Answers, citations, follow-ups and 👍/👎 stay available to all.
 - **Frontend**: SvelteKit5 SPA, streaming NDJSON, Claude-style UI; dashboards use **ECharts** (animated gradient charts, light theme) via a shared `lib/EChart.svelte` + `lib/charts.ts`
 
 ## Run (Docker — one command)
