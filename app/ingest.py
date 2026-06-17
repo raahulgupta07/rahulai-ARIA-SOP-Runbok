@@ -203,10 +203,28 @@ def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=No
             "WHERE id = %s",
             (lang, json.dumps(tree, ensure_ascii=False), len(pages), doc_id),
         )
+        # precompute flattened tree nodes for fast section retrieval (also reused
+        # as a compact outline for Contextual Retrieval enrichment below)
+        flat = []
+        _walk_tree(tree, doc_id, display_name, flat)
+        # compact outline string from node titles (cheap; bounded)
+        from .context_enrich import enrich_page, CONTEXT_ENRICH_ENABLED
+        outline = ""
+        if CONTEXT_ENRICH_ENABLED:
+            titles = [t for t in (nd.get("title") or "" for nd in flat) if t]
+            outline = "\n".join(titles[:120])[:1500]
         for p in pages:
+            # Contextual Retrieval: 1-2 sentence blurb situating this page in the
+            # document -> folded into pages.context -> contributes to tsv (FTS).
+            # Fail-soft: enrich_page returns "" on any error/disabled flag.
+            ctx = ""
+            if CONTEXT_ENRICH_ENABLED:
+                _ck()  # abort between pages on stop/cancel (mirror vision loop)
+                ctx = enrich_page(display_name, outline, p["text"], lang)
             conn.execute(
                 "INSERT INTO pages (doc_id, page_no, image_path, text, "
-                "text_layer, vision_text) VALUES (%s, %s, %s, %s, %s, %s)",
+                "text_layer, vision_text, context) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
                 (
                     doc_id,
                     p["page_no"],
@@ -214,11 +232,9 @@ def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=No
                     p["text"],
                     p.get("text_layer", ""),
                     p.get("vision_text", ""),
+                    ctx,
                 ),
             )
-        # precompute flattened tree nodes for fast section retrieval
-        flat = []
-        _walk_tree(tree, doc_id, display_name, flat)
         for nd in flat:
             conn.execute(
                 "INSERT INTO nodes (doc_id, page_no, title, summary) "

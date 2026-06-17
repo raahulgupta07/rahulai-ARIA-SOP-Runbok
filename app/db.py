@@ -85,8 +85,39 @@ CREATE TABLE IF NOT EXISTS pages (
 );
 ALTER TABLE pages ADD COLUMN IF NOT EXISTS text_layer  TEXT;
 ALTER TABLE pages ADD COLUMN IF NOT EXISTS vision_text TEXT;
-ALTER TABLE pages ADD COLUMN IF NOT EXISTS tsv tsvector
-    GENERATED ALWAYS AS (to_tsvector('simple', coalesce(text, ''))) STORED;
+-- Contextual Retrieval (Anthropic-style, vectorless): a 1-2 sentence blurb
+-- generated at ingest situating this page within its document. Folded into the
+-- FTS source (tsv below) so isolated pages are not ambiguous.
+ALTER TABLE pages ADD COLUMN IF NOT EXISTS context TEXT NOT NULL DEFAULT '';
+-- tsv is a GENERATED column. Postgres can't ALTER a generation expression in
+-- place, so to make `context` searchable we drop+recreate the column. This runs
+-- idempotently every boot; the DROP only matters once (the first deploy that
+-- introduced `context`) — after that the column already covers text+context and
+-- recreating it is harmless (same definition). Keep the 'simple' config.
+DO $context_tsv$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_attribute
+        WHERE attrelid = 'pages'::regclass
+          AND attname = 'tsv'
+          AND pg_get_expr(
+                (SELECT adbin FROM pg_attrdef
+                 WHERE adrelid = 'pages'::regclass
+                   AND adnum = pg_attribute.attnum),
+                'pages'::regclass
+              ) ILIKE '%context%'
+    ) THEN
+        ALTER TABLE pages DROP COLUMN IF EXISTS tsv;
+        ALTER TABLE pages ADD COLUMN tsv tsvector
+            GENERATED ALWAYS AS (
+                to_tsvector(
+                    'simple',
+                    coalesce(text, '') || ' ' || coalesce(context, '')
+                )
+            ) STORED;
+    END IF;
+END
+$context_tsv$;
 CREATE INDEX IF NOT EXISTS idx_pages_doc ON pages(doc_id);
 CREATE INDEX IF NOT EXISTS idx_pages_tsv ON pages USING GIN (tsv);
 CREATE INDEX IF NOT EXISTS idx_pages_trgm ON pages USING GIN (text gin_trgm_ops);

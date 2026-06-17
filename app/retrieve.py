@@ -11,6 +11,7 @@ LLM query expansion adds EN+Burmese synonyms so 'disable' also finds
 import os
 import re
 import json
+import urllib.request
 
 from .db import get_conn
 from .config import OPENROUTER_API_KEY, CHAT_MODEL, OPENROUTER_BASE_URL
@@ -26,7 +27,15 @@ RETRIEVE_DEPTH = int(os.getenv("RETRIEVE_DEPTH", "5"))
 # relevance. Over-fetch candidates, let a small LLM reorder by how well each
 # page actually answers the question, keep the best K. Fail-soft to FTS order.
 RETRIEVE_RERANK = os.getenv("RETRIEVE_RERANK", "1") == "1"
-RERANK_POOL = int(os.getenv("RERANK_POOL", "16"))
+RERANK_POOL = int(os.getenv("RERANK_POOL", "30"))
+# swappable rerank model: falls back to CHAT_MODEL so default behavior is unchanged.
+RERANK_MODEL = os.getenv("RERANK_MODEL") or CHAT_MODEL
+# optional dedicated reranker provider. "llm" (default) = the small LLM reorder
+# below; "cohere" = Cohere Rerank API (needs COHERE_API_KEY). Cohere fails soft
+# back to the LLM path, which itself falls back to FTS order — never raises.
+RERANK_PROVIDER = os.getenv("RERANK_PROVIDER", "llm")
+COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
+COHERE_RERANK_MODEL = os.getenv("COHERE_RERANK_MODEL", "rerank-v3.5")
 
 _TERM = re.compile(r"[^\wက-႟]+", re.UNICODE)
 
@@ -95,10 +104,61 @@ def _tsquery(terms: list[str]) -> str:
     return " | ".join(seen[:40])
 
 
+def _rerank_cohere(query: str, rows: list, keep: int) -> list:
+    """Reorder candidates with the Cohere Rerank API (dedicated reranker model).
+    Uses stdlib urllib (no new dependency). Raises on any failure so the caller
+    can fall back to the LLM rerank."""
+    docs = []
+    for r in rows:
+        snip = (r.get("snippet") or r.get("text_full") or "")[:512].replace("\n", " ")
+        docs.append(f"{r.get('doc_name','')} p.{r.get('page_no','')}: {snip}")
+    payload = json.dumps({
+        "model": COHERE_RERANK_MODEL,
+        "query": query,
+        "documents": docs,
+        "top_n": keep,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.cohere.com/v2/rerank",
+        data=payload,
+        headers={
+            "Authorization": f"Bearer {COHERE_API_KEY}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    results = data.get("results") or []
+    picked, used = [], set()
+    for item in results:
+        i = item.get("index")
+        if isinstance(i, int) and 0 <= i < len(rows) and i not in used:
+            picked.append(rows[i]); used.add(i)
+        if len(picked) >= keep:
+            break
+    # backfill anything the reranker dropped, preserving FTS order
+    for i, row in enumerate(rows):
+        if len(picked) >= keep:
+            break
+        if i not in used:
+            picked.append(row); used.add(i)
+    return picked or rows[:keep]
+
+
 def _rerank(query: str, rows: list, keep: int) -> list:
     """Reorder candidate pages by relevance to the question, keep top `keep`.
-    One small LLM call over snippets. Fail-soft -> original FTS order."""
-    if not (_client and RETRIEVE_RERANK) or len(rows) <= keep:
+    Three-level fail-soft: cohere -> llm -> fts order. Never raises."""
+    if not RETRIEVE_RERANK or len(rows) <= keep:
+        return rows[:keep]
+    # dedicated reranker provider (flag-gated, OFF by default)
+    if RERANK_PROVIDER == "cohere" and COHERE_API_KEY:
+        try:
+            return _rerank_cohere(query, list(rows), keep)
+        except Exception as e:
+            print(f"[retrieve] cohere rerank failed, falling back to llm: {e!r}")
+    if not _client:
         return rows[:keep]
     try:
         lines = []
@@ -106,7 +166,7 @@ def _rerank(query: str, rows: list, keep: int) -> list:
             snip = (r.get("snippet") or r.get("text_full") or "")[:220].replace("\n", " ")
             lines.append(f"[{i}] {r.get('doc_name','')} p.{r.get('page_no','')}: {snip}")
         r = _client.chat.completions.create(
-            model=CHAT_MODEL,
+            model=RERANK_MODEL,
             messages=[
                 {"role": "system", "content": (
                     "You rank candidate document pages by how well each one ANSWERS "

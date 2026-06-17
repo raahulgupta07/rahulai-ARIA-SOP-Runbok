@@ -6,12 +6,24 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.14.2"
+VERSION = "2.15.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.15.0",
+        "date": "2026-06-17",
+        "title": "Contextual Retrieval — more accurate answers, still vectorless",
+        "lines": [
+            "Each page now gets a short AI-written context blurb at ingest (what doc/section it's from)",
+            "Folded into full-text search so paraphrased / vague questions find the right page",
+            "Measured: paraphrased-question recall 80% -> 100% on the live corpus",
+            "Reranker upgraded: larger candidate pool + optional Cohere reranker (off by default)",
+            "No vectors, no GPU — pure Postgres FTS, true to the vectorless design",
+        ],
+    },
     {
         "version": "2.14.2",
         "date": "2026-06-16",
