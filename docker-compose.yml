@@ -32,8 +32,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    environment:
+    environment: &app-environment
       PYTHONUNBUFFERED: "1"
+      # 1 = ingest runs inside the API (single-container default). Set 0 in .env and
+      # run `docker compose --profile worker up -d` so the dedicated worker ingests
+      # instead, keeping heavy vision/PageIndex off the API's GIL.
+      INGEST_IN_API: ${INGEST_IN_API:-1}
       DATABASE_URL: postgresql://docsensei:docsensei@db:5432/docsensei
       DB_POOL_MIN: ${DB_POOL_MIN:-2}
       DB_POOL_MAX: ${DB_POOL_MAX:-20}
@@ -156,6 +160,30 @@ services:
     volumes:
       - ./data:/app/data        # page images + uploads persist on host
       - ./documents:/app/documents   # drop SOPs here → "Import from server" queues them
+
+  # Dedicated ingest worker (opt-in: `--profile worker`). Same image, no HTTP —
+  # runs the ingest worker + daemons so vision/PageIndex never share the API GIL.
+  # To use: set INGEST_IN_API=0 in .env, then `docker compose --profile worker up -d`.
+  worker:
+    profiles: ["worker"]
+    build:
+      context: .
+      args:
+        BUILD_SHA: ${BUILD_SHA:-local}
+        BUILD_DATE: ${BUILD_DATE:-}
+    image: cityagentdocsensei-app
+    container_name: docsensei-worker
+    command: ["python", "-m", "app.worker_main"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *app-environment
+      # isolated process → push vision concurrency higher than the API would dare
+      VISION_WORKERS: ${WORKER_VISION_WORKERS:-12}
+    volumes:
+      - ./data:/app/data
+      - ./documents:/app/documents
 
 volumes:
   docsensei_pg:

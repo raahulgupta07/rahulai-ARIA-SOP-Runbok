@@ -24,35 +24,15 @@ async def lifespan(app: FastAPI):
     init_db()
     from .auth import store as _astore
     _astore.ensure_superadmin()   # env-bootstrapped admin (signup disabled → only admin source)
-    # Background work runs in ONE worker only (leader). With WEB_CONCURRENCY>1
-    # every worker runs this lifespan; without the gate we'd get N ingest
-    # workers + N watchers racing the same inbox + N copies of every daemon.
-    from . import leader
-    if leader.try_acquire():
-        print("[leader] this worker is the background leader — starting daemons")
-        worker.start()   # async ingest: requeue stuck docs + run worker thread(s)
-        watcher.start()  # pick up files dropped straight into the storage inbox
-        digest.start()   # cadence: weekly self-audit digest into the activity feed
-        from . import embed as _embed
-        _embed.start_prune_daemon()  # embed retention (flag EMBED_PRUNE_ENABLED)
-        from . import maintenance as _maint
-        _maint.start_daemon()        # DB vacuum/retention (flag DB_MAINTENANCE_ENABLED)
-        usage_rollup.start_daemon()  # usage analytics rollup (flag USAGE_ROLLUP_ENABLED)
-        verify.start_daemon()  # citation-accuracy verify pass (flag VERIFY_ENABLED)
-        from . import learn as _learn
-        _learn.start_auto_learn_daemon()  # nightly fact mining (AUTO_LEARN_ENABLED + MODE=nightly)
-        from . import auto_qa_gaps as _qagaps
-        _qagaps.start()  # gap-driven Q&A daemon (flag AUTO_QA_GAP_ENABLED, default OFF)
-        from . import sharepoint as _sp
-        _sp.start()  # SharePoint auto-sync (flag SHAREPOINT_SYNC_ENABLED, default OFF)
-        try:
-            from . import s3client
-            if s3client.enabled():
-                s3client.ensure_bucket()  # create bucket if missing (S3/MinIO)
-        except Exception as e:
-            print(f"[s3] init skipped: {e!r}")
+    # Background work (ingest worker + daemons) runs in ONE process only (leader).
+    # When INGEST_IN_API=0 a dedicated `worker` container runs them instead, so the
+    # API never shares its GIL with heavy vision/PageIndex work.
+    from .config import INGEST_IN_API
+    if INGEST_IN_API:
+        from . import background
+        background.start_all()
     else:
-        print("[leader] another worker holds leadership — serving HTTP only")
+        print("[api] INGEST_IN_API=0 — ingest handled by the dedicated worker container")
     yield
     from .db import close_pool
     close_pool()  # drain DB connection pool on shutdown

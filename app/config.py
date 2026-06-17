@@ -13,6 +13,11 @@ DEEP_MODEL = os.getenv("DEEP_MODEL", CHAT_MODEL)  # deep mode (images+tools)
 
 API_KEY = os.getenv("API_KEY", "")  # if set, required via X-API-Key header
 
+# INGEST_IN_API: run the ingest worker + background daemons inside the API process.
+# Set to 0 when a dedicated `worker` container runs them (so heavy vision/PageIndex
+# never share the API's GIL → uploads + HTTP stay snappy). Default 1 = single-container.
+INGEST_IN_API = os.getenv("INGEST_IN_API", "1") == "1"
+
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://docsensei:docsensei@localhost:5436/docsensei",
