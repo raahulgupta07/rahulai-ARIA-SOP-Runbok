@@ -261,6 +261,16 @@ def _suggestions_live():
         t = re.sub(r"[_]+", " ", t).strip()
         return re.sub(r"\s+", " ", t)
 
+    # empty corpus (fresh install / wiped) -> NO chips at all (don't show curated
+    # fallbacks that look like real data when there are no documents).
+    try:
+        with get_conn() as conn:
+            n = conn.execute("SELECT count(*) AS n FROM docs WHERE status='ready'").fetchone()
+        if not (n or {}).get("n", 0):
+            return {"suggestions": []}
+    except Exception:
+        pass
+
     # candidate pool: at most ONE entry per document (its best/most-cited question)
     pool: list[dict] = []
     seen_docs: set = set()

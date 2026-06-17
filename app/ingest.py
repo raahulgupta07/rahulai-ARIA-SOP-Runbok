@@ -279,48 +279,96 @@ def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=No
         except Exception as e:
             print(f"[ingest] compile_doc({doc_id}) failed (non-fatal): {e!r}")
 
-    # type-aware compile: classify doc, then route to the matching compiler
-    # (reference -> lookup table; sop/runbook/policy -> playbook w/ tuned prompt).
-    from .config import COMPILE_PLAYBOOK, TYPE_AWARE_COMPILE
+    # ---- whole-doc enrichers ----
+    # Classify the doc FIRST (needed to dispatch lookup vs playbook), then run the
+    # independent passes CONCURRENTLY. These used to run one-after-another (~7
+    # sequential LLM round-trips = the long 95% wait); they all just read the
+    # compiled doc_pages_md, so they parallelize cleanly. Each task is self-
+    # contained + fail-soft; pool workers capped by ENRICH_WORKERS.
+    from concurrent.futures import ThreadPoolExecutor
+    from .config import (
+        COMPILE_PLAYBOOK, TYPE_AWARE_COMPILE, ENTITY_INDEX, KB_LINT,
+        TROUBLESHOOT_TREE, PROC_CHAINING, AUTO_CATEGORIZE,
+        AUTO_FACTS_ENABLED, AUTO_QA_ENABLED,
+    )
+
     doc_type = "sop"
     if TYPE_AWARE_COMPILE:
         try:
             from .doc_type import classify_doc_type
             doc_type = classify_doc_type(doc_id, display_name) or "sop"
-            log_ingest(doc_id, "doc_type", f"🏷 type · {doc_type}")
+            log_ingest(doc_id, "doc_type", f"type · {doc_type}")
             _log_event(doc_id, "doc_type", f"classified type: {doc_type}")
         except Exception as e:
             print(f"[ingest] classify_doc_type({doc_id}) failed (non-fatal): {e!r}")
 
-    if TYPE_AWARE_COMPILE and doc_type == "reference":
-        try:
-            log_ingest(doc_id, "lookup", "building lookup table")
+    def _t_compile():
+        if TYPE_AWARE_COMPILE and doc_type == "reference":
             from .compile_lookup import extract_lookup
             n = extract_lookup(doc_id)
+            log_ingest(doc_id, "lookup", f"lookup · {n} rows")
             _log_event(doc_id, "lookup", f"extracted {n} lookup rows")
-        except Exception as e:
-            print(f"[ingest] extract_lookup({doc_id}) failed (non-fatal): {e!r}")
-    elif COMPILE_PLAYBOOK:
-        try:
-            log_ingest(doc_id, "playbook", "📋 building playbook")
-            _log_event(doc_id, "playbook", "compiling user playbook")
+        elif COMPILE_PLAYBOOK:
             from .compile_playbook import compile_playbook
             compile_playbook(doc_id, doc_type)
-        except Exception as e:
-            print(f"[ingest] compile_playbook({doc_id}) failed (non-fatal): {e!r}")
+            log_ingest(doc_id, "playbook", "playbook built")
+            _log_event(doc_id, "playbook", "compiled user playbook")
 
-    # entity index: extract recurring entities for cross-doc linking (Phase 3)
-    from .config import ENTITY_INDEX, KB_LINT
-    if ENTITY_INDEX:
-        try:
-            from .entities import extract_entities
-            ne = extract_entities(doc_id)
-            log_ingest(doc_id, "entities", f"indexed {ne} entities")
-            _log_event(doc_id, "entities", f"indexed {ne} entities")
-        except Exception as e:
-            print(f"[ingest] extract_entities({doc_id}) failed (non-fatal): {e!r}")
+    def _t_entities():
+        if not ENTITY_INDEX:
+            return
+        from .entities import extract_entities
+        ne = extract_entities(doc_id)
+        log_ingest(doc_id, "entities", f"indexed {ne} entities")
+        _log_event(doc_id, "entities", f"indexed {ne} entities")
 
-    # conflict lint: recompute same-term/divergent-value conflicts (Phase 4, cheap)
+    def _t_tree():
+        if not TROUBLESHOOT_TREE:
+            return
+        from .compile_tree import compile_tree
+        if compile_tree(doc_id):
+            log_ingest(doc_id, "tree", "built troubleshooting tree")
+            _log_event(doc_id, "tree", "compiled decision tree")
+
+    def _t_deps():
+        if not PROC_CHAINING:
+            return
+        from .dependencies import detect_dependencies
+        nd = detect_dependencies(doc_id)
+        _log_event(doc_id, "deps", f"detected {nd} prerequisite link(s)")
+
+    def _t_category():
+        if not AUTO_CATEGORIZE:
+            return
+        from .categorize import categorize_doc
+        cat = categorize_doc(doc_id)
+        if cat:
+            log_ingest(doc_id, "category", f"categorized · {cat}")
+            _log_event(doc_id, "category", f"categorized: {cat}")
+
+    def _t_facts():
+        if not AUTO_FACTS_ENABLED:
+            return
+        from .doc_facts import extract_doc_facts
+        extract_doc_facts(doc_id, display_name)
+
+    def _t_qa():
+        if not AUTO_QA_ENABLED:
+            return
+        from .doc_qa import extract_doc_qa
+        extract_doc_qa(doc_id, display_name)
+
+    _tasks = [_t_compile, _t_entities, _t_tree, _t_deps, _t_category, _t_facts, _t_qa]
+    log_ingest(doc_id, "enrich", "enriching (parallel)")
+    _ENRICH_WORKERS = int(os.getenv("ENRICH_WORKERS", "7"))
+    with ThreadPoolExecutor(max_workers=max(1, min(_ENRICH_WORKERS, len(_tasks)))) as _ex:
+        for _f in [_ex.submit(t) for t in _tasks]:
+            try:
+                _f.result()
+            except Exception as e:
+                print(f"[ingest] enrich task failed (non-fatal): {e!r}")
+
+    # conflict lint AFTER lookup + facts exist (reads doc_lookup + memory)
     if KB_LINT:
         try:
             from .kb_lint import run_lint
@@ -328,58 +376,7 @@ def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=No
         except Exception as e:
             print(f"[ingest] run_lint failed (non-fatal): {e!r}")
 
-    # troubleshooting tree: compile a decision tree if the doc has branching (Phase 6.2)
-    from .config import TROUBLESHOOT_TREE
-    if TROUBLESHOOT_TREE:
-        try:
-            from .compile_tree import compile_tree
-            nt = compile_tree(doc_id)
-            if nt:
-                log_ingest(doc_id, "tree", "built troubleshooting tree")
-                _log_event(doc_id, "tree", "compiled decision tree")
-        except Exception as e:
-            print(f"[ingest] compile_tree({doc_id}) failed (non-fatal): {e!r}")
-
-    # procedure chaining: detect cross-doc prerequisites for this doc (Phase 5)
-    from .config import PROC_CHAINING
-    if PROC_CHAINING:
-        try:
-            from .dependencies import detect_dependencies
-            nd = detect_dependencies(doc_id)
-            _log_event(doc_id, "deps", f"detected {nd} prerequisite link(s)")
-        except Exception as e:
-            print(f"[ingest] detect_dependencies({doc_id}) failed (non-fatal): {e!r}")
-
-    # auto-category: one LLM topic tag (uses the compiled summary if present)
-    from .config import AUTO_CATEGORIZE
-    if AUTO_CATEGORIZE:
-        try:
-            from .categorize import categorize_doc
-            cat = categorize_doc(doc_id)
-            if cat:
-                log_ingest(doc_id, "category", f"🏷 categorized · {cat}")
-                _log_event(doc_id, "category", f"categorized: {cat}")
-        except Exception as e:
-            print(f"[ingest] categorize_doc({doc_id}) failed (non-fatal): {e!r}")
-
-    # auto-facts: extract durable facts from the compiled doc → pending review
-    from .config import AUTO_FACTS_ENABLED, AUTO_QA_ENABLED
-    if AUTO_FACTS_ENABLED:
-        try:
-            from .doc_facts import extract_doc_facts
-            extract_doc_facts(doc_id, display_name)
-        except Exception as e:
-            print(f"[ingest] extract_doc_facts({doc_id}) failed (non-fatal): {e!r}")
-
-    # auto-Q&A: mine grounded question/answer pairs from the doc → review-gated bank
-    if AUTO_QA_ENABLED:
-        try:
-            from .doc_qa import extract_doc_qa
-            extract_doc_qa(doc_id, display_name)
-        except Exception as e:
-            print(f"[ingest] extract_doc_qa({doc_id}) failed (non-fatal): {e!r}")
-
-    # refresh the curated bilingual home starter chips now the corpus grew (1 LLM call)
+    # refresh curated home starter chips AFTER Q&A mined (1 LLM call)
     try:
         from .starter_chips import refresh as _refresh_chips
         _refresh_chips()

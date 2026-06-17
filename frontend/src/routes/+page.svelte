@@ -384,18 +384,15 @@
 
   // quiet suggestion chips (claude-style) — corpus-derived (zero LLM), click fills the composer.
   // server returns proven Q&A first, then doc-section titles, then curated fallbacks.
-  let starters = $state<{ cat: string; q: string; doc?: string | null; id?: number; hot?: boolean }[]>([
-    { cat: 'SETUP',    q: 'How do I create a new site in Gold Central?' },
-    { cat: 'USERS',    q: 'How to disable a user account?' },
-    { cat: 'BATCH',    q: 'Night batch job ကျသွားရင် ဘာလုပ်ရမလဲ?' },
-    { cat: 'DISCOVER', q: 'Where is the refund approval flow?' }
-  ]);
+  // corpus-derived; empty until /suggestions responds (no hardcoded chips on an
+  // empty/wiped corpus — they'd look like real data when there is none).
+  let starters = $state<{ cat: string; q: string; doc?: string | null; id?: number; hot?: boolean }[]>([]);
   // home chip language (persisted) — 'en' English, 'my' Burmese
   let chipLang = $state<'en' | 'my'>('en');
   $effect(() => { try { const v = localStorage.getItem('aria_lang'); if (v === 'my' || v === 'en') chipLang = v; } catch {} });
   function setChipLang(l: 'en' | 'my') { chipLang = l; try { localStorage.setItem('aria_lang', l); } catch {} }
   $effect(() => {
-    api.suggestions(chipLang).then((r) => { if (r?.suggestions?.length) starters = r.suggestions; }).catch(() => {});
+    api.suggestions(chipLang).then((r) => { starters = r?.suggestions ?? []; }).catch(() => { starters = []; });
   });
   let taEl = $state<HTMLTextAreaElement | null>(null);
   function useSuggestion(q: string) { input = q; send(); }

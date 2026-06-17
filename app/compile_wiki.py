@@ -8,6 +8,8 @@ model answers in full detail — and never re-reads the file.
 Reformat, never summarise: every table, step, code, value, SQL and field is kept.
 """
 import json
+import os
+from concurrent.futures import ThreadPoolExecutor
 
 from .db import get_conn
 from .config import (
@@ -92,13 +94,28 @@ def compile_doc(doc_id: int, title: str = "") -> dict:
             d = conn.execute("SELECT name FROM docs WHERE id = %s", (doc_id,)).fetchone()
             title = (d or {}).get("name", "") if d else ""
 
-    page_mds: list[str] = []
+    # Per-page reformat = one LLM call each; run them CONCURRENTLY (mirrors
+    # vision.preread_pages). executor.map preserves rows order so page_mds stays
+    # aligned to page_no — the doc_md concat + per-page inserts depend on it.
+    if rows:
+        _workers = max(1, min(int(os.getenv("COMPILE_WORKERS", "6")), len(rows)))
+
+        def _safe_compile(r) -> str:
+            try:
+                return _compile_page(r["text"])  # already fail-soft -> raw text
+            except Exception as e:               # belt-and-suspenders: never abort the doc
+                print(f"[compile] page compile future failed: {e!r}")
+                return (r["text"] or "").strip()
+
+        with ThreadPoolExecutor(max_workers=_workers) as ex:
+            page_mds: list[str] = list(ex.map(_safe_compile, rows))
+    else:
+        page_mds = []
+
     total = 0
     with get_conn() as conn:
         conn.execute("DELETE FROM doc_pages_md WHERE doc_id = %s", (doc_id,))
-        for r in rows:
-            md = _compile_page(r["text"])
-            page_mds.append(md)
+        for r, md in zip(rows, page_mds):
             total += len(md)
             conn.execute(
                 "INSERT INTO doc_pages_md (doc_id, page_no, md, chars) "
