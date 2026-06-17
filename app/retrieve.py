@@ -12,8 +12,22 @@ import os
 import re
 import json
 import urllib.request
+import contextvars
 
 from .db import get_conn
+
+# retrieval funnel telemetry: last search_pages() call's candidate-pool counts,
+# read by the answer path to populate answer_metrics (scanned/pool/reranked).
+# A ContextVar keeps it per-request-thread safe under concurrency. Reset on each
+# search_pages() entry so a follow-up wide-retry overwrites cleanly.
+_last_funnel: contextvars.ContextVar[dict] = contextvars.ContextVar(
+    "_last_funnel", default={})
+
+
+def last_funnel() -> dict:
+    """Funnel counts from the most recent search_pages() in this context:
+    {scanned, pool, reranked}. Empty dict if none. Fail-soft for callers."""
+    return dict(_last_funnel.get() or {})
 from .config import OPENROUTER_API_KEY, CHAT_MODEL, OPENROUTER_BASE_URL
 
 RETRIEVE_EXPAND = os.getenv("RETRIEVE_EXPAND", "1") == "1"
@@ -242,10 +256,19 @@ def search_pages(query: str, k: int | None = None) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(sql, params).fetchall()
 
+    # retrieval funnel telemetry: how many candidates the SQL pool scanned, the
+    # pool size we asked for, and how many survive rerank (for answer_metrics).
+    _scanned = len(rows)
+
     # relevance rerank the pool, keep best k (before depth-fill, so depth-fill
     # extends the page the user actually needs)
     if rows:
         rows = _rerank(query, list(rows), k)
+
+    try:
+        _last_funnel.set({"scanned": _scanned, "pool": fetch_k, "reranked": len(rows)})
+    except Exception:
+        pass
 
     if not rows:
         # nothing matched — fall back to most recent doc's first pages so the
@@ -284,6 +307,37 @@ def search_pages(query: str, k: int | None = None) -> list[dict]:
             if (e["doc_id"], e["page_no"]) not in have:
                 rows.append(e)
                 have.add((e["doc_id"], e["page_no"]))
+
+    # entity-aware cross-doc fill (Phase 3.6): if the question names an entity that
+    # also lives in OTHER docs, pull each such doc's best-matching page so the answer
+    # can draw on the whole corpus, not just the keyword-top doc. Bounded + fail-soft.
+    if rows and tsq and os.getenv("ENTITY_RETRIEVE", "1") == "1":
+        try:
+            from .entities import docs_for_query
+            fill_max = int(os.getenv("ENTITY_FILL_MAX", "3"))
+            have_docs = {r["doc_id"] for r in rows}
+            cand = [d for d in docs_for_query(query) if d not in have_docs][:fill_max]
+            if cand:
+                with get_conn() as conn:
+                    ex = conn.execute(
+                        "WITH q AS (SELECT to_tsquery('simple', %(tsq)s) AS tsq) "
+                        "SELECT DISTINCT ON (p.doc_id) p.id AS page_id, p.doc_id, "
+                        "d.name AS doc_name, p.page_no, p.image_path, "
+                        "left(p.text,400) AS snippet, left(p.text,16000) AS text_full, "
+                        "m.md AS page_md "
+                        "FROM pages p JOIN docs d ON d.id = p.doc_id "
+                        "LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no, q "
+                        "WHERE p.doc_id = ANY(%(docs)s) "
+                        "ORDER BY p.doc_id, (ts_rank(p.tsv, q.tsq) + "
+                        "0.3 * similarity(left(p.text,2000), %(raw)s)) DESC, p.page_no",
+                        {"tsq": tsq, "raw": raw, "docs": cand},
+                    ).fetchall()
+                for e in ex:
+                    if (e["doc_id"], e["page_no"]) not in have:
+                        rows.append(e)
+                        have.add((e["doc_id"], e["page_no"]))
+        except Exception as e:
+            print(f"[retrieve] entity-fill failed (non-fatal): {e!r}")
 
     use_wiki = os.getenv("CHAT_USE_WIKI", "0") == "1"
     out = []

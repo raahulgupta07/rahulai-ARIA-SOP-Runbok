@@ -6,12 +6,25 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.15.0"
+VERSION = "2.16.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.16.0",
+        "date": "2026-06-17",
+        "title": "Operations Cockpit — real-time mission control",
+        "lines": [
+            "New admin Cockpit screen (Dashboard + Workspace rail): one live view of everything",
+            "System vitals, throughput, cache-hit %, p50/p95 latency — refresh on the live heartbeat",
+            "Ingest pipeline panel: in-flight docs with progress + click-to-expand live event log",
+            "Live answers feed: recent questions with cache-hit, retrieval funnel and latency",
+            "Retrieval funnel viz (scanned -> pool -> reranked -> cited) for the latest answer",
+            "New endpoints: /api/ops/answers/recent and /api/documents/{id}/log; ingest_events table",
+        ],
+    },
     {
         "version": "2.15.0",
         "date": "2026-06-17",

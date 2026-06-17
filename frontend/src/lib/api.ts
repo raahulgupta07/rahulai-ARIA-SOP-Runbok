@@ -257,6 +257,26 @@ export const api = {
     return jsonOrThrow(await fetch(`${BASE}/documents/${docId}`, { headers: headers(false) }));
   },
 
+  async getPlaybook(docId: number) {
+    return jsonOrThrow(await fetch(`${BASE}/documents/${docId}/playbook`, { headers: headers(false) }));
+  },
+
+  async getLookup(docId: number) {
+    return jsonOrThrow(await fetch(`${BASE}/documents/${docId}/lookup`, { headers: headers(false) }));
+  },
+
+  async getTree(docId: number) {
+    return jsonOrThrow(await fetch(`${BASE}/documents/${docId}/tree`, { headers: headers(false) }));
+  },
+
+  async getPageCues(pageId: number) {
+    return jsonOrThrow(await fetch(`${BASE}/pages/${pageId}/cues`, { headers: headers(false) }));
+  },
+
+  async getDependencies(docId: number) {
+    return jsonOrThrow(await fetch(`${BASE}/documents/${docId}/dependencies`, { headers: headers(false) }));
+  },
+
   async docPages(docId: number) {
     return jsonOrThrow(await fetch(`${BASE}/documents/${docId}/pages`, { headers: headers(false) }));
   },
@@ -411,6 +431,13 @@ export const api = {
   },
   async ops() {
     return jsonOrThrow(await fetch(`${BASE}/ops`, { headers: headers(false) }));
+  },
+  // ---- Operations Cockpit (live answer feed + per-doc ingest log) ----
+  async opsAnswersRecent(limit = 20) {
+    return jsonOrThrow(await fetch(`${BASE}/ops/answers/recent?limit=${limit}`, { headers: headers(false) }));
+  },
+  async documentLog(id: number, limit = 200) {
+    return jsonOrThrow(await fetch(`${BASE}/documents/${id}/log?limit=${limit}`, { headers: headers(false) }));
   },
   async analyticsEngagement(days = 30) {
     return jsonOrThrow(await fetch(`${BASE}/analytics/engagement?days=${days}`, { headers: headers(false) }));
@@ -578,5 +605,32 @@ export const api = {
     fd.append('url', url);
     return jsonOrThrow(await fetch(`${BASE}/okf/import?dry_run=${dryRun}`, {
       method: 'POST', headers: headers(false), body: fd }));
+  },
+
+  // ---- entities (cross-doc index: code/menu_path/system/screen/field/term) ----
+  async entities(q = '', limit = 200) {
+    return jsonOrThrow(await fetch(`${BASE}/entities?q=${encodeURIComponent(q)}&limit=${limit}`, { headers: headers(false) }));
+  },
+  async entityDetail(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/entities/${id}`, { headers: headers(false) }));
+  },
+
+  // ---- capabilities (master catalog: everything Aria can help with, grouped) ----
+  async getCatalog() {
+    return jsonOrThrow(await fetch(`${BASE}/catalog`, { headers: headers(false) }));
+  },
+
+  // ---- KB health (conflicts + stale docs) ----
+  async kbConflicts(status = 'open') {
+    return jsonOrThrow(await fetch(`${BASE}/kb/conflicts?status=${status}`, { headers: headers(false) }));
+  },
+  async kbLint() {
+    return jsonOrThrow(await fetch(`${BASE}/kb/lint`, { method: 'POST', headers: headers(false) }));
+  },
+  async kbDismissConflict(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/kb/conflicts/${id}/dismiss`, { method: 'POST', headers: headers(false) }));
+  },
+  async kbStale(days = 90) {
+    return jsonOrThrow(await fetch(`${BASE}/kb/stale?days=${days}`, { headers: headers(false) }));
   }
 };

@@ -26,8 +26,13 @@ _PROMPT = (
     "cells, error messages, IP addresses, paths and numbers. "
     "Do NOT infer, summarise, explain, translate, or add anything that is not "
     "literally printed on the page. If a region is unreadable, write [unreadable]. "
-    "After the transcription, add exactly one line starting 'CAPTION:' that "
-    "briefly says what the page/screenshot shows. Output plain text only."
+    "After the transcription, add a block starting 'VISUAL CUES:' listing any visual "
+    "instruction the screenshots convey that the text alone misses — which button / "
+    "field / row is highlighted, circled, boxed, or pointed at by an arrow; what the "
+    "user is meant to click; the active tab or screen; the order arrows imply. One "
+    "bullet per cue; write 'none' if there are no such cues. "
+    "Then add exactly one line starting 'CAPTION:' that briefly says what the "
+    "page/screenshot shows. Output plain text only."
 )
 
 _client = (
@@ -62,7 +67,7 @@ def _describe(image_path: str) -> str:
                     ],
                 }
             ],
-            max_tokens=1200,
+            max_tokens=1600,
             temperature=0,
         )
         return (resp.choices[0].message.content or "").strip()

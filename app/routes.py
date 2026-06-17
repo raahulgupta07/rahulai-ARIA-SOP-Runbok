@@ -514,6 +514,11 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
     first_turn = convo.message_count(conv_id) == 0
     history = convo.messages(conv_id)   # prior turns (before this one) → context for follow-ups
 
+    # role-based answer depth (Phase 6): non-admins get the simplified end-user
+    # rendering, admins/IT get the full procedure. Default expert when flag off.
+    from .config import ROLE_DEPTH
+    _audience = "simple" if (ROLE_DEPTH and user.get("role") != "admin") else "expert"
+
     def _step(label, detail="", state="done", reset=False):
         d = {"type": "step", "label": label, "detail": detail, "state": state}
         if reset:
@@ -598,6 +603,12 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
                 yield _step("Searching deeper", "also tried: " + " · ".join(_subs))
         else:
             seed = search_pages(_sq, k=req.k or DEFAULT_K)
+        # retrieval funnel counts (scanned/pool/reranked) for answer_metrics
+        try:
+            from .retrieve import last_funnel
+            _funnel = last_funnel()
+        except Exception:
+            _funnel = {}
 
         if not seed:
             yield _step("Searched the knowledge base", "no matching runbooks found")
@@ -626,7 +637,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
             buf = ""
             for tok in stream_reply(req.q, pages, mode=req.mode,
                                     session_id=str(conv_id), history=history,
-                                    meter=meter):
+                                    meter=meter, audience=_audience):
                 if kill.chat_stopped():    # master stop mid-answer → abort
                     break
                 buf += tok
@@ -742,6 +753,8 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
                 tok_in=meter.get("tok_in", 0), tok_out=meter.get("tok_out", 0),
                 seed_n=len(seed), wide_n=wide_n[0], wider_fired=wider_fired[0],
                 cited_n=len(cited), blind=blind,
+                scanned=_funnel.get("scanned"), pool=_funnel.get("pool"),
+                reranked=_funnel.get("reranked"),
             )
         except Exception as e:
             print(f"[metrics] record skipped: {e!r}")
@@ -1454,7 +1467,8 @@ def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=
         rows = conn.execute(
             "SELECT d.id, d.name, d.lang, d.page_count, d.created_at, d.category, "
             "d.status, d.progress, d.pages_done, d.error, d.ready_at, "
-            "d.uploaded_by, d.updated_at, "
+            "d.uploaded_by, d.updated_at, d.doc_type, "
+            "(SELECT count(*) FROM doc_playbook pb WHERE pb.doc_id = d.id) AS has_playbook, "
             "(SELECT count(*) FROM nodes n WHERE n.doc_id = d.id) AS sections, "
             "(SELECT count(*) FROM pages p WHERE p.doc_id = d.id AND coalesce(p.vision_text,'') <> '') AS vision_pages, "
             "(SELECT count(*) FROM pages p WHERE p.doc_id = d.id AND coalesce(p.text_layer,'') <> '') AS text_pages, "
@@ -1482,6 +1496,113 @@ def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=
         r["used_count"] = u["used_count"] if u else 0
         r["last_used_at"] = u["last_used_at"] if u else None
     return {"docs": rows, "total": total, "limit": limit, "offset": offset}
+
+
+@router.get("/documents/{doc_id}/playbook", dependencies=[Depends(require_key)])
+def doc_playbook(doc_id: int):
+    """User-facing playbook for a doc (goal/who/prereqs/steps/verify/if-fails/escalate).
+    Returns {playbook: null} when the doc has none compiled yet."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT goal, who, prerequisites, steps, verify, if_fails, escalate, "
+            "chars, created_at FROM doc_playbook WHERE doc_id = %s",
+            (doc_id,),
+        ).fetchone()
+    return {"playbook": row}
+
+
+@router.get("/documents/{doc_id}/dependencies", dependencies=[Depends(require_key)])
+def doc_dependencies(doc_id: int):
+    """Prerequisite documents for this doc (procedure chaining, Phase 5)."""
+    from . import dependencies as deps_mod
+    return {"dependencies": deps_mod.dependencies_for(doc_id)}
+
+
+@router.get("/documents/{doc_id}/tree", dependencies=[Depends(require_key)])
+def doc_tree(doc_id: int):
+    """Interactive troubleshooting decision tree for a doc (Phase 6.2).
+    Returns {tree: null} when the doc has no branching tree compiled."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT tree FROM doc_tree WHERE doc_id = %s", (doc_id,)
+        ).fetchone()
+    return {"tree": (row or {}).get("tree") if row else None}
+
+
+@router.get("/documents/{doc_id}/lookup", dependencies=[Depends(require_key)])
+def doc_lookup_rows(doc_id: int):
+    """Reference-doc lookup table (term -> value + page) for the Brain reader."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT term, value, page_id FROM doc_lookup WHERE doc_id = %s "
+            "ORDER BY term", (doc_id,),
+        ).fetchall()
+    return {"lookup": rows}
+
+
+# ---- cross-doc entity index (Phase 3) ----
+@router.get("/entities", dependencies=[Depends(require_key)])
+def list_entities(q: str = "", limit: int = 200):
+    """Entities ranked by how many docs mention them (cross-doc connectors first)."""
+    limit = max(1, min(int(limit or 200), 1000))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT e.id, e.name, e.kind, "
+            "count(DISTINCT m.doc_id) AS doc_count "
+            "FROM entities e LEFT JOIN entity_mention m ON m.entity_id = e.id "
+            "WHERE (%s = '' OR e.name ILIKE '%%' || %s || '%%') "
+            "GROUP BY e.id, e.name, e.kind "
+            "ORDER BY doc_count DESC, e.name ASC LIMIT %s",
+            (q, q, limit),
+        ).fetchall()
+    return {"entities": rows}
+
+
+@router.get("/entities/{entity_id}", dependencies=[Depends(require_key)])
+def entity_detail(entity_id: int):
+    """One entity + every document (and page) that mentions it."""
+    with get_conn() as conn:
+        ent = conn.execute(
+            "SELECT id, name, kind FROM entities WHERE id = %s", (entity_id,)
+        ).fetchone()
+        docs = conn.execute(
+            "SELECT m.doc_id, d.name AS doc_name, m.page_id "
+            "FROM entity_mention m JOIN docs d ON d.id = m.doc_id "
+            "WHERE m.entity_id = %s ORDER BY d.name", (entity_id,),
+        ).fetchall()
+    return {"entity": ent, "mentions": docs}
+
+
+# ---- knowledge-base health: conflicts + freshness (Phase 4) ----
+@router.get("/kb/conflicts", dependencies=[Depends(require_key)])
+def kb_conflicts(status: str = "open"):
+    from . import kb_lint
+    return {"conflicts": kb_lint.list_conflicts(status)}
+
+
+@router.post("/kb/lint")
+def kb_lint_run(user: dict = Depends(require_admin)):
+    from . import kb_lint
+    return {"conflicts": kb_lint.run_lint()}
+
+
+@router.post("/kb/conflicts/{conflict_id}/dismiss")
+def kb_conflict_dismiss(conflict_id: int, user: dict = Depends(require_admin)):
+    from . import kb_lint
+    return {"ok": kb_lint.dismiss_conflict(conflict_id)}
+
+
+@router.get("/kb/stale", dependencies=[Depends(require_key)])
+def kb_stale(days: int | None = None):
+    from . import kb_lint
+    return {"stale": kb_lint.stale_docs(days)}
+
+
+# ---- master catalog: "what Aria can help with" (Phase 7) ----
+@router.get("/catalog", dependencies=[Depends(require_key)])
+def catalog():
+    from . import catalog as catalog_mod
+    return catalog_mod.build_catalog()
 
 
 @router.get("/documents/{doc_id}", dependencies=[Depends(require_key)])
@@ -1713,6 +1834,81 @@ def dashboard_cockpit(days: int = 30):
 def dashboard_vitals():
     """Live system vitals (DB size, ingest queue, daemon liveness, active-now)."""
     return dashboard_mod.vitals()
+
+
+@router.get("/ops/answers/recent", dependencies=[Depends(require_admin)])
+def ops_answers_recent(limit: int = 20):
+    """Live feed of the most recent answers for the Operations Cockpit — per-answer
+    latency, cache-hit, retrieval funnel (seed/wide/cited) and the question text.
+    Pure reads from answer_metrics ⋈ messages. Admin only, fail-soft."""
+    limit = max(1, min(limit, 100))
+    out = []
+    try:
+        with get_conn() as conn:
+            rows = conn.execute(
+                "SELECT am.created_at, am.message_id, am.model, am.mode, am.ms_total, "
+                "       am.cache_hit, am.cited_n, am.seed_n, am.wide_n, am.wider_fired, "
+                "       am.blind, am.scanned, am.pool, am.reranked, m.text AS answer, "
+                "       (SELECT um.text FROM messages um "
+                "         WHERE um.conversation_id = am.conversation_id "
+                "           AND um.role='user' AND um.id < am.message_id "
+                "         ORDER BY um.id DESC LIMIT 1) AS question "
+                "FROM answer_metrics am "
+                "LEFT JOIN messages m ON m.id = am.message_id "
+                "ORDER BY am.created_at DESC LIMIT %s",
+                (limit,)).fetchall()
+        for r in rows:
+            seed = int(r.get("seed_n") or 0)
+            wide = int(r.get("wide_n") or 0)
+            cited = int(r.get("cited_n") or 0)
+            # real funnel columns when present; fall back to seed/wide proxies
+            # for legacy rows (and cache serves, which never run retrieval).
+            scanned = r["scanned"] if r.get("scanned") is not None else (seed + wide)
+            pool = r["pool"] if r.get("pool") is not None else scanned
+            reranked = (r["reranked"] if r.get("reranked") is not None
+                        else (seed if seed else scanned))
+            out.append({
+                "ts": r["created_at"].isoformat() if r.get("created_at") else None,
+                "q": (r.get("question") or "").strip()[:240],
+                "mode": r.get("mode") or "—",
+                "model": (r.get("model") or "—").split("/")[-1].split(":")[0],
+                "ms": int(r.get("ms_total") or 0),
+                "cache_hit": bool(r.get("cache_hit")),
+                "cited": cited,
+                "scanned": int(scanned or 0),
+                "pool": int(pool or 0),
+                "reranked": int(reranked or 0),
+                "blind": bool(r.get("blind")),
+                "wider": bool(r.get("wider_fired")),
+            })
+    except Exception:
+        pass
+    return {"answers": out}
+
+
+@router.get("/documents/{doc_id}/log", dependencies=[Depends(require_admin)])
+def document_log(doc_id: int, limit: int = 200):
+    """Per-document ingest event timeline for the Cockpit ingest panel. Reads the
+    ingest_events table oldest-first (so it reads as a timeline). Admin only,
+    fail-soft (returns {events:[]} on any error)."""
+    limit = max(1, min(limit, 1000))
+    events = []
+    try:
+        with get_conn() as conn:
+            # newest `limit` rows, then re-order oldest-first for display
+            rows = conn.execute(
+                "SELECT ts, stage, msg FROM ingest_events "
+                "WHERE doc_id = %s ORDER BY id DESC LIMIT %s",
+                (doc_id, limit)).fetchall()
+        for r in reversed(rows):
+            events.append({
+                "ts": r["ts"].isoformat() if r.get("ts") else None,
+                "stage": r.get("stage") or "",
+                "msg": r.get("msg") or "",
+            })
+    except Exception:
+        pass
+    return {"events": events}
 
 
 @router.get("/dashboard/activity-heatmap", dependencies=[Depends(require_admin)])
@@ -2655,6 +2851,21 @@ def brain_graph(docs: int = 1, pages: int = 1, facts: int = 1, limit: int = 400)
             links.append({"source": f"d{lo}", "target": f"d{hi}",
                           "kind": "similar"})
 
+    # ---- requires: doc->doc prerequisite edges (Phase 5/5.4) ----
+    if want_docs:
+        try:
+            with get_conn() as conn:
+                drows = conn.execute(
+                    "SELECT from_doc, to_doc, reason FROM doc_dependency"
+                ).fetchall()
+            for r in drows:
+                if f"d{r['from_doc']}" in node_ids and f"d{r['to_doc']}" in node_ids:
+                    links.append({"source": f"d{r['from_doc']}",
+                                  "target": f"d{r['to_doc']}", "kind": "requires",
+                                  "reason": r.get("reason") or ""})
+        except Exception as e:
+            print(f"[graph] requires edges failed: {e!r}")
+
     return {"nodes": nodes, "links": links}
 
 
@@ -2696,6 +2907,20 @@ def _rel_doc(doc_id: int, conn) -> list[dict]:
                          "why": "Pages inside this document.", "items": items})
     except Exception as e:
         print(f"[rel] doc contains failed: {e!r}")
+    # requires -> prerequisite documents (Phase 5/5.4)
+    try:
+        rows = conn.execute(
+            "SELECT dd.to_doc, d.name FROM doc_dependency dd "
+            "JOIN docs d ON d.id = dd.to_doc WHERE dd.from_doc = %s", (doc_id,),
+        ).fetchall()
+        items = [{"id": f"d{r['to_doc']}", "type": "doc",
+                  "label": _friendly_doc(r["name"])} for r in rows]
+        if items:
+            rels.append({"kind": "requires", "title": "Complete first",
+                         "why": "These procedures must be done before this one.",
+                         "items": items})
+    except Exception as e:
+        print(f"[rel] doc requires failed: {e!r}")
     # similar -> related docs (co-citation aggregated to doc level, trigram fallback)
     try:
         sim: set[int] = set()
@@ -3139,6 +3364,31 @@ def get_page_md(page_id: int):
         "compiled": bool(row["md"]),
         "raw": (row["raw"] or "")[:16000] if not row["md"] else "",
     }
+
+
+@router.get("/pages/{page_id}/cues", dependencies=[Depends(current_principal)])
+def get_page_cues(page_id: int):
+    """Visual cues captured from the screenshot at ingest (Phase 0/6.4): which
+    button/field is highlighted, what to click, etc. Parsed from the page's
+    'VISUAL CUES:' block. Returns {cues:[...], caption}. Empty if none captured."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT vision_text FROM pages WHERE id = %s", (page_id,)
+        ).fetchone()
+    txt = (row or {}).get("vision_text") or "" if row else ""
+    cues: list[str] = []
+    caption = ""
+    if "VISUAL CUES:" in txt:
+        after = txt.split("VISUAL CUES:", 1)[1]
+        block = after.split("CAPTION:", 1)[0]
+        for line in block.splitlines():
+            s = line.strip().lstrip("-*•").strip()
+            if not s or s.lower() == "none":
+                continue
+            cues.append(s)
+    if "CAPTION:" in txt:
+        caption = txt.split("CAPTION:", 1)[1].strip().splitlines()[0].strip() if txt.split("CAPTION:", 1)[1].strip() else ""
+    return {"cues": cues, "caption": caption}
 
 
 @router.get("/facts/{fact_id}", dependencies=[Depends(require_key)])

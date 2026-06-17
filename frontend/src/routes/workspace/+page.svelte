@@ -13,6 +13,7 @@
   import Review from '$lib/dashboard/sections/Review.svelte';
   import System from '$lib/dashboard/sections/System.svelte';
   import Learning from '$lib/dashboard/sections/Learning.svelte';
+  import Cockpit from '$lib/dash/Cockpit.svelte';
   import Brain from '../brain/+page.svelte';
 
   let me = $state<User | null>(auth.cachedUser());
@@ -20,7 +21,7 @@
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
 
   const COMP: Record<string, any> = {
-    overview: Overview, exec: Exec, users: Users, perf: Perf,
+    overview: Overview, live: Cockpit, exec: Exec, users: Users, perf: Perf,
     knowledge: KnowledgeSec, review: Review, system: System, learning: Learning
   };
 
@@ -267,10 +268,15 @@
         {/key}
       </div>
     {:else}
-      <!-- knowledge: embedded Brain hub (its own header), view driven by prop -->
-      <div class="ws-brain">
-        <Brain embedded showTabs={false} extView={active?.view ?? { tab: 'brain', feed: 'all' }} />
-      </div>
+      <!-- knowledge: embedded Brain hub (its own header), view driven by prop.
+           {#key active.id} forces a clean remount per rail item so extView is
+           re-read (single-mount kept the previous tab → Documents showed Audit).
+           Instant paint preserved: docs/facts come from the shared brainData store. -->
+      {#key active.id}
+        <div class="ws-brain">
+          <Brain embedded showTabs={false} extView={active?.view ?? { tab: 'brain', feed: 'all' }} />
+        </div>
+      {/key}
     {/if}
   </div>
 

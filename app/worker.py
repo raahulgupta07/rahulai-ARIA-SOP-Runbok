@@ -96,6 +96,11 @@ def _run_one(row: dict) -> None:
         msg = f"{type(e).__name__}: {e}"
         print(f"[worker] doc {doc_id} FAILED: {msg}\n{traceback.format_exc()}")
         log_ingest(doc_id, "failed", f"✗ failed: {msg[:160]}", level="error")
+        try:
+            from .ingest import _log_event
+            _log_event(doc_id, "failed", f"ingest failed: {msg[:300]}")
+        except Exception:
+            pass
         with get_conn() as conn:
             conn.execute(
                 "UPDATE docs SET status = 'failed', error = %s, updated_at = now() WHERE id = %s",

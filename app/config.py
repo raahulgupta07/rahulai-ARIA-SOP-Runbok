@@ -61,6 +61,41 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 COMPILE_ON_INGEST = os.getenv("COMPILE_ON_INGEST", "0") == "1"
 CHAT_USE_WIKI = os.getenv("CHAT_USE_WIKI", "0") == "1"
 COMPILE_MODEL = os.getenv("COMPILE_MODEL") or CHAT_MODEL
+# COMPILE_PLAYBOOK: at ingest, reformat the compiled doc into a user-facing playbook
+#   (goal/who/prerequisites/steps/verify/if-fails/escalate) -> doc_playbook. One-time.
+# PLAYBOOK_MODEL: model for that pass (defaults to CHAT_MODEL).
+COMPILE_PLAYBOOK = os.getenv("COMPILE_PLAYBOOK", "0") == "1"
+PLAYBOOK_MODEL = os.getenv("PLAYBOOK_MODEL") or CHAT_MODEL
+# USE_PLAYBOOK_IN_CHAT: inject the dominant doc's compiled playbook into the answer
+#   context so procedural answers follow the pre-made step shape. Fail-soft.
+USE_PLAYBOOK_IN_CHAT = os.getenv("USE_PLAYBOOK_IN_CHAT", "1") == "1"
+# TYPE_AWARE_COMPILE: at ingest, classify doc_type (sop/runbook/policy/reference)
+#   and route to the matching compiler (reference -> lookup table; others -> playbook
+#   with a type-tuned prompt). Phase 2.
+TYPE_AWARE_COMPILE = os.getenv("TYPE_AWARE_COMPILE", "1") == "1"
+# ENTITY_INDEX: at ingest, extract recurring entities (codes/menus/systems/screens)
+#   into the cross-doc entity index. Phase 3.
+ENTITY_INDEX = os.getenv("ENTITY_INDEX", "1") == "1"
+# ENTITY_RETRIEVE: expand retrieval across docs that share an entity named in the
+#   question (cross-doc recall). ENTITY_FILL_MAX caps the extra pages pulled in.
+ENTITY_RETRIEVE = os.getenv("ENTITY_RETRIEVE", "1") == "1"
+ENTITY_FILL_MAX = int(os.getenv("ENTITY_FILL_MAX", "3"))
+# KB_LINT: detect same-term/divergent-value conflicts; DOC_STALE_DAYS = freshness floor.
+KB_LINT = os.getenv("KB_LINT", "1") == "1"
+DOC_STALE_DAYS = int(os.getenv("DOC_STALE_DAYS", "365"))
+# PROC_CHAINING: detect cross-doc prerequisites ("do SOP 2 before SOP 5") and surface
+#   them in the playbook + chat. Phase 5.
+PROC_CHAINING = os.getenv("PROC_CHAINING", "1") == "1"
+# ROLE_DEPTH: tune answer verbosity by user role — non-admins get a simplified
+#   end-user answer, admins/IT get the full procedure. Phase 6.
+ROLE_DEPTH = os.getenv("ROLE_DEPTH", "1") == "1"
+# MULTIDOC_SYNTH: when a question spans several docs, merge their playbooks into one
+#   procedure; MULTIDOC_MAX caps how many playbooks are injected. Phase 7.
+MULTIDOC_SYNTH = os.getenv("MULTIDOC_SYNTH", "1") == "1"
+MULTIDOC_MAX = int(os.getenv("MULTIDOC_MAX", "2"))
+# TROUBLESHOOT_TREE: at ingest, compile a decision tree from docs with branching
+#   ("if X do Y else Z") for an interactive troubleshooter. Phase 6.2.
+TROUBLESHOOT_TREE = os.getenv("TROUBLESHOOT_TREE", "1") == "1"
 # AUTO_CATEGORIZE: at ingest, LLM-tag each doc with one topic category (docs.category).
 AUTO_CATEGORIZE = os.getenv("AUTO_CATEGORIZE", "1") == "1"
 

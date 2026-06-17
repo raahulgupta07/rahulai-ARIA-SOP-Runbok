@@ -34,7 +34,8 @@ if _VENDOR not in sys.path:
     sys.path.insert(0, _VENDOR)
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp"}
-RENDER_DPI = 150
+# higher DPI = legible screenshot-in-screenshot (Phase 0). Env-tunable, default 220.
+RENDER_DPI = int(os.getenv("RENDER_DPI", "220"))
 
 
 def detect_lang(text: str) -> str:
@@ -133,6 +134,20 @@ def _set(doc_id: int, **fields) -> None:
         print(f"[ingest] _set({doc_id}) failed: {e!r}")
 
 
+def _log_event(doc_id: int, stage: str, msg: str = "") -> None:
+    """Append one row to the per-document ingest_events timeline (read by the
+    ops cockpit GET /api/documents/{id}/log). Fail-soft — own short-lived
+    autocommit connection, never raises into the pipeline."""
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT INTO ingest_events (doc_id, stage, msg) VALUES (%s, %s, %s)",
+                (doc_id, (stage or "")[:60], (msg or "")[:500]),
+            )
+    except Exception as e:  # event logging must never crash ingest
+        print(f"[ingest_events] write skipped: {e!r}")
+
+
 def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=None) -> dict:
     """Run the ingest pipeline for an EXISTING docs row (status flow:
     processing -> ready/failed), writing live progress as it goes.
@@ -164,10 +179,13 @@ def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=No
     doc_slug = f"doc_{doc_id}"
 
     log_ingest(doc_id, "queued", f"⬆ queued: {display_name}")
+    _log_event(doc_id, "queued", f"queued: {display_name}")
     _ck()
     _set(doc_id, status="processing", progress=10)
+    _log_event(doc_id, "processing", "started processing")
     pages = render_pages(pdf_path, doc_slug)
     _set(doc_id, progress=30, page_count=len(pages))
+    _log_event(doc_id, "rendered", f"rendered {len(pages)} page(s)")
     _ck()
 
     # vision pre-read: transcribe screenshot text not in the PDF text layer.
@@ -176,17 +194,20 @@ def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=No
 
     n = len(pages) or 1
     log_ingest(doc_id, "page", f"👁 reading pages… {n} total")
+    _log_event(doc_id, "reading", f"reading {n} page(s) with vision")
 
     def _on_page(done: int) -> None:
         _ck()                       # abort between pages on stop/cancel
         _set(doc_id, pages_done=done, progress=30 + int(done / n * 50))
         log_ingest(doc_id, "page", f"👁 reading page {done}/{n}")
+        _log_event(doc_id, "page", f"read page {done}/{n}")
 
     preread_pages(pages, on_page=_on_page, should_cancel=should_cancel)
     _ck()
 
     _set(doc_id, progress=85)
     log_ingest(doc_id, "tree", f"🌳 building page tree… {len(pages)} pages")
+    _log_event(doc_id, "structure", f"building page tree ({len(pages)} pages)")
     tree = build_tree(pdf_path)
     has_tree = tree is not None
     if not has_tree:
@@ -221,6 +242,8 @@ def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=No
             if CONTEXT_ENRICH_ENABLED:
                 _ck()  # abort between pages on stop/cancel (mirror vision loop)
                 ctx = enrich_page(display_name, outline, p["text"], lang)
+                if ctx:
+                    _log_event(doc_id, "context", f"context enriched p.{p['page_no']}")
             conn.execute(
                 "INSERT INTO pages (doc_id, page_no, image_path, text, "
                 "text_layer, vision_text, context) "
@@ -250,10 +273,82 @@ def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=No
         try:
             _set(doc_id, progress=95)
             log_ingest(doc_id, "compile", "📝 compiling wiki")
+            _log_event(doc_id, "compile", "compiling wiki markdown")
             from .compile_wiki import compile_doc
             compile_doc(doc_id, display_name)
         except Exception as e:
             print(f"[ingest] compile_doc({doc_id}) failed (non-fatal): {e!r}")
+
+    # type-aware compile: classify doc, then route to the matching compiler
+    # (reference -> lookup table; sop/runbook/policy -> playbook w/ tuned prompt).
+    from .config import COMPILE_PLAYBOOK, TYPE_AWARE_COMPILE
+    doc_type = "sop"
+    if TYPE_AWARE_COMPILE:
+        try:
+            from .doc_type import classify_doc_type
+            doc_type = classify_doc_type(doc_id, display_name) or "sop"
+            log_ingest(doc_id, "doc_type", f"🏷 type · {doc_type}")
+            _log_event(doc_id, "doc_type", f"classified type: {doc_type}")
+        except Exception as e:
+            print(f"[ingest] classify_doc_type({doc_id}) failed (non-fatal): {e!r}")
+
+    if TYPE_AWARE_COMPILE and doc_type == "reference":
+        try:
+            log_ingest(doc_id, "lookup", "building lookup table")
+            from .compile_lookup import extract_lookup
+            n = extract_lookup(doc_id)
+            _log_event(doc_id, "lookup", f"extracted {n} lookup rows")
+        except Exception as e:
+            print(f"[ingest] extract_lookup({doc_id}) failed (non-fatal): {e!r}")
+    elif COMPILE_PLAYBOOK:
+        try:
+            log_ingest(doc_id, "playbook", "📋 building playbook")
+            _log_event(doc_id, "playbook", "compiling user playbook")
+            from .compile_playbook import compile_playbook
+            compile_playbook(doc_id, doc_type)
+        except Exception as e:
+            print(f"[ingest] compile_playbook({doc_id}) failed (non-fatal): {e!r}")
+
+    # entity index: extract recurring entities for cross-doc linking (Phase 3)
+    from .config import ENTITY_INDEX, KB_LINT
+    if ENTITY_INDEX:
+        try:
+            from .entities import extract_entities
+            ne = extract_entities(doc_id)
+            log_ingest(doc_id, "entities", f"indexed {ne} entities")
+            _log_event(doc_id, "entities", f"indexed {ne} entities")
+        except Exception as e:
+            print(f"[ingest] extract_entities({doc_id}) failed (non-fatal): {e!r}")
+
+    # conflict lint: recompute same-term/divergent-value conflicts (Phase 4, cheap)
+    if KB_LINT:
+        try:
+            from .kb_lint import run_lint
+            run_lint()
+        except Exception as e:
+            print(f"[ingest] run_lint failed (non-fatal): {e!r}")
+
+    # troubleshooting tree: compile a decision tree if the doc has branching (Phase 6.2)
+    from .config import TROUBLESHOOT_TREE
+    if TROUBLESHOOT_TREE:
+        try:
+            from .compile_tree import compile_tree
+            nt = compile_tree(doc_id)
+            if nt:
+                log_ingest(doc_id, "tree", "built troubleshooting tree")
+                _log_event(doc_id, "tree", "compiled decision tree")
+        except Exception as e:
+            print(f"[ingest] compile_tree({doc_id}) failed (non-fatal): {e!r}")
+
+    # procedure chaining: detect cross-doc prerequisites for this doc (Phase 5)
+    from .config import PROC_CHAINING
+    if PROC_CHAINING:
+        try:
+            from .dependencies import detect_dependencies
+            nd = detect_dependencies(doc_id)
+            _log_event(doc_id, "deps", f"detected {nd} prerequisite link(s)")
+        except Exception as e:
+            print(f"[ingest] detect_dependencies({doc_id}) failed (non-fatal): {e!r}")
 
     # auto-category: one LLM topic tag (uses the compiled summary if present)
     from .config import AUTO_CATEGORIZE
@@ -263,6 +358,7 @@ def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=No
             cat = categorize_doc(doc_id)
             if cat:
                 log_ingest(doc_id, "category", f"🏷 categorized · {cat}")
+                _log_event(doc_id, "category", f"categorized: {cat}")
         except Exception as e:
             print(f"[ingest] categorize_doc({doc_id}) failed (non-fatal): {e!r}")
 
@@ -291,6 +387,7 @@ def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=No
         print(f"[ingest] starter_chips refresh failed (non-fatal): {e!r}")
 
     log_ingest(doc_id, "ready", f"✓ ready · indexed {len(pages)} pages")
+    _log_event(doc_id, "ready", f"ready — indexed {len(pages)} page(s)")
     return {
         "doc_id": doc_id,
         "page_count": len(pages),
@@ -312,8 +409,9 @@ def ingest_file(src_path: Path, display_name: str) -> dict:
     doc_id = row["id"]
     try:
         result = process_doc(doc_id, src_path, display_name)
-    except Exception:
+    except Exception as e:
         _set(doc_id, status="failed")
+        _log_event(doc_id, "failed", f"ingest failed: {e}")
         raise
     _set(doc_id, status="ready", progress=100, ready_at=_now())
     return result

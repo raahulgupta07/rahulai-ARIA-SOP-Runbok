@@ -69,6 +69,7 @@ ALTER TABLE docs ADD COLUMN IF NOT EXISTS storage_key TEXT;
 ALTER TABLE docs ADD COLUMN IF NOT EXISTS category    TEXT;
 ALTER TABLE docs ADD COLUMN IF NOT EXISTS uploaded_by TEXT;
 ALTER TABLE docs ADD COLUMN IF NOT EXISTS updated_at  TIMESTAMPTZ DEFAULT now();
+ALTER TABLE docs ADD COLUMN IF NOT EXISTS doc_type    TEXT;  -- sop|runbook|policy|reference|other
 CREATE INDEX IF NOT EXISTS idx_docs_status ON docs(status);
 -- one-time safety backfill (idempotent no-op once columns exist): keep legacy/pre-existing rows visible
 UPDATE docs SET status = 'ready' WHERE status IS NULL;
@@ -328,6 +329,23 @@ CREATE INDEX IF NOT EXISTS idx_ametrics_created ON answer_metrics(created_at DES
 ALTER TABLE answer_metrics ADD COLUMN IF NOT EXISTS verify_score INT;
 ALTER TABLE answer_metrics ADD COLUMN IF NOT EXISTS verify_at TIMESTAMPTZ;
 ALTER TABLE answer_metrics ADD COLUMN IF NOT EXISTS cache_hit BOOLEAN DEFAULT FALSE;
+-- retrieval funnel (ops cockpit): candidates the SQL pool scanned, the pool size
+-- requested, and how many survived rerank. NULL on cache-served / legacy rows.
+ALTER TABLE answer_metrics ADD COLUMN IF NOT EXISTS scanned   INTEGER;
+ALTER TABLE answer_metrics ADD COLUMN IF NOT EXISTS pool      INTEGER;
+ALTER TABLE answer_metrics ADD COLUMN IF NOT EXISTS reranked  INTEGER;
+
+-- ---- per-document ingest event timeline (ops cockpit doc log) ----
+-- append-only, one row per meaningful ingest stage transition / per-page event.
+-- read oldest-first as a timeline by GET /api/documents/{id}/log. Fail-soft writes.
+CREATE TABLE IF NOT EXISTS ingest_events (
+    id      SERIAL PRIMARY KEY,
+    doc_id  BIGINT,
+    ts      TIMESTAMPTZ DEFAULT now(),
+    stage   TEXT,
+    msg     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ingest_events_doc ON ingest_events(doc_id, id);
 
 -- ---- per-cited-page verdict: does the page back the answer's claims? ----
 -- written by app/verify.py (LLM judge). One row per (answer, cited page).
@@ -404,6 +422,86 @@ CREATE TABLE IF NOT EXISTS doc_wiki (
     md          TEXT,
     key_facts   JSONB DEFAULT '[]'::jsonb,
     updated_at  TIMESTAMPTZ DEFAULT now()
+);
+-- per-doc user-facing PLAYBOOK (goal/who/prereqs/steps/verify/if-fails/escalate)
+CREATE TABLE IF NOT EXISTS doc_playbook (
+    doc_id        BIGINT PRIMARY KEY REFERENCES docs(id) ON DELETE CASCADE,
+    goal          TEXT,
+    who           TEXT,
+    prerequisites JSONB DEFAULT '[]'::jsonb,
+    steps         JSONB DEFAULT '[]'::jsonb,
+    verify        JSONB DEFAULT '[]'::jsonb,
+    if_fails      JSONB DEFAULT '[]'::jsonb,
+    escalate      TEXT,
+    chars         INT  NOT NULL DEFAULT 0,
+    created_at    TIMESTAMPTZ DEFAULT now()
+);
+-- reference-doc lookup rows: term -> value (exact "what is code 3001") + source page
+CREATE TABLE IF NOT EXISTS doc_lookup (
+    id          BIGSERIAL PRIMARY KEY,
+    doc_id      BIGINT REFERENCES docs(id) ON DELETE CASCADE,
+    term        TEXT NOT NULL,
+    value       TEXT,
+    page_id     BIGINT,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_doc_lookup_doc  ON doc_lookup(doc_id);
+CREATE INDEX IF NOT EXISTS idx_doc_lookup_term ON doc_lookup USING gin (to_tsvector('simple', term));
+
+-- ---- cross-document entity index (Phase 3) ----
+-- canonical entities (codes, menu paths, systems, screens, fields, terms) that
+-- recur across documents. norm_key = normalized dedupe key.
+CREATE TABLE IF NOT EXISTS entities (
+    id          BIGSERIAL PRIMARY KEY,
+    name        TEXT NOT NULL,
+    kind        TEXT,                 -- code|menu_path|system|screen|field|term
+    norm_key    TEXT UNIQUE NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS entity_mention (
+    id          BIGSERIAL PRIMARY KEY,
+    entity_id   BIGINT REFERENCES entities(id) ON DELETE CASCADE,
+    doc_id      BIGINT REFERENCES docs(id) ON DELETE CASCADE,
+    page_id     BIGINT,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (entity_id, doc_id)
+);
+CREATE INDEX IF NOT EXISTS idx_entity_mention_ent ON entity_mention(entity_id);
+CREATE INDEX IF NOT EXISTS idx_entity_mention_doc ON entity_mention(doc_id);
+
+-- ---- knowledge-base conflicts (Phase 4): same term, divergent value across docs ----
+CREATE TABLE IF NOT EXISTS kb_conflict (
+    id          BIGSERIAL PRIMARY KEY,
+    term        TEXT NOT NULL,
+    value_a     TEXT,
+    doc_a       BIGINT,
+    value_b     TEXT,
+    doc_b       BIGINT,
+    source      TEXT,                 -- lookup|fact
+    detail      TEXT,
+    status      TEXT NOT NULL DEFAULT 'open',   -- open|dismissed
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_kb_conflict_status ON kb_conflict(status);
+
+-- ---- procedure chaining (Phase 5): doc A must be done before doc B ----
+CREATE TABLE IF NOT EXISTS doc_dependency (
+    id          BIGSERIAL PRIMARY KEY,
+    from_doc    BIGINT REFERENCES docs(id) ON DELETE CASCADE,  -- the dependent doc
+    to_doc      BIGINT REFERENCES docs(id) ON DELETE CASCADE,  -- the prerequisite doc
+    reason      TEXT,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (from_doc, to_doc)
+);
+CREATE INDEX IF NOT EXISTS idx_doc_dependency_from ON doc_dependency(from_doc);
+CREATE INDEX IF NOT EXISTS idx_doc_dependency_to   ON doc_dependency(to_doc);
+
+-- ---- troubleshooting decision tree (Phase 6.2): for runbook/issue docs ----
+CREATE TABLE IF NOT EXISTS doc_tree (
+    doc_id      BIGINT PRIMARY KEY REFERENCES docs(id) ON DELETE CASCADE,
+    tree        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    chars       INT  NOT NULL DEFAULT 0,
+    created_at  TIMESTAMPTZ DEFAULT now()
 );
 
 -- ---- per-message thumbs up/down feedback ----

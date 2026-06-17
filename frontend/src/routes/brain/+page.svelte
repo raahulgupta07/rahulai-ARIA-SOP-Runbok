@@ -20,6 +20,7 @@
     cover_page_id?: number | null; category?: string | null;
     vision_pages?: number; text_pages?: number; used_count?: number; last_used_at?: string | null;
     uploaded_by?: string | null; updated_at?: string | null;
+    doc_type?: string | null; has_playbook?: number;
   };
   type Fact = { id: number; key?: string; value: string; source?: string; created_by?: string;
     status?: string; cited_count?: number; last_cited_at?: string; created_at?: string };
@@ -46,14 +47,14 @@
 
   let q = $state('');                                  // one search over docs + facts
   let collapsed = $state<Record<string, boolean>>({}); // collapsed category groups
-  let _railTab = $state<'brain' | 'audit' | 'graph'>('brain');   // backing state — standalone mode only
+  let _railTab = $state<'brain' | 'audit' | 'graph' | 'entities' | 'capabilities'>('brain');   // backing state — standalone mode only
 
   // ── embedded mode (inside unified Workspace) — hide own rail, drive view from props ──
   let { embedded = false, showTabs = true, extView = null } = $props<{ embedded?: boolean; showTabs?: boolean; extView?: { tab: 'brain' | 'graph' | 'audit'; feed?: 'all' | 'doc' | 'fact' } | null }>();
   // SINGLE SOURCE OF TRUTH: embedded → view is the extView prop (Workspace rail drives it);
   // standalone → the local _railTab/_feedType buttons drive it. (Was a fragile $effect that
   // mirrored extView into local state and desynced rail vs content on tab switch.)
-  let railTab: 'brain' | 'audit' | 'graph' = $derived(embedded && extView ? extView.tab : _railTab);
+  let railTab: 'brain' | 'audit' | 'graph' | 'entities' | 'capabilities' = $derived(embedded && extView ? (extView.tab as any) : _railTab);
   $effect(() => { if (embedded && extView) { extView.tab; extView.feed; sel = null; } });  // close any open reader on rail nav
 
   // ===== UNIFIED BRAIN FEED (Scout-style single knowledge feed) =====
@@ -139,6 +140,19 @@
   function typeTint(t: string) { return t === 'fact' ? 'linear-gradient(140deg, hsl(212 44% 95%), hsl(204 40% 90%))' : t === 'doc' ? 'linear-gradient(140deg, hsl(36 42% 95%), hsl(30 38% 90%))' : 'linear-gradient(140deg, hsl(150 24% 95%), hsl(150 22% 90%))'; }
   function typeInk(t: string) { return t === 'fact' ? 'hsl(214 34% 42%)' : t === 'doc' ? 'hsl(34 42% 40%)' : 'hsl(150 26% 36%)'; }
   function typeLabel(t: string) { return t === 'fact' ? 'FACT' : t === 'doc' ? 'DOCUMENT' : 'PAGE'; }
+  // ── doc-type badge (backend doc_type classification: sop|runbook|policy|reference|other) ──
+  // null/empty → '' (caller renders nothing). SOP = clay accent, others = muted neutral.
+  function docTypeLabel(t?: string | null) {
+    switch ((t || '').toLowerCase()) {
+      case 'sop': return 'SOP';
+      case 'runbook': return 'Runbook';
+      case 'policy': return 'Policy';
+      case 'reference': return 'Reference';
+      case 'other': return '—';
+      default: return '';
+    }
+  }
+  function docTypeIsSop(t?: string | null) { return (t || '').toLowerCase() === 'sop'; }
   // feed card click → reuse existing nav (doc reader URL-driven / fact modal)
   function openFeedItem(it: FeedItem) {
     if (it.type === 'fact') {
@@ -337,7 +351,7 @@
   let fLang = $state<'all' | 'en' | 'my'>('all');
   let fStatus = $state<'all' | 'ready' | 'failed'>('all');
   let fSort = $state<'recent' | 'oldest' | 'pages' | 'name' | 'used'>('recent');
-  let docView = $state<'cards' | 'list'>('cards');
+  let docView = $state<'cards' | 'list'>('list');
   // A3: category chip + date pill filters for the doc browser
   let docCat = $state('all');
   let docDate = $state<'all' | 'today' | '7d' | '30d' | 'year'>('all');
@@ -349,8 +363,8 @@
   function catOf(d: Doc) { return (d.category && d.category.trim()) || 'Uncategorized'; }
   const CAT_CHIP_MAX = 6;   // show top-N chips inline, rest go in the "More" dropdown
   let catMoreOpen = $state(false);
-  function setDocView(v: 'cards' | 'list') { docView = v; try { localStorage.setItem('aria_docview', v); } catch {} }
-  $effect(() => { try { const v = localStorage.getItem('aria_docview'); if (v === 'list' || v === 'cards') docView = v; } catch {} });
+  function setDocView(v: 'cards' | 'list') { docView = v; try { localStorage.setItem('aria_docview2', v); } catch {} }
+  $effect(() => { try { const v = localStorage.getItem('aria_docview2'); if (v === 'list' || v === 'cards') docView = v; } catch {} });
   function langColor(l?: string) {
     const x = (l || '').toLowerCase();
     if (x.startsWith('my') || x === 'mm') return { bg: '#fbecd4', fg: '#a9742a' };   // Burmese — amber
@@ -557,11 +571,154 @@
   let dPages = $state<any[]>([]);
   let tab = $state<'overview' | 'pages' | 'outline' | 'fulltext'>('overview');
   // ---- full-bleed reader ----
-  let view = $state<'read' | 'outline' | 'text' | 'split'>('read');
+  let view = $state<'playbook' | 'read' | 'outline' | 'text' | 'split' | 'lookup' | 'troubleshoot'>('read');
   let zoomPct = $state(100);
   let activePage = $state(1);
   let readEl = $state<HTMLElement>();
-  const VIEWS = [['read', 'Read'], ['outline', 'Outline'], ['text', 'Text'], ['split', 'Split']] as const;
+  const VIEWS = [['playbook', 'Playbook'], ['read', 'Read'], ['outline', 'Outline'], ['text', 'Text'], ['split', 'Split']] as const;
+  // ---- per-doc compiled playbook (Goal / Who / Prereqs / Steps / Verify / If-fails / Escalate) ----
+  let playbook = $state<any>(null);          // the playbook object, or null = none compiled
+  let playbookLoading = $state(false);
+  let playbookDocId = $state<number | null>(null);   // which doc `playbook` belongs to (guard refetch)
+  async function loadPlaybook(id: number) {
+    if (playbookDocId === id) return;          // already have (or fetched null for) this doc
+    playbookDocId = id;
+    playbook = null;
+    playbookLoading = true;
+    try {
+      const r = await api.getPlaybook(id);
+      if (playbookDocId === id) playbook = r?.playbook ?? null;
+    } catch {
+      if (playbookDocId === id) playbook = null;
+    } finally {
+      if (playbookDocId === id) playbookLoading = false;
+    }
+  }
+  // ---- GUIDED "walk me through it" mode over playbook.steps ----
+  let guideOn = $state(false);                   // guided walker active?
+  let guideIdx = $state(-1);                      // -1 = intro card; 0..N-1 = step; N = finish card
+  function guideStart() { guideIdx = -1; guideOn = true; }
+  function guideExit() { guideOn = false; guideIdx = -1; }
+  function guideBegin() { guideIdx = 0; }        // intro "Start" → first step
+  function guideNext() {
+    const total = playbook?.steps?.length ?? 0;
+    if (guideIdx < total) guideIdx = guideIdx + 1; // last step → total = finish card
+  }
+  function guideBack() {
+    if (guideIdx > -1) guideIdx = guideIdx - 1;    // step 0 → intro
+  }
+
+  // ---- per-doc prerequisite dependencies ([{to_doc, doc_name, reason}]) — shown atop the playbook ----
+  let deps = $state<any[]>([]);                  // prerequisite docs that must be done first
+  let depsDocId = $state<number | null>(null);   // which doc `deps` belongs to (guard refetch)
+  async function loadDependencies(id: number) {
+    if (depsDocId === id) return;                // already have (or fetched empty for) this doc
+    depsDocId = id;
+    deps = [];
+    try {
+      const r = await api.getDependencies(id);
+      if (depsDocId === id) deps = r?.dependencies ?? [];
+    } catch {
+      if (depsDocId === id) deps = [];
+    }
+  }
+  // ---- per-doc lookup table (reference docs only: [{term, value, page_id}]) ----
+  let lookup = $state<any[]>([]);
+  let lookupLoading = $state(false);
+  let lookupDocId = $state<number | null>(null);   // which doc `lookup` belongs to (guard refetch)
+  async function loadLookup(id: number) {
+    if (lookupDocId === id) return;          // already have (or fetched empty for) this doc
+    lookupDocId = id;
+    lookup = [];
+    lookupLoading = true;
+    try {
+      const r = await api.getLookup(id);
+      if (lookupDocId === id) lookup = r?.lookup ?? [];
+    } catch {
+      if (lookupDocId === id) lookup = [];
+    } finally {
+      if (lookupDocId === id) lookupLoading = false;
+    }
+  }
+  // ---- per-doc TROUBLESHOOT decision tree (Phase 6.2) — walked interactively ----
+  let tree = $state<any>(null);                    // {start, nodes:[{id,type,text,options}]} or null = none
+  let treeLoading = $state(false);
+  let treeDocId = $state<number | null>(null);     // which doc `tree` belongs to (guard refetch)
+  let treeNode = $state<string | null>(null);      // current node id in the walk
+  let treePath = $state<string[]>([]);             // history stack (for Back)
+  async function loadTree(id: number) {
+    if (treeDocId === id) return;                   // already have (or fetched null for) this doc
+    treeDocId = id;
+    tree = null; treeNode = null; treePath = [];
+    treeLoading = true;
+    try {
+      const r = await api.getTree(id);
+      if (treeDocId === id) tree = r?.tree ?? null;
+    } catch {
+      if (treeDocId === id) tree = null;
+    } finally {
+      if (treeDocId === id) treeLoading = false;
+    }
+  }
+  let hasTree = $derived(!!(tree && tree.nodes?.length));
+  // when the tree finishes loading while the Troubleshoot tab is active (e.g. URL deep-link),
+  // initialise the walker at the start node if it hasn't been set yet
+  $effect(() => {
+    if (view === 'troubleshoot' && hasTree && treeNode == null) {
+      treeNode = tree.start ?? (tree.nodes?.[0]?.id ?? null);
+    }
+  });
+  function treeReset() {
+    if (!tree) return;
+    treeNode = tree.start ?? (tree.nodes?.[0]?.id ?? null);
+    treePath = [];
+  }
+  function treeCurrent() {
+    if (!tree?.nodes) return null;
+    return tree.nodes.find((n: any) => n.id === treeNode) ?? null;
+  }
+  function treeGo(nextId: string) {
+    if (treeNode != null) treePath = [...treePath, treeNode];
+    treeNode = nextId;
+  }
+  function treeBack() {
+    if (!treePath.length) return;
+    const prev = treePath[treePath.length - 1];
+    treePath = treePath.slice(0, -1);
+    treeNode = prev;
+  }
+
+  // ---- VISUAL CUES (Phase 6.4) — on-screen instructions for the focused page ----
+  // single {id,cues,caption} for the page the reader currently focuses, guarded by page_id
+  let pageCues = $state<{ id: number; cues: string[]; caption: string } | null>(null);
+  let pageCuesId = $state<number | null>(null);   // page_id currently fetched (guard)
+  async function loadPageCues(pageId: number) {
+    if (pageCuesId === pageId) return;            // already have for this page
+    pageCuesId = pageId;
+    pageCues = null;
+    try {
+      const r = await api.getPageCues(pageId);
+      if (pageCuesId === pageId) pageCues = { id: pageId, cues: r?.cues ?? [], caption: r?.caption ?? '' };
+    } catch {
+      if (pageCuesId === pageId) pageCues = { id: pageId, cues: [], caption: '' };
+    }
+  }
+  // page_id of the page the reader currently focuses (Read view, scroll-spy `activePage`)
+  let activePageId = $derived(dPages.find((p) => p.page_no === activePage)?.page_id ?? null);
+  // fetch cues for the focused page when in the Read view
+  $effect(() => {
+    if (view === 'read' && activePageId != null) loadPageCues(activePageId);
+  });
+  let activeCues = $derived(pageCues && pageCues.id === activePageId && pageCues.cues.length ? pageCues : null);
+
+  // doc_type of the currently open doc (from the docs list — always loaded; null on unprocessed)
+  let openDocType = $derived(sel?.type === 'doc' ? (docs.find((d) => d.id === sel!.id)?.doc_type || null) : null);
+  let isReferenceDoc = $derived((openDocType || '').toLowerCase() === 'reference');
+
+  // detail flag: does a step's detail look like code/path (mono render)?
+  function isCodeDetail(s: string) {
+    return /[\/\\]|[A-Za-z0-9_]+\.[A-Za-z0-9]+|[{}<>=;]|^\s*\$|\bsudo\b|::/.test(s || '');
+  }
   function scrollToReadPage(n: number) {
     view = 'read';
     requestAnimationFrame(() => {
@@ -620,12 +777,33 @@
     else u.searchParams.delete('pg');
     goto(u, { replaceState: true, keepFocus: true, noScroll: true });
   }
-  function setView(v: 'read' | 'outline' | 'text' | 'split') { view = v; syncReaderUrl(); }
+  function setView(v: 'playbook' | 'read' | 'outline' | 'text' | 'split' | 'lookup' | 'troubleshoot') {
+    view = v;
+    if (v !== 'playbook') guideExit();   // leave guided walker when switching views
+    if (v === 'playbook' && sel?.type === 'doc') { loadPlaybook(sel.id); loadDependencies(sel.id); }
+    if (v === 'lookup' && sel?.type === 'doc') loadLookup(sel.id);
+    if (v === 'troubleshoot') treeReset();   // (re)start the walker on entering the tab
+    syncReaderUrl();
+  }
 
   async function openDoc(id: number) {
     sel = { type: 'doc', id };
     tab = 'overview'; view = 'read'; activePage = 1; zoomPct = 100; selPage = null; selText = null; fullText = []; ftQuery = ''; ftActive = 1;
     dDoc = null; dStats = null; dOutline = []; dPages = [];
+    // clear playbook so it can't bleed from the previously open doc, then fetch fresh
+    playbook = null; playbookLoading = false; playbookDocId = null;
+    guideExit();   // never carry a guided walk across docs
+    // clear lookup likewise (fetched lazily when the Lookup tab is opened)
+    lookup = []; lookupLoading = false; lookupDocId = null;
+    // clear prerequisite deps so they can't bleed from the previously open doc
+    deps = []; depsDocId = null;
+    // clear troubleshoot tree + walker so they can't bleed across docs
+    tree = null; treeLoading = false; treeDocId = null; treeNode = null; treePath = [];
+    // clear visual cues so they can't bleed across docs
+    pageCues = null; pageCuesId = null;
+    loadPlaybook(id);
+    loadDependencies(id);
+    loadTree(id);
     const r = await api.docDetail(id);
     if (sel?.type === 'doc' && sel.id === id) { dDoc = r.doc; dStats = r.stats; dOutline = r.outline || []; }
     const pr = await api.docPages(id);
@@ -633,7 +811,9 @@
     // restore view + scroll position from URL (refresh / deep-link)
     const sp = get(page).url.searchParams;
     const v = sp.get('view');
-    if (v && ['read', 'outline', 'text', 'split'].includes(v)) view = v as any;
+    // 'lookup' restores only for reference docs (tab is hidden otherwise)
+    if (v && ['playbook', 'read', 'outline', 'text', 'split', 'troubleshoot'].includes(v)) view = v as any;
+    else if (v === 'lookup' && (r?.doc?.doc_type || '').toLowerCase() === 'reference') { view = 'lookup'; loadLookup(id); }
     const pg = +(sp.get('pg') || '1');
     if (pg > 1) scrollToReadPage(pg);
   }
@@ -695,7 +875,15 @@
   function jumpToPage(page_no: number) { scrollToReadPage(page_no); }
 
   function onKey(e: KeyboardEvent) {
+    // guided playbook walker: Esc exit, ←/→ navigate (takes priority while active)
+    if (guideOn) {
+      if (e.key === 'Escape') { e.preventDefault(); guideExit(); return; }
+      if (e.key === 'ArrowRight') { e.preventDefault(); if (guideIdx === -1) guideBegin(); else guideNext(); return; }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); guideBack(); return; }
+      return;
+    }
     if (e.key === 'Escape' && actModal) { e.preventDefault(); actModal = null; return; }
+    if (e.key === 'Escape' && entModal) { e.preventDefault(); closeEntity(); return; }
     if (e.key === 'Escape' && factModal) { e.preventDefault(); factModal = null; return; }
     if (e.key === 'Escape' && gpanel) { e.preventDefault(); closePanel(); return; }
     // quick-look drawer: Esc closes, ← → flip pages
@@ -808,6 +996,87 @@
   }
   async function approveFact(f: Fact) { await api.approveFact(f.id); factModal = null; await load(); }
   async function rejectFact(f: Fact) { await api.rejectFact(f.id); factModal = null; await load(); }
+
+  // ================= ENTITIES (cross-doc index) =================
+  type Entity = { id: number; name: string; kind: string; doc_count: number };
+  type EntityMention = { doc_id: number; doc_name: string; page_id?: number };
+  let entSearch = $state('');
+  let entities = $state<Entity[]>([]);
+  let entLoading = $state(false);
+  let entKicked = false;                         // one-shot first-load guard
+  let entDebounce: ReturnType<typeof setTimeout> | null = null;
+  async function loadEntities() {
+    entLoading = true;
+    try { const r = await api.entities(entSearch.trim()); entities = r?.entities || []; }
+    catch { entities = []; }
+    finally { entLoading = false; }
+  }
+  function scheduleEntities() {
+    if (entDebounce) clearTimeout(entDebounce);
+    entDebounce = setTimeout(loadEntities, 280);
+  }
+  // entity detail drawer (mirrors the fact modal pattern)
+  let entModal = $state<Entity | null>(null);
+  let entDetail = $state<{ entity: Entity; mentions: EntityMention[] } | null>(null);
+  let entDetailLoading = $state(false);
+  async function selectEntity(e: Entity) {
+    entModal = e; entDetail = null; entDetailLoading = true;
+    try { entDetail = await api.entityDetail(e.id); } catch { entDetail = null; }
+    finally { entDetailLoading = false; }
+  }
+  function closeEntity() { entModal = null; entDetail = null; }
+  function entKindLabel(k: string) {
+    return ({ code: 'CODE', menu_path: 'MENU', system: 'SYSTEM', screen: 'SCREEN', field: 'FIELD', term: 'TERM' } as any)[k] || (k || '').toUpperCase();
+  }
+  // load entities once when the view first becomes active (guarded so it doesn't refetch each render)
+  $effect(() => { if (railTab === 'entities' && !entKicked) { entKicked = true; loadEntities(); } });
+
+  // ================= CAPABILITIES (master catalog — everything Aria can help with) =================
+  type CatItem = { doc_id: number; title: string; goal: string; doc_type?: string | null };
+  type CatGroup = { name: string; items: CatItem[] };
+  type CatSystem = { name: string; doc_count: number };
+  type Catalog = { groups: CatGroup[]; systems: CatSystem[]; totals: { docs: number; playbooks: number; entities: number } };
+  let catalog = $state<Catalog | null>(null);
+  let catLoading = $state(false);
+  let catKicked = false;                          // one-shot first-load guard
+  async function loadCatalog() {
+    catLoading = true;
+    try { catalog = await api.getCatalog(); }
+    catch { catalog = null; }
+    finally { catLoading = false; }
+  }
+  // load the catalog once when the view first becomes active (guarded against per-render refetch)
+  $effect(() => { if (railTab === 'capabilities' && !catKicked) { catKicked = true; loadCatalog(); } });
+
+  // ================= KB HEALTH (Audit cards: conflicts + stale docs) =================
+  type KbConflict = { id: number; term: string; value_a: string; doc_a?: string; doc_a_name?: string; value_b: string; doc_b?: string; doc_b_name?: string; source?: string; detail?: string; status?: string; created_at?: string };
+  type KbStaleDoc = { id: number; name: string; created_at?: string; age_days: number };
+  let kbConflicts = $state<KbConflict[]>([]);
+  let kbStale = $state<KbStaleDoc[]>([]);
+  let kbLoading = $state(false);
+  let kbRescanning = $state(false);
+  let kbKicked = false;                           // one-shot load guard for the Audit view
+  let kbDismissBusy = $state<number | null>(null);
+  async function loadKbHealth() {
+    kbLoading = true;
+    try { const r = await api.kbConflicts('open'); kbConflicts = r?.conflicts || []; } catch { kbConflicts = []; }
+    try { const r = await api.kbStale(90); kbStale = r?.stale || []; } catch { kbStale = []; }
+    kbLoading = false;
+  }
+  async function rescanConflicts() {
+    kbRescanning = true;
+    try { await api.kbLint(); const r = await api.kbConflicts('open'); kbConflicts = r?.conflicts || []; }
+    catch {}
+    finally { kbRescanning = false; }
+  }
+  async function dismissConflict(c: KbConflict) {
+    kbDismissBusy = c.id;
+    try { const r = await api.kbDismissConflict(c.id); if (r?.ok) kbConflicts = kbConflicts.filter((x) => x.id !== c.id); }
+    catch {}
+    finally { kbDismissBusy = null; }
+  }
+  // load KB health once when the Audit view first becomes active
+  $effect(() => { if (railTab === 'audit' && !kbKicked) { kbKicked = true; loadKbHealth(); } });
 
   // ── Q&A bank actions ──
   let qaBusy = $state<number | null>(null);
@@ -989,7 +1258,7 @@
   let gpanelSeq = 0;
   // relation-kind → plain-English glyph (helps a non-tech user read WHY things connect)
   function relIcon(kind: string) {
-    return ({ contains: '·', sequence: '→', cocite: '·', similar: '·', cite: '·' } as Record<string, string>)[kind] || '•';
+    return ({ contains: '·', sequence: '→', cocite: '·', similar: '·', cite: '·', requires: '→' } as Record<string, string>)[kind] || '•';
   }
   // colored dot per item type (reused from the old flat-link list)
   function nbDot(t: string) { return t === 'doc' ? '#a855c7' : t === 'fact' ? '#e0569b' : '#9aa0a6'; }
@@ -1109,6 +1378,7 @@
       if (kind === 'sequence' && did != null && !Number.isNaN(did)) ls = { color: pageColor(did), opacity: 0.4, width: 0.8, curveness: ls.curveness };
       else if (kind === 'similar') ls = { color: '#7a86b8', opacity: 0.35, width: 1.4, curveness: 0.2 };
       else if (kind === 'cocite' || kind === 'cite') ls = { color: '#666', opacity: 0.28, width: 0.7, curveness: ls.curveness };
+      else if (kind === 'requires') ls = { color: 'var(--clay)', opacity: 0.7, width: 1.8, curveness: 0.25, type: 'dashed' };
       return { source: l.source, target: l.target, lineStyle: ls };
     });
 
@@ -1469,6 +1739,16 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M7 7.5 10.5 16M17 7.5 13.5 16M7 6h10"/></svg>
         Graph
       </button>
+      <button class="brail {railTab === 'entities' && !sel ? 'on' : ''}" onclick={() => { _railTab = 'entities'; sel = null; }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>
+        Entities
+        {#if entities.length}<span class="bn">{entities.length}</span>{/if}
+      </button>
+      <button class="brail {railTab === 'capabilities' && !sel ? 'on' : ''}" onclick={() => { _railTab = 'capabilities'; sel = null; }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4v7h7zM20 4h-7v7h7zM20 13h-7v7h7zM11 13H4v7h7z"/></svg>
+        Capabilities
+        {#if catalog?.totals?.docs}<span class="bn">{catalog.totals.docs}</span>{/if}
+      </button>
       <button class="brail {railTab === 'audit' && !sel ? 'on' : ''}" onclick={() => { _railTab = 'audit'; sel = null; }}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
         Audit
@@ -1563,6 +1843,99 @@
   <section bind:this={rightCol} class="flex-1 min-w-0 overflow-y-auto" style="background:var(--paper)">
       {#if dragOver}
         <div class="m-6 rounded-2xl border-2 border-dashed p-10 text-center" style="border-color:var(--clay); background:#f3f3f1; color:var(--clay)">Drop to upload…</div>
+
+      {:else if railTab === 'capabilities' && !sel}
+        <!-- ===== CAPABILITIES (master catalog — everything Aria can help with) ===== -->
+        <div class="px-7 py-6">
+          <div class="flex items-start justify-between gap-4 mb-4">
+            <div>
+              <h2 class="serif text-[22px] font-medium" style="color:var(--ink)">Capabilities</h2>
+              <p class="text-[13px] mt-0.5" style="color:var(--muted)">Everything Aria can help with — grouped by category, with the systems she covers. Open any item to read its source.</p>
+            </div>
+          </div>
+
+          {#if catLoading && !catalog}
+            <div class="panel p-8 text-center text-[13px]" style="color:var(--muted)">Building catalog…</div>
+          {:else if !catalog || (catalog.totals.docs === 0 && catalog.groups.length === 0)}
+            <div class="panel p-8 text-center text-[13px]" style="color:var(--muted)">No documents yet.</div>
+          {:else}
+            <!-- totals -->
+            <div class="text-[12.5px] mb-4" style="color:#52504a">
+              <b style="color:var(--ink)">{catalog.totals.docs}</b> document{catalog.totals.docs === 1 ? '' : 's'}
+              <span style="color:var(--border)"> · </span>
+              <b style="color:var(--ink)">{catalog.totals.playbooks}</b> playbook{catalog.totals.playbooks === 1 ? '' : 's'}
+              <span style="color:var(--border)"> · </span>
+              <b style="color:var(--ink)">{catalog.totals.entities}</b> entit{catalog.totals.entities === 1 ? 'y' : 'ies'}
+            </div>
+
+            <!-- systems -->
+            {#if catalog.systems.length}
+              <div class="flex flex-wrap gap-2 mb-6">
+                {#each catalog.systems as s (s.name)}
+                  <span class="chip" style="cursor:default">{s.name} <b style="font-weight:700;opacity:.7;margin-left:2px">{s.doc_count}</b></span>
+                {/each}
+              </div>
+            {/if}
+
+            <!-- groups -->
+            <div class="space-y-7">
+              {#each catalog.groups as g (g.name)}
+                <div>
+                  <h3 class="text-[12px] font-semibold uppercase tracking-wide mb-2.5" style="color:var(--clay)">{g.name} <span style="color:var(--muted);font-weight:500">· {g.items.length}</span></h3>
+                  <div class="entgrid">
+                    {#each g.items as it (it.doc_id)}
+                      {@const href = readerHref({ doc: it.doc_id, view: null, pg: null })}
+                      {@const tlabel = docTypeLabel(it.doc_type)}
+                      <a class="card entcard block no-underline" href={href.pathname + href.search}
+                         onclick={(e) => { e.preventDefault(); goto(href, { keepFocus: true, noScroll: true }); }}>
+                        <div class="flex items-start justify-between gap-2">
+                          <span class="entname">{parseDocName(it.title).title || it.title}</span>
+                          {#if tlabel}<span class="entkind" style={docTypeIsSop(it.doc_type) ? 'color:var(--clay)' : ''}>{tlabel}</span>{/if}
+                        </div>
+                        {#if it.goal}<span class="entcount" style="line-height:1.45">{it.goal}</span>{/if}
+                      </a>
+                    {/each}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+
+      {:else if railTab === 'entities' && !sel}
+        <!-- ===== ENTITIES (cross-doc index) ===== -->
+        <div class="px-7 py-6">
+          <div class="flex items-start justify-between gap-4 mb-4">
+            <div>
+              <h2 class="serif text-[22px] font-medium" style="color:var(--ink)">Entities</h2>
+              <p class="text-[13px] mt-0.5" style="color:var(--muted)">Codes, menu paths, systems, screens, fields and terms Aria found across the runbooks.</p>
+            </div>
+          </div>
+          <div class="relative max-w-md mb-5">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+            <input bind:value={entSearch} oninput={scheduleEntities}
+              onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); loadEntities(); } }}
+              placeholder="Search entities — codes, screens, terms…"
+              class="w-full h-10 rounded-[10px] border pl-9 pr-3 text-sm outline-none" style="border-color:var(--border); background:var(--paper)" />
+          </div>
+          {#if entLoading && entities.length === 0}
+            <div class="panel p-8 text-center text-[13px]" style="color:var(--muted)">Loading entities…</div>
+          {:else if entities.length === 0}
+            <div class="panel p-8 text-center text-[13px]" style="color:var(--muted)">{entSearch.trim() ? 'No entities match your search.' : 'No entities found yet.'}</div>
+          {:else}
+            <div class="entgrid">
+              {#each entities as e (e.id)}
+                <button class="card entcard" onclick={() => selectEntity(e)}>
+                  <div class="flex items-start justify-between gap-2">
+                    <span class="entname">{e.name}</span>
+                    <span class="entkind">{entKindLabel(e.kind)}</span>
+                  </div>
+                  <span class="entcount">in {e.doc_count} {e.doc_count === 1 ? 'doc' : 'docs'}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
 
       {:else if railTab === 'audit' && !sel}
         <!-- ===== COVERAGE AUDIT (full width) ===== -->
@@ -1774,6 +2147,64 @@
             {/if}
             <div class="h-8"></div>
           {/if}
+
+          <!-- ===== KB HEALTH: knowledge conflicts + stale documents ===== -->
+          <div class="panel p-5 mt-7">
+            <div class="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <h3 class="text-[14px] font-semibold" style="color:var(--ink)">Knowledge conflicts</h3>
+                <p class="text-[12px] mt-0.5" style="color:var(--muted)">Where two documents disagree on the same term.</p>
+              </div>
+              <button onclick={rescanConflicts} disabled={kbRescanning} class="shrink-0 text-[12.5px] px-3 py-1.5 rounded-[8px] border disabled:opacity-50" style="border-color:var(--border); color:var(--clay); background:#fff">{kbRescanning ? 'Scanning…' : '↻ Re-scan'}</button>
+            </div>
+            {#if kbLoading && kbConflicts.length === 0}
+              <div class="text-[13px] py-3" style="color:var(--muted)">Loading…</div>
+            {:else if kbConflicts.length === 0}
+              <div class="text-[13px] py-3" style="color:var(--muted)">No conflicts found.</div>
+            {:else}
+              <div class="space-y-2.5">
+                {#each kbConflicts as c (c.id)}
+                  <div class="rounded-[10px] border p-3" style="border-color:var(--border); background:var(--paper)">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="min-w-0">
+                        <div class="text-[13.5px] font-semibold" style="color:var(--ink)">{c.term}</div>
+                        <div class="text-[12.5px] mt-1" style="color:#52504a">
+                          &lsquo;{c.value_a}&rsquo; in {c.doc_a_name || c.doc_a || '—'} vs &lsquo;{c.value_b}&rsquo; in {c.doc_b_name || c.doc_b || '—'}
+                        </div>
+                        {#if c.detail}<div class="text-[11.5px] mt-1" style="color:var(--muted)">{c.detail}</div>{/if}
+                      </div>
+                      <div class="flex flex-col items-end gap-1.5 shrink-0">
+                        {#if c.source}<span class="tabpill" style="background:var(--navpill); color:var(--muted)">{c.source}</span>{/if}
+                        <button onclick={() => dismissConflict(c)} disabled={kbDismissBusy === c.id} class="text-[11.5px] px-2.5 py-1 rounded-[7px] border disabled:opacity-50" style="border-color:var(--border); color:#52504a; background:#fff">{kbDismissBusy === c.id ? '…' : 'Dismiss'}</button>
+                      </div>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </div>
+
+          <div class="panel p-5 mt-5">
+            <div class="mb-3">
+              <h3 class="text-[14px] font-semibold" style="color:var(--ink)">Stale documents</h3>
+              <p class="text-[12px] mt-0.5" style="color:var(--muted)">Documents that may be due for a review.</p>
+            </div>
+            {#if kbLoading && kbStale.length === 0}
+              <div class="text-[13px] py-3" style="color:var(--muted)">Loading…</div>
+            {:else if kbStale.length === 0}
+              <div class="text-[13px] py-3" style="color:var(--muted)">All documents are current.</div>
+            {:else}
+              <div class="space-y-1.5">
+                {#each kbStale as d (d.id)}
+                  <button onclick={() => selectDoc({ id: d.id, status: 'ready' } as any)} class="w-full flex items-center justify-between gap-3 rounded-[9px] border px-3 py-2 text-left transition" style="border-color:var(--border); background:var(--paper)">
+                    <span class="text-[13px] truncate" style="color:var(--ink)">{d.name}</span>
+                    <span class="text-[11.5px] shrink-0" style="color:var(--muted)">{d.age_days}d old</span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+          <div class="h-8"></div>
         </div>
 
       {:else if railTab === 'graph' && !sel}
@@ -1951,6 +2382,8 @@
           <div class="shrink-0 flex items-center gap-2 px-7 py-2 border-b" style="border-color:var(--border)">
             <div class="seg-group">
               {#each VIEWS as [k, l]}<button onclick={() => setView(k as any)} class="segb {view === k ? 'on' : ''}">{l}</button>{/each}
+              {#if isReferenceDoc}<button onclick={() => setView('lookup')} class="segb {view === 'lookup' ? 'on' : ''}">Lookup</button>{/if}
+              {#if hasTree}<button onclick={() => setView('troubleshoot')} class="segb {view === 'troubleshoot' ? 'on' : ''}">Troubleshoot</button>{/if}
             </div>
             {#if view === 'read'}
               <div class="ml-auto flex items-center gap-1.5">
@@ -1978,8 +2411,370 @@
 
             <!-- CENTER (view-switched) -->
             <div class="flex-1 min-w-0 relative">
-              {#if view === 'read'}
+              {#if view === 'playbook'}
+                <div class="absolute inset-0 overflow-y-auto px-7 py-6" style="background:var(--paper)">
+                  {#if playbookLoading}
+                    <div class="text-center py-16 text-sm" style="color:var(--muted)">Loading playbook…</div>
+                  {:else if !playbook}
+                    <div class="max-w-2xl mx-auto panel text-center" style="padding:36px 28px">
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.7" class="mx-auto mb-3"><path d="M9 12h6M9 16h6M9 8h6"/><rect x="4" y="3" width="16" height="18" rx="2"/></svg>
+                      <div class="text-[14px] font-medium" style="color:var(--ink)">No playbook compiled for this document yet.</div>
+                      <div class="text-[12.5px] mt-1.5" style="color:var(--muted)">A step-by-step playbook is generated when the runbook is processed. Try the Read or Text view in the meantime.</div>
+                    </div>
+                  {:else if guideOn}
+                    {@const total = playbook.steps?.length ?? 0}
+                    <div class="max-w-2xl mx-auto guide-wrap">
+                      <!-- exit affordance, always visible -->
+                      <div class="guide-bar">
+                        <span class="guide-tag">Guided walk-through</span>
+                        <button class="guide-x" title="Exit guided mode" aria-label="Exit guided mode" onclick={guideExit}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                        </button>
+                      </div>
+
+                      {#if guideIdx === -1}
+                        <!-- INTRO CARD -->
+                        <div class="guide-card">
+                          <div class="guide-eyebrow">Goal</div>
+                          {#if playbook.goal}<h2 class="serif guide-goal">{playbook.goal}</h2>{/if}
+                          {#if playbook.who}<div class="guide-who">Owner: {playbook.who}</div>{/if}
+
+                          {#if deps.length}
+                            <div class="guide-block">
+                              <div class="guide-h">Complete first</div>
+                              {#each deps as dep}
+                                {@const dt = parseDocName(dep.doc_name || '').title || dep.doc_name || 'Document'}
+                                <div class="guide-li"><span class="guide-dot" style="background:var(--clay)"></span><span>{dt}{#if dep.reason} — {dep.reason}{/if}</span></div>
+                              {/each}
+                            </div>
+                          {/if}
+
+                          {#if playbook.prerequisites && playbook.prerequisites.length}
+                            <div class="guide-block">
+                              <div class="guide-h">Prerequisites</div>
+                              {#each playbook.prerequisites as pre}
+                                <div class="guide-li"><span class="guide-dot" style="background:var(--clay)"></span><span>{pre}</span></div>
+                              {/each}
+                            </div>
+                          {/if}
+
+                          <div class="guide-nav">
+                            <span class="guide-count">{total} step{total === 1 ? '' : 's'}</span>
+                            <button class="guide-btn guide-btn-primary" onclick={guideBegin}>
+                              Start
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                            </button>
+                          </div>
+                        </div>
+
+                      {:else if guideIdx >= total}
+                        <!-- FINISH CARD -->
+                        <div class="guide-card">
+                          <div class="guide-eyebrow" style="color:#5fa463">Finished</div>
+                          <h2 class="serif guide-goal">You're done</h2>
+
+                          {#if playbook.verify && playbook.verify.length}
+                            <div class="guide-block">
+                              <div class="guide-h">You're done when</div>
+                              {#each playbook.verify as v}
+                                <div class="guide-li"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5fa463" stroke-width="2.4" class="shrink-0 mt-0.5"><path d="M20 6L9 17l-5-5"/></svg><span>{v}</span></div>
+                              {/each}
+                            </div>
+                          {/if}
+
+                          {#if playbook.if_fails && playbook.if_fails.length}
+                            <div class="guide-block">
+                              <div class="guide-h">If it fails</div>
+                              {#each playbook.if_fails as f}
+                                <div class="guide-li"><span class="guide-dash" style="color:#a9742a">—</span><span>{f}</span></div>
+                              {/each}
+                            </div>
+                          {/if}
+
+                          {#if playbook.escalate}
+                            <div class="guide-block">
+                              <div class="guide-h">Escalate</div>
+                              <div class="guide-detail">{playbook.escalate}</div>
+                            </div>
+                          {/if}
+
+                          <div class="guide-nav">
+                            <button class="guide-btn" onclick={guideBack}>
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+                              Back
+                            </button>
+                            <button class="guide-btn guide-btn-primary" onclick={guideExit}>Done · Exit</button>
+                          </div>
+                        </div>
+
+                      {:else}
+                        <!-- STEP CARD -->
+                        {@const st = playbook.steps[guideIdx]}
+                        {@const human = guideIdx + 1}
+                        <div class="guide-card">
+                          <div class="guide-progress">
+                            <span class="guide-stepno">Step {st.n ?? human} of {total}</span>
+                            <span class="guide-frac">{human} / {total}</span>
+                          </div>
+                          <div class="guide-track"><div class="guide-fill" style="width:{Math.round((human / total) * 100)}%"></div></div>
+
+                          {#if st.action}<h2 class="serif guide-action">{st.action}</h2>{/if}
+                          {#if st.detail}
+                            {#if isCodeDetail(st.detail)}
+                              <pre class="pb-detail-code guide-detail-code">{st.detail}</pre>
+                            {:else}
+                              <div class="guide-detail">{st.detail}</div>
+                            {/if}
+                          {/if}
+
+                          <div class="guide-nav">
+                            <button class="guide-btn" disabled={guideIdx === 0} onclick={guideBack}>
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+                              Back
+                            </button>
+                            {#if human >= total}
+                              <button class="guide-btn guide-btn-primary" onclick={guideNext}>Finish</button>
+                            {:else}
+                              <button class="guide-btn guide-btn-primary" onclick={guideNext}>
+                                Next
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                              </button>
+                            {/if}
+                          </div>
+                        </div>
+                      {/if}
+                    </div>
+
+                  {:else}
+                    <div class="max-w-3xl mx-auto pb">
+                      <!-- COMPLETE FIRST · prerequisite documents -->
+                      {#if deps.length}
+                        <div class="pb-prereq">
+                          <div class="pb-prereq-head">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--clay)" stroke-width="2" class="shrink-0"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg>
+                            <span>Complete first · before you start</span>
+                          </div>
+                          <div class="pb-prereq-list">
+                            {#each deps as dep}
+                              {@const dt = parseDocName(dep.doc_name || '').title || dep.doc_name || 'Document'}
+                              <div class="pb-prereq-item">
+                                <a
+                                  href={readerHref({ doc: dep.to_doc, view: null, pg: null }).toString()}
+                                  onclick={(e) => { e.preventDefault(); e.stopPropagation(); goto(readerHref({ doc: dep.to_doc, view: null, pg: null }), { keepFocus: true, noScroll: true }); }}
+                                  class="pb-prereq-link"
+                                >{dt}</a>
+                                {#if dep.reason}<span class="pb-prereq-reason">{dep.reason}</span>{/if}
+                              </div>
+                            {/each}
+                          </div>
+                        </div>
+                      {/if}
+                      <!-- GOAL + GUIDE ME -->
+                      <div class="pb-goalrow">
+                        <div class="min-w-0 flex-1">
+                          {#if playbook.goal}
+                            <div class="pb-eyebrow">Goal</div>
+                            <h2 class="serif pb-goal">{playbook.goal}</h2>
+                          {/if}
+                        </div>
+                        {#if playbook.steps && playbook.steps.length}
+                          <button class="guide-cta shrink-0" onclick={guideStart} title="Walk me through it step by step">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                            Guide me
+                          </button>
+                        {/if}
+                      </div>
+                      <!-- WHO -->
+                      {#if playbook.who}
+                        <div class="pb-who">Owner: {playbook.who}</div>
+                      {/if}
+
+                      <!-- PREREQUISITES -->
+                      {#if playbook.prerequisites && playbook.prerequisites.length}
+                        <div class="pb-sec">
+                          <div class="pb-h">Prerequisites</div>
+                          <div class="pb-checklist">
+                            {#each playbook.prerequisites as pre}
+                              <div class="pb-check">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--clay)" stroke-width="2.2" class="shrink-0 mt-0.5"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>
+                                <span>{pre}</span>
+                              </div>
+                            {/each}
+                          </div>
+                        </div>
+                      {/if}
+
+                      <!-- STEPS -->
+                      {#if playbook.steps && playbook.steps.length}
+                        <div class="pb-sec">
+                          <div class="pb-h">Steps</div>
+                          <ol class="pb-steps">
+                            {#each playbook.steps as st, i}
+                              <li class="pb-step">
+                                <span class="pb-num">{st.n ?? i + 1}</span>
+                                <div class="min-w-0 flex-1">
+                                  {#if st.action}<div class="pb-action">{st.action}</div>{/if}
+                                  {#if st.detail}
+                                    {#if isCodeDetail(st.detail)}
+                                      <pre class="pb-detail-code">{st.detail}</pre>
+                                    {:else}
+                                      <div class="pb-detail">{st.detail}</div>
+                                    {/if}
+                                  {/if}
+                                </div>
+                              </li>
+                            {/each}
+                          </ol>
+                        </div>
+                      {/if}
+
+                      <!-- VERIFY -->
+                      {#if playbook.verify && playbook.verify.length}
+                        <div class="pb-sec">
+                          <div class="pb-h">You're done when</div>
+                          <div class="pb-checklist">
+                            {#each playbook.verify as v}
+                              <div class="pb-check">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#5fa463" stroke-width="2.4" class="shrink-0 mt-0.5"><path d="M20 6L9 17l-5-5"/></svg>
+                                <span>{v}</span>
+                              </div>
+                            {/each}
+                          </div>
+                        </div>
+                      {/if}
+
+                      <!-- IF IT FAILS -->
+                      {#if playbook.if_fails && playbook.if_fails.length}
+                        <div class="pb-sec">
+                          <div class="pb-h">If it fails</div>
+                          <ul class="pb-list">
+                            {#each playbook.if_fails as f}
+                              <li class="pb-li"><span class="pb-dash" style="color:#a9742a">—</span><span>{f}</span></li>
+                            {/each}
+                          </ul>
+                        </div>
+                      {/if}
+
+                      <!-- ESCALATE -->
+                      {#if playbook.escalate}
+                        <div class="pb-sec">
+                          <div class="pb-h">Escalate</div>
+                          <div class="pb-escalate">{playbook.escalate}</div>
+                        </div>
+                      {/if}
+                    </div>
+                  {/if}
+                </div>
+
+              {:else if view === 'lookup'}
+                <div class="absolute inset-0 overflow-y-auto px-7 py-6" style="background:var(--paper)">
+                  <div class="max-w-3xl mx-auto">
+                    {#if lookupLoading}
+                      <div class="text-center py-16 text-sm" style="color:var(--muted)">Loading lookup…</div>
+                    {:else if !lookup.length}
+                      <div class="panel text-center py-10 text-sm" style="color:var(--muted); padding:24px">No lookup entries.</div>
+                    {:else}
+                      <div class="text-[12.5px] mb-3" style="color:var(--muted)">Reference lookup · {lookup.length} {lookup.length === 1 ? 'entry' : 'entries'}</div>
+                      <div class="panel" style="padding:0; overflow:hidden">
+                        <table class="lookup-tbl">
+                          <thead>
+                            <tr><th>Term</th><th>Value</th></tr>
+                          </thead>
+                          <tbody>
+                            {#each lookup as row}
+                              <tr>
+                                <td class="lk-term">{row.term ?? '—'}</td>
+                                <td class="lk-val">{row.value ?? '—'}</td>
+                              </tr>
+                            {/each}
+                          </tbody>
+                        </table>
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+
+              {:else if view === 'troubleshoot'}
+                <div class="absolute inset-0 overflow-y-auto px-7 py-6" style="background:var(--paper)">
+                  <div class="max-w-2xl mx-auto">
+                    {#if treeLoading}
+                      <div class="text-center py-16 text-sm" style="color:var(--muted)">Loading troubleshooter…</div>
+                    {:else if !hasTree}
+                      <div class="panel text-center py-10 text-sm" style="color:var(--muted); padding:24px">No troubleshooting guide for this document.</div>
+                    {:else}
+                      {@const node = treeCurrent()}
+                      <div class="guide-bar">
+                        <span class="guide-tag">Troubleshoot</span>
+                        {#if treePath.length}
+                          <button class="guide-btn" onclick={treeBack}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+                            Back
+                          </button>
+                        {/if}
+                      </div>
+                      {#if !node}
+                        <div class="panel text-center py-10 text-sm" style="color:var(--muted); padding:24px">Step not found.</div>
+                      {:else if node.type === 'fix' || !(node.options && node.options.length)}
+                        <!-- RESOLUTION (success) -->
+                        <div class="ts-card ts-fix">
+                          <div class="ts-fix-head">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" class="shrink-0"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>
+                            <span>Resolution</span>
+                          </div>
+                          {#if isCodeDetail(node.text)}
+                            <pre class="pb-detail-code">{node.text}</pre>
+                          {:else}
+                            <div class="ts-text">{node.text}</div>
+                          {/if}
+                          <div class="guide-nav">
+                            <button class="guide-btn guide-btn-primary" onclick={treeReset}>
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+                              Start over
+                            </button>
+                          </div>
+                        </div>
+                      {:else}
+                        <!-- QUESTION / ACTION -->
+                        <div class="ts-card">
+                          <div class="ts-eyebrow">{node.type === 'action' ? 'Do this' : 'Question'}</div>
+                          {#if isCodeDetail(node.text)}
+                            <pre class="pb-detail-code">{node.text}</pre>
+                          {:else}
+                            <div class="ts-q serif">{node.text}</div>
+                          {/if}
+                          <div class="ts-opts">
+                            {#each node.options as opt}
+                              <button class="ts-opt" onclick={() => treeGo(opt.next)}>
+                                <span>{opt.label}</span>
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                              </button>
+                            {/each}
+                          </div>
+                        </div>
+                      {/if}
+                    {/if}
+                  </div>
+                </div>
+
+              {:else if view === 'read'}
                 <div bind:this={readEl} onscroll={onReadScroll} class="absolute inset-0 overflow-y-auto" style="background:#ece8df">
+                  {#if activeCues}
+                    <div class="sticky top-3 z-10 mx-auto w-fit max-w-[92%] cues-callout">
+                      <div class="cues-head">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0"><circle cx="12" cy="12" r="3"/><path d="M12 5V3M12 21v-2M5 12H3M21 12h-2M7 7L5.5 5.5M18.5 18.5L17 17M17 7l1.5-1.5M5.5 18.5L7 17"/></svg>
+                        <span>On this screen</span>
+                      </div>
+                      {#if activeCues.caption}<div class="cues-cap">{activeCues.caption}</div>{/if}
+                      <ul class="cues-list">
+                        {#each activeCues.cues as cue}
+                          <li class="cues-item">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" class="shrink-0 mt-0.5"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                            <span>{cue}</span>
+                          </li>
+                        {/each}
+                      </ul>
+                    </div>
+                  {/if}
                   <div class="py-6">
                     {#if dPages.length}
                       {#each dPages as p}
@@ -2156,6 +2951,20 @@
             <p class="text-[13px] max-w-xl" style="color:var(--muted)">One knowledge feed — uploaded documents, their pages, and the facts you taught. Search any of it; click to open.</p>
           </div>
 
+          <!-- origin badge — shared by pending strip + facts feed; MUST live at
+               feed-root scope (was nested in {#if feedType==='doc'} → ReferenceError
+               on facts view → workspace nav silently died). -->
+          {#snippet originBadge(src)}
+            {@const ai = factIsAI(src)}
+            <span class="ftag origin" style="background:{ai ? '#eceaf4' : '#eaf0ee'}; color:{ai ? '#5a4f86' : '#41705e'}">
+              {#if ai}
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="6" height="6"/><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>AI
+              {:else}
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Manual
+              {/if}
+            </span>
+          {/snippet}
+
           <!-- pending review strip (chat-learned facts awaiting approval) -->
           {#if pendingFacts.length > 0 && feedType !== 'qa'}
             <div class="flex items-center justify-between mb-2">
@@ -2196,6 +3005,9 @@
                  onkeydown={(e) => { if (e.key === 'Enter' && !notReady) openPeek(d); }}>
               <div class="fhead">
                 <span class="ftype" style="background:{typeTint('doc')}; color:{typeInk('doc')}">DOCUMENT</span>
+                {#if docTypeLabel(d.doc_type)}
+                  <span class="dtbadge {docTypeIsSop(d.doc_type) ? 'sop' : ''}">{docTypeLabel(d.doc_type)}</span>
+                {/if}
                 <span class="fflag" style="background:{lc.bg}; color:{lc.fg}">{(d.lang || '—').toUpperCase()}</span>
               </div>
               <div class="ftitle">{p.title}</div>
@@ -2245,7 +3057,7 @@
                   {/if}
                 </span>
                 <span class="min-w-0">
-                  <span class="dl-ttl">{p.title}</span>
+                  <span class="dl-ttl">{p.title}{#if docTypeLabel(d.doc_type)}<span class="dtbadge {docTypeIsSop(d.doc_type) ? 'sop' : ''}" style="margin-left:7px">{docTypeLabel(d.doc_type)}</span>{/if}</span>
                   <span class="dl-sub">
                     <span style="color:{statusDot(st)}">●</span>
                     {p.category ? p.category + ' · ' : ''}{st === 'ready' ? 'Ready' : st}
@@ -2348,18 +3160,6 @@
               </select>
             </div>
           </div>
-          <!-- stage stepper (shared by strip + expand row) -->
-          {#snippet originBadge(src)}
-            {@const ai = factIsAI(src)}
-            <span class="ftag origin" style="background:{ai ? '#eceaf4' : '#eaf0ee'}; color:{ai ? '#5a4f86' : '#41705e'}">
-              {#if ai}
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="6" height="6"/><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2"/></svg>AI
-              {:else}
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>Manual
-              {/if}
-            </span>
-          {/snippet}
-
           {#snippet stepper(d: Doc)}
             {@const cur = stageOf(d)}
             <div class="stepper">
@@ -2756,6 +3556,41 @@
     </div>
   {/if}
 
+  <!-- ===== ENTITY DETAIL MODAL ===== -->
+  {#if entModal}
+    {@const e = entModal}
+    {@const mentions = entDetail?.mentions ?? []}
+    <button class="mscrim" onclick={closeEntity} aria-label="Close"></button>
+    <div class="mcard sm" role="dialog" aria-modal="true">
+      <button class="mx" onclick={closeEntity} aria-label="Close"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      <div class="mhead" style="background:var(--navpill)">
+        <div class="flex items-center gap-2">
+          <span class="mchip" style="color:var(--clay)">{entKindLabel(entDetail?.entity?.kind ?? e.kind)}</span>
+        </div>
+        <div class="mkey" style="color:var(--ink)">{entDetail?.entity?.name ?? e.name}</div>
+      </div>
+      <div class="mbody">
+        <div class="msec">
+          <div class="msec-h">Appears in</div>
+          {#if entDetailLoading && mentions.length === 0}
+            <div class="text-[12px] mt-1" style="color:var(--muted)">Loading…</div>
+          {:else if mentions.length === 0}
+            <div class="text-[12px] mt-1" style="color:var(--muted)">No mentions found.</div>
+          {:else}
+            <div class="flex flex-col gap-1 mt-1">
+              {#each mentions as m}
+                <button class="mrel-chip" style="justify-content:flex-start; text-align:left"
+                  onclick={() => { goto(readerHref({ doc: m.doc_id, view: null, pg: null }), { keepFocus: true, noScroll: true }); closeEntity(); }}>
+                  <b style="opacity:.6">D</b> {m.doc_name}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
+    </div>
+  {/if}
+
   <!-- ===== ACTIVITY DETAIL MODAL ===== -->
   {#if actModal}
     {@const n = actModal}
@@ -2945,6 +3780,75 @@
 
 <style>
   .panel{background:#fff; border:1px solid var(--border); border-radius:14px;}
+  /* ===== lookup view ===== */
+  .lookup-tbl{width:100%; border-collapse:collapse; font-size:13.5px;}
+  .lookup-tbl th{text-align:left; font-size:10.5px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); padding:9px 14px; border-bottom:1px solid var(--border); background:#faf9f5;}
+  .lookup-tbl td{padding:9px 14px; border-top:1px solid var(--line); vertical-align:top; color:var(--ink);}
+  .lookup-tbl tbody tr:hover{background:#efefec;}
+  .lk-term{font-weight:600; white-space:nowrap;}
+  .lk-val{color:var(--ink);}
+
+  /* ===== playbook view ===== */
+  .pb{padding-bottom:40px;}
+  .pb-eyebrow{font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--clay);}
+  .pb-goal{font-size:25px; line-height:1.25; font-weight:500; color:var(--ink); margin-top:6px;}
+  .pb-who{font-size:12.5px; color:var(--muted); margin-top:10px;}
+  .pb-sec{margin-top:28px;}
+  .pb-h{font-size:11px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin-bottom:12px; padding-bottom:7px; border-bottom:1px solid var(--line);}
+  .pb-checklist{display:flex; flex-direction:column; gap:9px;}
+  .pb-check{display:flex; gap:9px; align-items:flex-start; font-size:14px; line-height:1.5; color:var(--ink);}
+  .pb-steps{display:flex; flex-direction:column; gap:14px; list-style:none; padding:0; margin:0;}
+  .pb-step{display:flex; gap:13px; align-items:flex-start;}
+  .pb-num{flex-shrink:0; width:26px; height:26px; border-radius:999px; background:var(--clay); color:#fff; font-size:12.5px; font-weight:600; display:flex; align-items:center; justify-content:center; font-variant-numeric:tabular-nums; margin-top:1px;}
+  .pb-action{font-size:14.5px; font-weight:600; color:var(--ink); line-height:1.45;}
+  .pb-detail{font-size:13.5px; color:var(--muted); line-height:1.55; margin-top:3px;}
+  .pb-detail-code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; color:var(--ink); background:#f4f3f0; border:1px solid var(--border); border-radius:8px; padding:8px 11px; margin-top:6px; white-space:pre-wrap; word-break:break-word; overflow-x:auto;}
+  .pb-list{display:flex; flex-direction:column; gap:8px; list-style:none; padding:0; margin:0;}
+  .pb-li{display:flex; gap:8px; align-items:flex-start; font-size:14px; line-height:1.5; color:var(--ink);}
+  .pb-dash{flex-shrink:0; font-weight:700;}
+  .pb-escalate{font-size:14px; line-height:1.5; color:var(--ink); background:#f7f7f5; border:1px solid var(--border); border-left:3px solid var(--clay); border-radius:8px; padding:11px 14px;}
+  /* prerequisites strip — "complete first" before the goal */
+  .pb-prereq{background:#faf6f3; border:1px solid var(--border); border-left:3px solid var(--clay); border-radius:8px; padding:12px 14px; margin-bottom:22px;}
+  .pb-prereq-head{display:flex; gap:7px; align-items:center; font-size:11px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--clay); margin-bottom:9px;}
+  .pb-prereq-list{display:flex; flex-direction:column; gap:8px;}
+  .pb-prereq-item{display:flex; flex-wrap:wrap; gap:3px 9px; align-items:baseline; font-size:13.5px; line-height:1.5;}
+  .pb-prereq-link{font-weight:600; color:var(--clay); text-decoration:none; border-bottom:1px solid transparent;}
+  .pb-prereq-link:hover{border-bottom-color:var(--clay);}
+  .pb-prereq-reason{color:var(--muted); font-size:12.5px;}
+  /* ===== guided "walk me through it" mode ===== */
+  .pb-goalrow{display:flex; gap:16px; align-items:flex-start;}
+  .guide-cta{display:inline-flex; align-items:center; gap:7px; padding:8px 14px; border-radius:999px; background:var(--clay); color:#fff; font-size:13px; font-weight:600; cursor:pointer; border:none; transition:filter .12s; margin-top:2px;}
+  .guide-cta:hover{filter:brightness(.94);}
+  .guide-wrap{padding:6px 0 40px;}
+  .guide-bar{display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;}
+  .guide-tag{font-size:11px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--clay);}
+  .guide-x{display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:999px; background:transparent; color:var(--muted); border:1px solid var(--border); cursor:pointer; transition:all .12s;}
+  .guide-x:hover{background:#f4f3f0; color:var(--ink);}
+  .guide-card{background:#fff; border:1px solid var(--border); border-radius:14px; padding:26px 26px 22px;}
+  .guide-eyebrow{font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--clay);}
+  .guide-goal{font-size:23px; line-height:1.25; font-weight:500; color:var(--ink); margin-top:6px;}
+  .guide-who{font-size:12.5px; color:var(--muted); margin-top:9px;}
+  .guide-block{margin-top:22px;}
+  .guide-h{font-size:11px; font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin-bottom:11px; padding-bottom:7px; border-bottom:1px solid var(--line);}
+  .guide-li{display:flex; gap:9px; align-items:flex-start; font-size:14px; line-height:1.5; color:var(--ink); margin-bottom:8px;}
+  .guide-li:last-child{margin-bottom:0;}
+  .guide-dot{flex-shrink:0; width:7px; height:7px; border-radius:999px; margin-top:7px;}
+  .guide-dash{flex-shrink:0; font-weight:700;}
+  .guide-progress{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:9px;}
+  .guide-stepno{font-size:13px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:var(--clay);}
+  .guide-frac{font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums;}
+  .guide-track{height:4px; border-radius:999px; background:var(--line); overflow:hidden;}
+  .guide-fill{height:100%; background:var(--clay); border-radius:999px; transition:width .25s ease;}
+  .guide-action{font-size:21px; line-height:1.3; font-weight:600; color:var(--ink); margin-top:18px;}
+  .guide-detail{font-size:14.5px; color:var(--ink); line-height:1.6; margin-top:12px;}
+  .guide-detail-code{margin-top:14px; font-size:13px;}
+  .guide-nav{display:flex; align-items:center; gap:10px; margin-top:28px; padding-top:18px; border-top:1px solid var(--line);}
+  .guide-btn{display:inline-flex; align-items:center; gap:7px; padding:9px 16px; border-radius:999px; background:#fff; color:var(--ink); font-size:13px; font-weight:600; cursor:pointer; border:1px solid var(--border); transition:all .12s;}
+  .guide-btn:hover:not(:disabled){background:#f4f3f0;}
+  .guide-btn:disabled{opacity:.4; cursor:default;}
+  .guide-btn-primary{background:var(--clay); color:#fff; border-color:var(--clay); margin-left:auto;}
+  .guide-btn-primary:hover:not(:disabled){filter:brightness(.94); background:var(--clay);}
+  .guide-count{font-size:12.5px; color:var(--muted);}
   /* ===== knowledge graph (dark focused viz surface) ===== */
   .graphwrap{position:relative; width:100%; height:100%; min-height:520px; background:#1a1a1a;}
   .graphcanvas{position:absolute; inset:0; width:100%; height:100%;}
@@ -3022,6 +3926,9 @@
   .dacts2{display:flex; gap:7px; margin-top:11px;}
   .fcard:hover{border-color:var(--muted); background:#fcfcfb;}
   .fhead{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:9px;}
+  /* doc-type badge: muted neutral by default, clay accent for SOP */
+  .dtbadge{display:inline-block; font-size:9.5px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; padding:2px 7px; border-radius:6px; white-space:nowrap; vertical-align:middle; background:#efeee9; color:var(--muted); border:1px solid var(--border);}
+  .dtbadge.sop{background:#f0efed; color:var(--clay); border-color:#e3d3c9;}
   .ftype{font-size:9.5px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; padding:2px 8px; border-radius:6px; white-space:nowrap;}
   .ftitle{font-family:var(--serif); font-size:15.5px; font-weight:600; color:var(--ink); line-height:1.32; overflow-wrap:anywhere;}
   .fflag{font-size:10px; font-weight:700; letter-spacing:.03em; padding:2px 7px; border-radius:6px; white-space:nowrap;}
@@ -3061,6 +3968,12 @@
   /* cards (docs + facts grid) */
   .card{position:relative; display:block; text-align:left; background:#fff; border:1px solid var(--border); border-radius:12px; padding:14px; transition:transform .14s, box-shadow .14s, border-color .14s;}
   .card:hover{transform:translateY(-2px); box-shadow:0 6px 18px rgba(0,0,0,.08); border-color:var(--border);}
+  /* entities */
+  .entgrid{display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:12px;}
+  .entcard{cursor:pointer;}
+  .entname{font-size:14px; font-weight:600; color:var(--ink); line-height:1.3; word-break:break-word;}
+  .entkind{flex-shrink:0; font-size:9.5px; font-weight:700; letter-spacing:.05em; color:var(--muted); background:var(--navpill); border-radius:6px; padding:2px 6px;}
+  .entcount{display:block; margin-top:8px; font-size:11.5px; color:var(--muted);}
   .fstat{font-size:12.5px; color:var(--muted); background:#fff; border:1px solid var(--border); border-radius:9px; padding:6px 11px;}
   .fstat b{font-weight:700;}
   /* feed chip filter (All / Docs / Facts) */

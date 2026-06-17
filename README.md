@@ -115,6 +115,36 @@ you upload, not just when someone asks. Re-uploading a doc won't pile up dupes
 Whether an auto-fact goes live immediately or waits for review is decided by the
 **governance policy** below.
 
+### Knowledge quality pipeline (capture once, answer like a guide, connect docs)
+On top of the compiled wiki, ingest now builds a layered, user-facing knowledge base —
+all flag-gated, fail-soft, made **once** at upload so chat never re-reads the file:
+- **Playbooks** — each doc is reformatted into a follow-along guide (Goal · Who ·
+  Prerequisites · Steps · Verify · If-it-fails · Escalate). Chat answers FROM it, and
+  the Brain reader has a **Playbook** view + a **Guide me** step-by-step walker.
+  (`COMPILE_PLAYBOOK`, `USE_PLAYBOOK_IN_CHAT`)
+- **Doc types** — each doc is classified sop / runbook / policy / reference and routed
+  to the right compiler (reference → a term→value **Lookup** table). (`TYPE_AWARE_COMPILE`)
+- **Entity index** — recurring things (systems, menus, codes, screens, fields) become
+  cross-document links ("Gold Central → appears in 6 SOPs"); a question naming an entity
+  pulls pages from every doc that shares it. Brain **Entities** tab. (`ENTITY_INDEX`,
+  `ENTITY_RETRIEVE`)
+- **Conflicts + freshness** — a deterministic lint flags the same term defined two ways
+  across docs, and stale documents by date, on the **Audit** page. (`KB_LINT`,
+  `DOC_STALE_DAYS`)
+- **Procedure chaining** — Aria detects cross-doc prerequisites and tells you what to
+  complete first ("do the Night Batch SOP before the price change"). (`PROC_CHAINING`)
+- **Troubleshooting trees** — branching ("if X → do Y") docs compile to an interactive
+  **Troubleshoot** walker. (`TROUBLESHOOT_TREE`)
+- **Role-based depth** — admins/IT get the full procedure; ordinary users get a plain,
+  simplified answer. (`ROLE_DEPTH`)
+- **Visual cues** — at ingest Aria also notes what a screenshot is telling you (which
+  button is highlighted, what to click); shown as an "On this screen" panel. (`RENDER_DPI`)
+- **Capabilities catalog + multi-doc synthesis** — an auto "what Aria can help with"
+  map, and answers that **merge several SOPs into one procedure** when a question spans
+  them. (`MULTIDOC_SYNTH`)
+
+See `docs/PLAN_KNOWLEDGE.md` for the full phased plan.
+
 ### Fact Approval (governance — choose what goes live automatically)
 **Settings → Fact Approval** lets an admin set, **per source**, whether new facts
 go **Auto** (active immediately) or **Review** (held pending), plus a minimum

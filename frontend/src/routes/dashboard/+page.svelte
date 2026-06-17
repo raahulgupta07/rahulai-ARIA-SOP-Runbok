@@ -9,13 +9,14 @@
   import Knowledge from '$lib/dashboard/sections/Knowledge.svelte';
   import Review from '$lib/dashboard/sections/Review.svelte';
   import System from '$lib/dashboard/sections/System.svelte';
+  import Cockpit from '$lib/dash/Cockpit.svelte';
 
   let me = $state<User | null>(auth.cachedUser());
   let isAdmin = $derived(me?.role === 'admin');
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
 
   const COMP: Record<string, any> = {
-    overview: Overview, exec: Exec, users: Users, perf: Perf,
+    overview: Overview, live: Cockpit, exec: Exec, users: Users, perf: Perf,
     knowledge: Knowledge, review: Review, system: System
   };
   // non-admins only ever see Overview (their personal view); force the tab.

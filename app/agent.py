@@ -154,6 +154,93 @@ def _brain_facts(query: str) -> list[dict]:
     return memory_facts()
 
 
+def _render_playbook(conn, doc_id, label: str = "", with_deps: bool = True) -> str:
+    """Render one doc's compiled playbook as a compact text block. '' if none."""
+    pb = conn.execute(
+        "SELECT goal, who, prerequisites, steps, verify, if_fails, escalate "
+        "FROM doc_playbook WHERE doc_id = %s", (doc_id,)
+    ).fetchone()
+    if not pb or not (pb.get("steps") or []):
+        return ""
+    L = [label] if label else []
+    if pb.get("goal"):
+        L.append(f"Goal: {pb['goal']}")
+    if pb.get("who"):
+        L.append(f"Who: {pb['who']}")
+    if pb.get("prerequisites"):
+        L.append("Prerequisites:")
+        L += [f"  - {x}" for x in pb["prerequisites"]]
+    if pb.get("steps"):
+        L.append("Steps:")
+        for s in pb["steps"]:
+            a = (s.get("action") or "").strip()
+            d = (s.get("detail") or "").strip()
+            L.append(f"  {s.get('n','')}. {a}" + (f" — {d}" if d else ""))
+    if pb.get("verify"):
+        L.append("Done when:")
+        L += [f"  - {x}" for x in pb["verify"]]
+    if pb.get("if_fails"):
+        L.append("If it fails:")
+        L += [f"  - {x}" for x in pb["if_fails"]]
+    if pb.get("escalate"):
+        L.append(f"Escalate: {pb['escalate']}")
+    if with_deps:
+        try:
+            from .dependencies import dependencies_for
+            deps = dependencies_for(doc_id)
+            if deps:
+                L.append("Complete these prerequisite procedures FIRST:")
+                L += [f"  - {d['doc_name']}" + (f" — {d['reason']}" if d.get('reason') else "")
+                      for d in deps]
+        except Exception as e:
+            print(f"[agent] dependency lookup failed (non-fatal): {e!r}")
+    return "\n".join(L)
+
+
+def _playbook_block(seed_pages: list[dict]) -> str:
+    """Pre-compiled playbook(s) for the cited doc(s). Single doc -> one playbook;
+    when the question's pages span several compiled docs and MULTIDOC_SYNTH is on,
+    include the top few and ask the model to MERGE them into one coherent procedure
+    (Phase 7 multi-doc synthesis). Fail-soft -> ''."""
+    try:
+        import os
+        from collections import Counter
+        from .db import get_conn
+        ids = [p.get("doc_id") for p in seed_pages if p.get("doc_id")]
+        if not ids:
+            return ""
+        ranked = [d for d, _ in Counter(ids).most_common()]
+        synth = os.getenv("MULTIDOC_SYNTH", "1") == "1"
+        cap = int(os.getenv("MULTIDOC_MAX", "2")) if synth else 1
+
+        with get_conn() as conn:
+            blocks = []
+            for did in ranked:
+                if len(blocks) >= cap:
+                    break
+                with_doc = conn.execute(
+                    "SELECT name FROM docs WHERE id = %s", (did,)
+                ).fetchone()
+                label = f"— from {with_doc['name']} —" if (with_doc and cap > 1) else ""
+                b = _render_playbook(conn, did, label=label)
+                if b:
+                    blocks.append(b)
+        if not blocks:
+            return ""
+        if len(blocks) == 1:
+            head = ("PLAYBOOK (a pre-compiled guide for the most relevant document — use "
+                    "it as the backbone of your answer WHEN it matches the question; still "
+                    "cite the source pages, and KNOWN FACTS override it on conflict):")
+            return head + "\n" + blocks[0] + "\n"
+        head = ("PLAYBOOKS (the question spans several documents — MERGE these pre-compiled "
+                "guides into ONE coherent end-to-end procedure, in the right order, without "
+                "repeating shared steps; cite the source pages; KNOWN FACTS override):")
+        return head + "\n\n" + "\n\n".join(blocks) + "\n"
+    except Exception as e:
+        print(f"[agent] playbook block failed (non-fatal): {e!r}")
+        return ""
+
+
 def _context(query: str, seed_pages: list[dict]) -> str:
     parts = []
     facts = _brain_facts(query)
@@ -162,6 +249,14 @@ def _context(query: str, seed_pages: list[dict]) -> str:
                      "pages on any conflict):")
         parts += [f"  - {f['text']}" for f in facts]
         parts.append("")
+    try:
+        from .config import USE_PLAYBOOK_IN_CHAT
+    except Exception:
+        USE_PLAYBOOK_IN_CHAT = True
+    if USE_PLAYBOOK_IN_CHAT:
+        pb = _playbook_block(seed_pages)
+        if pb:
+            parts.append(pb)
     parts.append("SOURCE PAGES:")
     for i, p in enumerate(seed_pages, 1):
         body = (p.get("text_full") or p.get("snippet") or "").strip()
@@ -197,13 +292,27 @@ def _chat_stream_with_retry(**kwargs):
         return _client.chat.completions.create(**kwargs)
 
 
+_AUDIENCE_RULE = {
+    "simple": (
+        "AUDIENCE: a non-technical END USER. Answer in plain language, short numbered "
+        "steps, minimal jargon (briefly explain any code/screen name you must use). "
+        "Keep it to what they need to DO; omit deep internals unless essential."
+    ),
+    "expert": (
+        "AUDIENCE: IT support staff. Give the full procedure with every exact code, "
+        "path, SQL, screen and value; do not simplify away detail."
+    ),
+}
+
+
 def _quick_stream(query: str, seed_pages: list[dict], history: list[dict] | None = None,
-                  meter: dict | None = None):
+                  meter: dict | None = None, audience: str = "expert"):
     """Yield answer token deltas (single LLM call, full page text, no images).
 
     `history` = prior turns [{role, text}] so follow-ups ("more details", "why?")
     are understood as continuations of the conversation, not standalone questions.
     `meter` = optional dict filled with {model, tok_in, tok_out} for telemetry.
+    `audience` = 'simple' (end user) | 'expert' (IT support) tunes verbosity.
     """
     if meter is not None:
         meter["model"] = CHAT_MODEL
@@ -211,6 +320,9 @@ def _quick_stream(query: str, seed_pages: list[dict], history: list[dict] | None
         yield "LLM key not configured."
         return
     messages = [{"role": "system", "content": RULES}]
+    arule = _AUDIENCE_RULE.get(audience or "expert")
+    if arule:
+        messages.append({"role": "system", "content": arule})
     for h in (history or [])[-6:]:                       # last 3 Q/A pairs
         txt = (h.get("text") or "").strip()
         if not txt:
@@ -235,7 +347,7 @@ def _quick_stream(query: str, seed_pages: list[dict], history: list[dict] | None
 
 # ---------------- DEEP: Agno agent (images + tools), chunk-streamed ----------
 def _deep_text(query: str, seed_pages: list[dict], session_id: str | None,
-               history: list[dict] | None = None) -> str:
+               history: list[dict] | None = None, audience: str = "expert") -> str:
     from agno.agent import Agent
     from agno.media import Image
     from agno.models.openrouter import OpenRouter
@@ -250,7 +362,8 @@ def _deep_text(query: str, seed_pages: list[dict], session_id: str | None,
     # instead, which keeps agent_sessions from growing at all.
     agent = Agent(
         model=model,
-        instructions=[RULES, "Candidate pages are also shown as IMAGES — read them "
+        instructions=[RULES, _AUDIENCE_RULE.get(audience or "expert", ""),
+                      "Candidate pages are also shown as IMAGES — read them "
                       "for screenshots / diagrams / Burmese text not in the text layer. "
                       "Use list_documents/open_outline/read_page to verify or pull more."],
         tools=[list_documents, open_outline, read_page, remember_fact, recall_facts],
@@ -275,20 +388,21 @@ def _deep_text(query: str, seed_pages: list[dict], session_id: str | None,
 # ---------------- public: streaming generator ----------------
 def stream_reply(query: str, seed_pages: list[dict], mode: str = "quick",
                  session_id: str | None = None, history: list[dict] | None = None,
-                 meter: dict | None = None):
+                 meter: dict | None = None, audience: str = "expert"):
     """Generator of answer token strings. Caller accumulates + parses PAGES.
-    `meter` (optional) is filled with {model, tok_in, tok_out} for telemetry."""
+    `meter` (optional) is filled with {model, tok_in, tok_out} for telemetry.
+    `audience` = 'simple'|'expert' tunes answer depth (Phase 6 role-based)."""
     with _llm_slot():   # hold one LLM permit for the whole generation/stream
         if mode == "deep":
             if meter is not None:
                 meter["model"] = DEEP_MODEL
             # deep mode gets follow-up context from our own messages history (no
             # Agno persistent session memory — see _deep_text)
-            text = _deep_text(query, seed_pages, session_id, history)
+            text = _deep_text(query, seed_pages, session_id, history, audience)
             for i in range(0, len(text), 48):   # chunk so the client still streams
                 yield text[i:i + 48]
         else:
-            yield from _quick_stream(query, seed_pages, history, meter=meter)
+            yield from _quick_stream(query, seed_pages, history, meter=meter, audience=audience)
 
 
 # ---------------- public: non-streaming (legacy /ask) ----------------

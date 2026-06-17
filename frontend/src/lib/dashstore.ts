@@ -22,6 +22,7 @@ range.subscribe((v) => {
 export type McTab = { id: string; label: string; roles: ('admin' | 'user')[] };
 export const MC_TABS: McTab[] = [
   { id: 'overview',  label: 'Overview',    roles: ['admin', 'user'] },
+  { id: 'live',      label: 'Cockpit',     roles: ['admin'] },
   { id: 'exec',      label: 'Exec',        roles: ['admin'] },
   { id: 'users',     label: 'Users',       roles: ['admin'] },
   { id: 'perf',      label: 'Performance', roles: ['admin'] },
@@ -54,6 +55,7 @@ export type WsItem = {
 // One grouped rail: Overview (top) · BRAIN (the Brain tabs as rail rows) · INSIGHTS (dashboard).
 export const WS_ITEMS: WsItem[] = [
   { id: 'overview',     label: 'Overview',  group: 'Overview', kind: 'insight',   roles: ['admin'] },
+  { id: 'live',         label: 'Cockpit',   group: 'Insights', kind: 'insight', roles: ['admin'] },
 
   { id: 'brain-docs',   label: 'Documents', group: 'Brain', kind: 'knowledge', roles: ['admin', 'user'], view: { tab: 'brain', feed: 'doc' } },
   { id: 'brain-facts',  label: 'Facts',     group: 'Brain', kind: 'knowledge', roles: ['admin', 'user'], view: { tab: 'brain', feed: 'fact' } },
