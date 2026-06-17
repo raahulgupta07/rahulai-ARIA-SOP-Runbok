@@ -33,6 +33,7 @@ services:
       db:
         condition: service_healthy
     environment:
+      PYTHONUNBUFFERED: "1"
       DATABASE_URL: postgresql://docsensei:docsensei@db:5432/docsensei
       DB_POOL_MIN: ${DB_POOL_MIN:-2}
       DB_POOL_MAX: ${DB_POOL_MAX:-20}
