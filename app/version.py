@@ -6,12 +6,27 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.16.0"
+VERSION = "2.17.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.17.0",
+        "date": "2026-06-17",
+        "title": "Knowledge quality pipeline — playbooks, entities, chaining, trees, catalog",
+        "lines": [
+            "Playbooks: every doc compiled into a follow-along guide (goal/steps/verify); chat answers from it",
+            "Guided step-by-step walker + role-based depth (full for IT, simplified for end users)",
+            "Doc-type aware: classify sop/runbook/policy/reference; reference docs get a term->value lookup",
+            "Cross-doc entity index: a question naming a system/code pulls pages from every doc that shares it",
+            "Procedure chaining: Aria tells you the prerequisite SOPs to complete first (+ graph edge)",
+            "Troubleshooting trees for branching docs, conflict + freshness lint on the Audit page",
+            "Visual cues captured from screenshots (re-ingest at higher DPI) shown as 'On this screen'",
+            "Capabilities catalog + multi-doc synthesis (merge several SOPs into one procedure)",
+        ],
+    },
     {
         "version": "2.16.0",
         "date": "2026-06-17",
