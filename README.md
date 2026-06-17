@@ -45,6 +45,22 @@ docker compose up -d --force-recreate app
 
 To cut a release: bump `VERSION` + add a `CHANGELOG` entry in `app/version.py`, then `./release.sh`.
 
+### Scale: dedicated ingest worker (optional)
+Document ingest is LLM-heavy (per-page vision + PageIndex + compilers). To keep the
+API snappy under load, run it in a **separate worker container** so that work never
+shares the API's GIL:
+```bash
+# in .env:
+INGEST_IN_API=0
+# then start API + worker:
+docker compose --profile worker up -d app worker
+```
+Default (`docker compose up -d`) runs everything in one container — fine for small
+deployments. Background daemons are leader-locked, so exactly one process ingests.
+
+**Going to production?** Work through `docs/PRODUCTION.md` (env/secrets, backups via
+`scripts/backup.sh`, cost guardrails, validation).
+
 ### Local dev (no Docker)
 ```bash
 docker compose up -d db
