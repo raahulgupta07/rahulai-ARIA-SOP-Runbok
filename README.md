@@ -188,6 +188,22 @@ feed on her own** ("Score X/100 · N answers · M had no source · K awaiting
 review") — proactive, no prompt needed. Admins can trigger it now with **Run
 now**. Knobs: `DIGEST_ENABLED`, `DIGEST_INTERVAL_DAYS`.
 
+### Dream cycle (a self-improving brain)
+**Workspace → Self-improvement.** While the system is idle, one background pass
+**consolidates the brain on its own** so the next day's answers are better — no
+human, no retraining, no embeddings. Each step reuses data Aria already has and
+is fail-soft: it **dedups** near-duplicate facts, **promotes** aged high-
+confidence facts to active, **retires** stale never-used ones, **resolves**
+same-term/divergent-value conflicts, **scores salience** from real citation
+usage (so the pages people actually rely on rank higher in retrieval), and
+**auto-links entities across documents with zero LLM calls** (a denser knowledge
+graph for free). Optionally it fills coverage gaps with grounded Q&A. Every run
+is logged, and the **Self-improvement panel** shows the last run, a live
+knowledge graph, metric tiles, recent runs, a **Run now** button, and **settings
+you can flip live** (no redeploy). Knobs: `DREAM_ENABLED`, `DREAM_INTERVAL_H`,
+`DREAM_STALE_DAYS`, `DREAM_PROMOTE_AGE_H`, `DREAM_AUTO_RESOLVE`, `DREAM_GAP_FILL`,
+`DREAM_AUTOLINK`, `SALIENCE_BOOST`.
+
 ## Using it
 A **full-width top bar** is the shell: the **brand logo** (left) · top nav **💬 Chat · ▦ Dashboard · 🧠 Brain · ⚙ Settings** (Chat first) · then the **notification bell** + your **account menu** (right) — identical on every page (activity + What's-new / version in the bell). On **Chat**, a **left rail** (warm sand) holds **＋ New chat** · 🔍 search · your **chat history** · connection status. On **Dashboard / Brain / Settings** that chat rail is replaced by the page's own layout (Brain → Brain/Graph/Audit + Documents/Facts; Settings → Overview/Users/Authentication). The selected nav item shows in a coral peach pill.
 

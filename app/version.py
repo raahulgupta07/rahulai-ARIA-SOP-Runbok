@@ -6,12 +6,24 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.17.0"
+VERSION = "2.18.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.18.0",
+        "date": "2026-06-19",
+        "title": "Dream cycle — a self-improving brain that consolidates itself nightly",
+        "lines": [
+            "Nightly dream cycle: dedups facts, promotes/retires, resolves conflicts while idle",
+            "Salience scoring from citation usage now boosts what surfaces in answers",
+            "Zero-LLM entity auto-linking grows the cross-doc knowledge graph for free",
+            "New Workspace → Self-improvement panel: run now, live graph, metrics, settings",
+            "Live config — flip dream-cycle behaviour without a redeploy",
+        ],
+    },
     {
         "version": "2.17.0",
         "date": "2026-06-17",
