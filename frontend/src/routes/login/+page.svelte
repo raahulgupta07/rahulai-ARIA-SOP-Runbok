@@ -77,14 +77,16 @@
     } catch (e: any) { err = e.message; } finally { busy = false; }
   }
 
+  let ldapDir = $state<string | undefined>(undefined);   // selected LDAP directory id
   async function doLdap() {
     persistRemember();
     err = ''; info = ''; busy = true;
-    try { await auth.ldap(email, password); await finish(); }
+    try { await auth.ldap(email, password, ldapDir); await finish(); }
     catch (e: any) { err = e.message; } finally { busy = false; }
   }
 
-  function doSso() { window.location.href = auth.ssoUrl(); }
+  function doSso(pid?: string) { window.location.href = auth.ssoUrl(pid); }
+  function openLdap(dirId?: string) { ldapDir = dirId; ldapMode = true; }
 
   function focusEmail() { emailEl?.focus(); }
 
@@ -151,7 +153,7 @@
         {#if err}<div class="msg err">{err}</div>{/if}
         {#if info}<div class="msg info">{info}</div>{/if}
 
-        {#if cfg.enable_local || ldapMode}
+        {#if (cfg.enable_local && !ldapMode) || ldapMode}
           {#if mode === 'signup' && !ldapMode}
             <input class="inp" placeholder="Full name" bind:value={name} />
           {/if}
@@ -176,55 +178,75 @@
           <button class="btn clay" disabled={busy} onclick={() => (ldapMode ? doLdap() : doLocal())}>
             {busy ? '…' : ldapMode ? 'Continue with LDAP' : mode === 'signup' ? 'Create account' : 'Continue with email'}
           </button>
-
-          {#if cfg.enable_oidc || cfg.enable_ldap}
-            <div class="or">OR</div>
-          {/if}
-
-          {#if cfg.enable_oidc}
-            <button class="btn tinted" onclick={doSso}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.6 7.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7zm3 .1L22 7l-3-3"/></svg>
-              Continue with SSO
-            </button>
-          {/if}
-          {#if cfg.enable_ldap}
-            <button class="btn" onclick={() => (ldapMode = !ldapMode)}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/></svg>
-              {ldapMode ? 'Use local account' : 'Continue with LDAP / AD'}
-            </button>
-          {/if}
-
-          {#if mode === 'signup' && !ldapMode}
-            <div class="alt">Have an account? <button class="link" onclick={() => (mode = 'login')}>Sign in</button></div>
-          {/if}
         {/if}
+
+        {#if cfg.enable_local && !ldapMode && (cfg.enable_oidc || cfg.enable_ldap)}
+          <div class="or">OR</div>
+        {/if}
+
+        {#if !ldapMode}
+          {#each (cfg.sso_providers ?? []) as p, i}
+            <button class="btn tinted" class:primary={!cfg.enable_local && i === 0} onclick={() => doSso(p.id)}>
+              {#if p.provider === 'microsoft'}
+                <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" fill="#f25022"/><rect x="13" y="3" width="8" height="8" fill="#7fba00"/><rect x="3" y="13" width="8" height="8" fill="#00a4ef"/><rect x="13" y="13" width="8" height="8" fill="#ffb900"/></svg>
+              {:else if p.provider === 'google'}
+                <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M21.6 12.2c0-.6-.1-1.2-.2-1.8H12v3.4h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.1z"/><path fill="#34A853" d="M12 22c2.7 0 5-1 6.6-2.7l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.7-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22z"/><path fill="#FBBC05" d="M6.4 13.7a6 6 0 0 1 0-3.8V7.3H3.1a10 10 0 0 0 0 9z"/><path fill="#EA4335" d="M12 6.1c1.5 0 2.8.5 3.8 1.5l2.8-2.8A10 10 0 0 0 3.1 7.3l3.3 2.6C7.2 7.8 9.4 6.1 12 6.1z"/></svg>
+              {:else if p.provider === 'okta'}
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="8"/></svg>
+              {:else}
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.6 7.6a5 5 0 1 1-7 7 5 5 0 0 1 7-7zm3 .1L22 7l-3-3"/></svg>
+              {/if}
+              {p.label}
+            </button>
+          {/each}
+        {/if}
+
+        {#if ldapMode}
+          <button class="btn" onclick={() => { ldapMode = false; ldapDir = undefined; }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/></svg>
+            Use local account
+          </button>
+        {:else}
+          {#each (cfg.ldap_dirs ?? []) as d}
+            <button class="btn" onclick={() => openLdap(d.id)}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/></svg>
+              Continue with {d.name}
+            </button>
+          {/each}
+        {/if}
+
+        {#if mode === 'signup' && !ldapMode && cfg.enable_local}
+          <div class="alt">Have an account? <button class="link" onclick={() => (mode = 'login')}>Sign in</button></div>
+        {/if}
+
+        {#if !cfg.enable_local && !cfg.enable_ldap && !cfg.enable_oidc}
+          <div class="msg info">No sign-in methods are enabled. Use Admin sign-in below.</div>
+        {/if}
+
+        <a class="adminlink" href="/login/admin">Admin sign-in →</a>
       </div>
     </div>
 
     <!-- RIGHT animated capability panel -->
     <div class="right">
       <div class="panel">
+        <div class="plive"><span class="plive-dot"></span> live · answering from your runbooks</div>
         <div class="bubble">{prompts[promptIdx]}</div>
+        <div class="answer-rich">Finance lead → AP. Steps 1–4 on <span class="cite">p.6</span> of the Refund SOP.</div>
+        <div class="typing"><span class="td"></span><span class="td"></span><span class="td"></span></div>
 
-        <div class="grid">
+        <div class="chips">
           {#each tiles as tile, i}
-            <div class="tile {hotTile === i ? 'hot' : ''}">
-              <span class="ic">{tile.icon}</span>
-              <span class="t">{tile.t}</span>
-              {#if hotTile === i}
-                <svg class="cursor" viewBox="0 0 24 24" fill="#1c1b18"><path d="M4 2l16 7-7 2-2 7z"/></svg>
-              {/if}
+            <div class="chip2 {hotTile === i ? 'hot' : ''}">
+              <span class="ic">{tile.icon}</span><span class="t">{tile.t}</span>
             </div>
           {/each}
         </div>
 
-        <div class="dock">
-          <div class="chip">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-            <div><b>New Site Creation · GOLD</b><small>28 SOPs · 253 pages indexed</small></div>
-          </div>
-          <div class="plus" aria-hidden="true">+</div>
-          <button class="go" onclick={focusEmail}>Let's go →</button>
+        <div class="pstats">
+          <span><b>{stats?.docs ?? 27}</b> runbooks</span>
+          <span><b>{stats?.pages ?? 231}</b> pages</span>
+          <span><b>SSO</b> ready</span>
         </div>
       </div>
     </div>
@@ -239,6 +261,7 @@
     --border:#ececea; --line:#ececea; --paper:#fff; --cream:#ffffff; --peach:#f3f3f1;
     --serif:'Tiempos Headline','Tiempos Text',Georgia,'Times New Roman',serif;
     background:#fff; color:var(--ink); min-height:100vh; display:flex; flex-direction:column;
+    overflow-x:hidden;   /* kill any right-panel / horizontal bleed on small screens */
   }
   .topbar{display:flex; align-items:center; gap:11px; padding:22px 28px;}
   .brandlogo{height:68px; width:auto; display:block;}
@@ -275,6 +298,9 @@
     display:flex; align-items:center; justify-content:center; gap:9px; border:1px solid var(--border);
     background:#fff; color:var(--ink); transition:.15s; margin-bottom:9px;}
   .btn:hover{background:#f4f2ec;} .btn.tinted{background:#EDE9DF;}
+  /* when SSO is the only sign-in method, promote the first provider to a solid primary */
+  .btn.tinted.primary{background:#1c1b18; color:#fff; border-color:#1c1b18; height:50px; font-weight:600;}
+  .btn.tinted.primary:hover{background:#000;}
   .btn.clay{background:#1c1b18; color:#fff; border-color:#1c1b18; height:50px;}
   .btn.clay:hover{background:#000;} .btn:disabled{opacity:.5;}
   .btn svg{width:16px; height:16px;}
@@ -285,33 +311,35 @@
 
   .foot{color:var(--muted); font-size:12.5px; text-align:center; padding:16px 20px 22px; margin-top:auto;}
 
-  /* RIGHT panel */
+  /* RIGHT panel — dark, animated, content-rich */
   .right{position:relative; height:560px;}
-  .panel{position:absolute; inset:0; border:1px solid var(--border); border-radius:22px; background:var(--paper); overflow:hidden;
-    background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
-    background-size:30px 30px; box-shadow:0 18px 50px rgba(33,31,28,.08);}
-  .bubble{position:absolute; top:54px; left:42px; right:42px; background:var(--clay); color:#fff; padding:12px 17px; border-radius:14px;
-    font-size:14.5px; line-height:1.4; box-shadow:0 8px 22px rgba(194,104,63,.28);}
-  .bubble::after{content:""; position:absolute; left:26px; bottom:-6px; width:12px; height:12px; background:var(--clay); transform:rotate(45deg);}
+  .panel{position:absolute; inset:0; border:1px solid #2a2620; border-radius:22px; background:#1c1a17; overflow:hidden;
+    background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);
+    background-size:30px 30px; padding:30px 28px; display:flex; flex-direction:column; gap:13px;}
+  .plive{display:flex; align-items:center; gap:8px; color:#bdb6a8; font-size:12px;}
+  .plive-dot{width:8px; height:8px; border-radius:50%; background:#ffba7d; animation:lg-pulse 1.8s ease-in-out infinite;}
+  @keyframes lg-pulse{0%,100%{transform:scale(1);opacity:.9}50%{transform:scale(1.18);opacity:1}}
+  .bubble{align-self:flex-start; max-width:80%; background:#2a2620; color:#ece6da; padding:10px 14px; border-radius:14px 14px 14px 4px; font-size:13px; line-height:1.4;}
+  .answer-rich{align-self:flex-end; max-width:82%; background:var(--clay); color:#fff; padding:10px 14px; border-radius:14px 14px 4px 14px; font-size:13px; line-height:1.5;}
+  .answer-rich .cite{background:rgba(255,255,255,.25); padding:1px 5px; border-radius:4px; font-size:12px;}
+  .typing{align-self:flex-start; background:#2a2620; padding:10px 14px; border-radius:14px; display:flex; gap:5px;}
+  .typing .td{width:6px; height:6px; border-radius:50%; background:#bdb6a8; animation:lg-dot 1.2s infinite;}
+  .typing .td:nth-child(2){animation-delay:.15s;} .typing .td:nth-child(3){animation-delay:.3s;}
+  @keyframes lg-dot{0%,80%,100%{transform:translateY(0);opacity:.45}40%{transform:translateY(-4px);opacity:1}}
 
-  .grid{position:absolute; top:160px; left:42px; right:42px; display:grid; grid-template-columns:repeat(3,1fr); gap:14px;}
-  .tile{position:relative; background:#fff; border:1px solid var(--border); border-radius:12px; padding:14px; height:94px;
-    display:flex; flex-direction:column; justify-content:space-between; transition:.25s;}
-  .tile .ic{font-size:20px; line-height:1;}
-  .tile .t{font-size:13.5px; color:#39372f; line-height:1.3;}
-  .tile.hot{border-color:var(--clay); background:var(--peach); box-shadow:0 8px 22px rgba(194,104,63,.16);}
-  .tile .cursor{position:absolute; right:-6px; bottom:-6px; width:18px; height:18px; z-index:9; pointer-events:none;
-    filter:drop-shadow(0 1px 2px rgba(0,0,0,.3));}
-
-  .dock{position:absolute; left:42px; right:42px; bottom:40px; display:flex; gap:10px; align-items:center;}
-  .chip{flex:1; background:#fff; border:1px solid var(--border); border-radius:13px; padding:11px 14px; display:flex; align-items:center; gap:10px;}
-  .chip svg{width:16px; height:16px; color:var(--muted);}
-  .chip b{font-size:13.5px; font-weight:500;} .chip small{display:block; font-size:11.5px; color:var(--muted);}
-  .plus{width:42px; height:42px; border:1px solid var(--border); border-radius:11px; background:#fff; display:flex; align-items:center; justify-content:center; font-size:20px; color:var(--muted);}
-  .go{background:var(--clay-soft); color:#a8542f; border:0; border-radius:11px; padding:0 16px; height:42px; font-size:13.5px; font-weight:600; display:flex; align-items:center; gap:6px; cursor:pointer;}
-  .go:hover{background:#e0b9a4;}
+  .chips{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:auto;}
+  .chip2{display:flex; align-items:center; gap:9px; background:#23201b; border:1px solid #312c25; border-radius:10px; padding:10px 12px; transition:.3s;}
+  .chip2 .ic{font-size:16px; line-height:1;}
+  .chip2 .t{font-size:12px; color:#cabfb0;}
+  .chip2.hot{border-color:var(--clay); background:#2e251f; box-shadow:0 0 0 1px var(--clay);}
+  .chip2.hot .t{color:#ffd9c4;}
+  .pstats{display:flex; gap:18px; border-top:1px solid #2a2620; padding-top:12px; color:#8a8276; font-size:11.5px;}
+  .pstats b{color:#ece6da; font-weight:600;}
+  @media (prefers-reduced-motion: reduce){ .plive-dot,.typing .td{animation:none;} }
 
   /* version pill + popover */
+  .adminlink{display:block; text-align:center; margin-top:16px; font-size:12.5px; color:var(--muted); text-decoration:none;}
+  .adminlink:hover{color:var(--clay);}
   .verwrap{position:absolute; top:22px; right:28px; z-index:20;}
   /* mobile: trim the version pill to just the number + shrink the logo so they don't collide */
   @media (max-width:640px){

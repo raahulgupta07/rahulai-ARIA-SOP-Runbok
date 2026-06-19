@@ -273,6 +273,8 @@ CREATE TABLE IF NOT EXISTS oidc_state (
     state       TEXT PRIMARY KEY,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- which SSO provider this auth attempt is for (multi-provider). NULL = legacy single.
+ALTER TABLE oidc_state ADD COLUMN IF NOT EXISTS pid TEXT;
 
 -- ---- per-user chat conversations + messages ----
 CREATE TABLE IF NOT EXISTS conversations (

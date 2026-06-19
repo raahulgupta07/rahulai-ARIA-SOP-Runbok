@@ -18,16 +18,16 @@ export const auth = {
     return r.json();
   },
 
-  async login(email: string, password: string) {
-    return post('/auth/login', { email, password });
+  async login(email: string, password: string, fromAdmin = false) {
+    return post('/auth/login', { email, password, from_admin: fromAdmin });
   },
   async signup(email: string, password: string, name?: string) {
     return post('/auth/signup', { email, password, name });
   },
-  async ldap(username: string, password: string) {
-    return post('/auth/ldap', { username, password });
+  async ldap(username: string, password: string, directory?: string) {
+    return post('/auth/ldap', { username, password, directory });
   },
-  ssoUrl() { return `${BASE}/auth/oidc/login`; },
+  ssoUrl(pid?: string) { return `${BASE}/auth/oidc/login${pid ? `?pid=${encodeURIComponent(pid)}` : ''}`; },
 
   async me(): Promise<User | null> {
     if (!this.isAuthed()) return null;

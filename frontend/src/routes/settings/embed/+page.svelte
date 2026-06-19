@@ -123,69 +123,71 @@
   -H "Content-Type: application/json" \\
   -d '{"q":"What is this system?","mode":"quick"}'`;
   }
-  import Section from '$lib/settings/Section.svelte';
 </script>
 
-<div class="px-7 py-6">
-  {#if err}<div class="rounded-lg px-3 py-2 text-[13px] mb-4" style="background:#fbeae6;color:#c0492f">{err}</div>{/if}
+<div class="h-full overflow-y-auto" style="background:var(--cream)">
+  <div class="px-7 py-6 wrap">
+    <p class="ttlsub">Embed Aria on any website — manage keys, theme and traffic.</p>
 
-  <!-- secret reveal (any tab) -->
-  {#if justKey}
-    <div class="rounded-xl border p-4 space-y-3 mb-5" style="border-color:#cdebd6;background:#f1faf4">
-      <div class="font-semibold text-[14px] flex items-center gap-1.5" style="color:#2f8f5f"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Copy the secret now — it won't be shown again</div>
-      <div class="space-y-2 text-[13px]">
-        <div><span class="lbl">Public</span><code class="kc">{justKey.public_key}</code><button class="cbtn" onclick={() => copy(justKey.public_key)}>Copy</button></div>
-        <div><span class="lbl">Secret</span><code class="kc">{justKey.secret}</code><button class="cbtn" onclick={() => copy(justKey.secret)}>Copy</button></div>
-        <div><span class="lbl">Snippet</span><code class="kc snip">{snippet(justKey.public_key)}</code><button class="cbtn" onclick={() => copy(snippet(justKey.public_key))}>Copy</button></div>
+    {#if err}<div class="errbar">{err}</div>{/if}
+
+    <!-- secret reveal (any tab) -->
+    {#if justKey}
+      <div class="reveal">
+        <div class="rv-ttl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Copy the secret now — it won't be shown again</div>
+        <div class="rv-rows">
+          <div><span class="lbl">Public</span><code class="kc">{justKey.public_key}</code><button class="cbtn" onclick={() => copy(justKey.public_key)}>Copy</button></div>
+          <div><span class="lbl">Secret</span><code class="kc">{justKey.secret}</code><button class="cbtn" onclick={() => copy(justKey.secret)}>Copy</button></div>
+          <div><span class="lbl">Snippet</span><code class="kc snip">{snippet(justKey.public_key)}</code><button class="cbtn" onclick={() => copy(snippet(justKey.public_key))}>Copy</button></div>
+        </div>
+        <button class="rv-dismiss" onclick={() => justKey = null}>Dismiss</button>
       </div>
-      <button class="text-[12px] underline" style="color:var(--muted)" onclick={() => justKey = null}>Dismiss</button>
-    </div>
-  {/if}
+    {/if}
 
-  <!-- top pill tabs -->
-  <div class="toptabs">
-    {#each TABS as t}
-      <button class="ptab" class:on={tab === t.id} onclick={() => tab = t.id}>{t.label}</button>
-    {/each}
-  </div>
-  <div class="tabsub">{TAB_SUB[tab]}</div>
-  <div class="emc">
+    <!-- top pill tabs -->
+    <div class="toptabs">
+      {#each TABS as t}
+        <button class="ptab" class:on={tab === t.id} onclick={() => tab = t.id}>{t.label}</button>
+      {/each}
+    </div>
+    <div class="tabsub">{TAB_SUB[tab]}</div>
+    <div class="emc min-w-0">
 
   <!-- ============ OVERVIEW ============ -->
   {#if tab === 'overview'}
-    <Section title="At a glance" desc="Live embed activity across all widgets over the last 30 days.">
-      <div class="grid grid-cols-4 gap-3">
-        {#each [
-          { k: 'live', label: 'widgets live', sub: `${stats.totals?.widgets || 0} total`, c: '#1a1a18' },
-          { k: 'visitors', label: 'visitors · 30d', c: '#3f7fb0' },
-          { k: 'messages', label: 'messages · 30d', c: '#7b6bd6' },
-          { k: 'blocked', label: 'blocked · 30d', sub: 'origin / rate', c: '#c0492f' }
-        ] as s}
-          <div class="tile">
-            <div class="tval" style="color:{s.c}">{stats.totals?.[s.k] ?? 0}</div>
-            <div class="tlbl">{s.label}</div>
-            {#if s.sub}<div class="tsub">{s.sub}</div>{/if}
-          </div>
-        {/each}
+    <div class="lbl-sec">At a glance</div>
+    <div class="tiles4">
+      {#each [
+        { k: 'live', label: 'widgets live', sub: `${stats.totals?.widgets || 0} total`, c: '#1a1a18' },
+        { k: 'visitors', label: 'visitors · 30d', c: '#3f7fb0' },
+        { k: 'messages', label: 'messages · 30d', c: '#7b6bd6' },
+        { k: 'blocked', label: 'blocked · 30d', sub: 'origin / rate', c: '#c0492f' }
+      ] as s}
+        <div class="tile">
+          <div class="tval" style="color:{s.c}">{stats.totals?.[s.k] ?? 0}</div>
+          <div class="tlbl">{s.label}</div>
+          {#if s.sub}<div class="tsub">{s.sub}</div>{/if}
+        </div>
+      {/each}
+    </div>
+
+    <div class="rowcard howcard">
+      <span class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3a3833" stroke-width="2"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg></span>
+      <div class="meta">
+        <div class="nm">How embedding works</div>
+        <div class="howtxt">Drop Aria on any website. Members keep logging in as normal — embed keys let anonymous visitors chat with the same brain. The <b>public key</b> goes in the snippet; the <b>secret key</b> is for server-to-server SSO and is shown only once.</div>
       </div>
-    </Section>
-    <Section title="How embedding works" desc="Drop Aria on any website so anonymous visitors can chat with the same brain.">
-      <p class="text-[14px] mb-3" style="color:var(--muted)">
-        Drop Aria on any website. Members keep logging in as normal — embed keys let anonymous
-        visitors chat with the same brain. <b>Public key</b> goes in the snippet; the
-        <b>secret key</b> is for server-to-server SSO and is shown only once.
-      </p>
-      <button class="primary" onclick={() => { tab = 'widgets'; showCreate = true; }}>+ New widget</button>
-    </Section>
+      <button class="btn add" onclick={() => { tab = 'widgets'; showCreate = true; }}>+ New widget</button>
+    </div>
   {/if}
 
   <!-- ============ SANDBOX (try it live · single screen, no scroll) ============ -->
   {#if tab === 'sandbox'}
     {#if keys.length === 0}
-      <div class="sbempty">
-        <div class="text-[15px] font-semibold mb-1" style="color:var(--ink)">No widget yet</div>
-        <p class="text-[13px] mb-4" style="color:var(--muted)">Create a ready-to-use sandbox key (any origin, 60/min) and start chatting in one click.</p>
-        <button class="primary" onclick={createDemo} disabled={sbDemoing}>{sbDemoing ? 'Creating…' : '+ Create demo key'}</button>
+      <div class="empty">
+        <div class="emp-ttl">No widget yet</div>
+        <p class="emp-sub">Create a ready-to-use sandbox key (any origin, 60/min) and start chatting in one click.</p>
+        <button class="btn add" onclick={createDemo} disabled={sbDemoing}>{sbDemoing ? 'Creating…' : '+ Create demo key'}</button>
       </div>
     {:else}
       <div class="sbwrap">
@@ -194,8 +196,8 @@
           <select class="sel" bind:value={sbKey} onchange={() => { sbToken=''; }}>
             {#each keys as k}<option value={k.id}>{k.name}</option>{/each}
           </select>
-          <button class="primary" onclick={genToken} disabled={sbLoading}>{#if sbLoading}…{:else}<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px"><polygon points="13 2 3 14 11 14 11 22 21 10 13 10 13 2"/></svg> Generate token{/if}</button>
-          <span class="text-[12px]" style="color:var(--muted)">skips origin check · 30 min</span>
+          <button class="btn pri" onclick={genToken} disabled={sbLoading}>{#if sbLoading}…{:else}<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px"><polygon points="13 2 3 14 11 14 11 22 21 10 13 10 13 2"/></svg> Generate token{/if}</button>
+          <span class="muted-sm">skips origin check · 30 min</span>
           {#if sbToken}
             <code class="kc snip sbtok" title={sbToken}>{sbToken}</code>
             <button class="cbtn" onclick={() => copy(sbToken)}>Copy</button>
@@ -214,12 +216,12 @@
           </div>
           <div class="sbside">
             <div class="sbcard">
-              <div class="font-semibold text-[13px] mb-2">Drop-in snippet</div>
+              <div class="sbcard-ttl">Drop-in snippet</div>
               <code class="kc snip" style="max-width:100%">{snippet(sbPk)}</code>
               <button class="cbtn block mt-2" onclick={() => copy(snippet(sbPk))}>Copy snippet</button>
             </div>
             <div class="sbcard">
-              <div class="font-semibold text-[13px] mb-2">Call the API with your token</div>
+              <div class="sbcard-ttl">Call the API with your token</div>
               <pre class="code">{curlCmd()}</pre>
               <button class="cbtn block mt-2" onclick={() => copy(curlCmd())}>Copy cURL</button>
             </div>
@@ -231,8 +233,10 @@
 
   <!-- ============ THEME (brand default + live preview) ============ -->
   {#if tab === 'appearance'}
-    <div class="grid grid-cols-2 gap-4">
-      <Section title="Default appearance" desc="Applies to every widget unless a key sets its own override.">
+    <div class="theme-grid">
+      <div class="panel">
+        <div class="panel-ttl">Default appearance</div>
+        <div class="panel-sub">Applies to every widget unless a key sets its own override.</div>
         <div class="grid grid-cols-2 gap-3">
           <label class="fld"><span>Accent color</span><div class="flex gap-2 items-center"><input type="color" class="swatch" bind:value={brand.accent} /><input class="hexin" bind:value={brand.accent} /></div></label>
           <label class="fld"><span>Position</span>
@@ -245,16 +249,18 @@
             <select bind:value={brand.launcher}><option value="robot">robot</option><option value="chat">chat bubble</option><option value="logo">logo</option></select>
           </label>
         </div>
-        <button class="primary mt-4" onclick={saveBrand} disabled={savingBrand}>{savingBrand ? 'Saving…' : savedBrand ? 'Saved' : 'Save brand default'}</button>
-        <div class="mt-4 pt-3 text-[12px]" style="border-top:1px solid #efece4;color:var(--muted)">
+        <button class="btn pri mt-4" onclick={saveBrand} disabled={savingBrand}>{savingBrand ? 'Saving…' : savedBrand ? 'Saved' : 'Save brand default'}</button>
+        <div class="inherit-note">
           <b style="color:#2f8f5f">●</b> {keys.length - overrides.length} inherit brand &nbsp;·&nbsp;
           <b style="color:#c98a2e">◐</b> {overrides.length} custom override{overrides.length === 1 ? '' : 's'}
           {#if overrides.length}<span> — {overrides.map((o) => o.name).join(', ')}</span>{/if}
         </div>
-      </Section>
+      </div>
 
       <!-- live preview -->
-      <Section title="Live preview" desc="A mock of the widget header, greeting and composer.">
+      <div class="panel">
+        <div class="panel-ttl">Live preview</div>
+        <div class="panel-sub">A mock of the widget header, greeting and composer.</div>
         <div class="pv" style="--a:{brand.accent}">
           <div class="pv-head">
             {#if brand.logo_url}<img src={brand.logo_url} alt="" class="pv-logo" />{:else}<span class="pv-dotwrap"><span class="pv-dot"></span></span>{/if}
@@ -265,18 +271,24 @@
           </div>
           <div class="pv-input"><span>ask something…</span><span class="pv-send">→</span></div>
         </div>
-        <div class="text-[11px] mt-2 text-center" style="color:var(--muted)">preview · position bottom-{brand.position}</div>
-      </Section>
+        <div class="pv-cap">preview · position bottom-{brand.position}</div>
+      </div>
     </div>
   {/if}
 
   <!-- ============ WIDGETS ============ -->
   {#if tab === 'widgets'}
+    <div class="lhead">
+      <div><h3>Widgets</h3><p>Every embed key, its limits, usage and lifecycle actions.</p></div>
+      {#if !showCreate}<button class="btn add" onclick={() => showCreate = true}>+ New widget</button>{/if}
+    </div>
+
     {#if showCreate}
-      <Section title="New widget" desc="Generate an embed key with its own limits and styling.">
-        {#snippet actions()}
-          <button class="primary" onclick={() => showCreate = !showCreate}>Close</button>
-        {/snippet}
+      <div class="panel">
+        <div class="panel-row">
+          <div><div class="panel-ttl">New widget</div><div class="panel-sub">Generate an embed key with its own limits and styling.</div></div>
+          <button class="btn" onclick={() => showCreate = false}>Close</button>
+        </div>
         <div class="grid grid-cols-2 gap-3">
           <label class="fld"><span>Name</span><input bind:value={nf.name} placeholder="Marketing site" /></label>
           <label class="fld"><span>Rate / min per visitor</span><input type="number" bind:value={nf.rate} min="1" /></label>
@@ -302,95 +314,87 @@
           <label class="fld"><span>Welcome (blank = brand default)</span><input bind:value={nf.greeting} /></label>
           <label class="fld"><span>Accent</span><input type="color" class="swatch" bind:value={nf.accent} /></label>
         </div>
-        <button class="primary mt-3" onclick={create} disabled={creating}>{creating ? 'Creating…' : 'Create widget'}</button>
-      </Section>
+        <button class="btn pri mt-3" onclick={create} disabled={creating}>{creating ? 'Creating…' : 'Create widget'}</button>
+      </div>
     {/if}
 
-    <Section title="Widgets" desc="Every embed key, its limits, usage and lifecycle actions.">
-      {#snippet actions()}
-        {#if !showCreate}<button class="primary" onclick={() => showCreate = !showCreate}>+ New widget</button>{/if}
-      {/snippet}
     {#if keys.length === 0}
-      <div class="text-[13px]" style="color:var(--muted)">No widgets yet.</div>
+      <div class="empty">No widgets yet. Click "+ New widget".</div>
     {:else}
       {#each keys as k}
         {@const st = statFor(k)}
-        <div class="rounded-xl border p-4 mb-3" style="border-color:#efefec;background:#fff;opacity:{k.active ? 1 : .55}">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <span class="w-3 h-3 rounded-full" style="background:{k.accent || brand.accent}"></span>
-              <b class="text-[14px]">{k.name}</b>
-              <span class="text-[11px] px-1.5 py-0.5 rounded" style="background:{k.active ? '#eaf6ee' : '#f0eee9'};color:{k.active ? '#2f8f5f' : '#8a877f'}">{k.active ? 'active' : 'disabled'}</span>
+        <div class="rowcard wcard" style="opacity:{k.active ? 1 : .6}">
+          <span class="ico" style="background:{(k.accent || brand.accent)}1a">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={k.accent || brand.accent} stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </span>
+          <div class="meta">
+            <div class="nm">{k.name}
+              {#if k.active}<span class="st on">● Live</span>{:else}<span class="st">○ Disabled</span>{/if}
             </div>
-            <div class="flex gap-2 text-[12px]">
-              <button class="lnk" onclick={() => { monKey = k.id; tab = 'monitoring'; }}>Stats</button>
-              <button class="lnk" onclick={() => toggle(k)}>{k.active ? 'Disable' : 'Enable'}</button>
-              <button class="lnk" onclick={() => rotate(k)}>Rotate secret</button>
-              <button class="lnk" style="color:#c0492f" onclick={() => del(k)}>Delete</button>
+            <div class="sub">
+              <code class="kcm">{k.public_key}</code>
+              <span class="dot">·</span> sk_live_…{k.secret_last4}
             </div>
+            <div class="wstat">{st.visitors || 0} visitors · {st.messages || 0} msgs (30d) · {k.allowed_origins?.length ? k.allowed_origins.join(', ') : 'any origin'} · {k.rate_per_min}/min{#if k.daily_msg_cap} · cap {k.daily_msg_cap}/day{/if}{#if k.daily_cost_cap} · ${k.daily_cost_cap}/day{/if}</div>
           </div>
-          <div class="mt-2 space-y-1.5 text-[12px]">
-            <div><span class="lbl">Public</span><code class="kc">{k.public_key}</code><button class="cbtn" onclick={() => copy(k.public_key)}>Copy</button></div>
-            <div><span class="lbl">Secret</span><code class="kc" style="color:var(--muted)">sk_live_…{k.secret_last4}</code></div>
-            <div><span class="lbl">Snippet</span><code class="kc snip">{snippet(k.public_key)}</code><button class="cbtn" onclick={() => copy(snippet(k.public_key))}>Copy</button></div>
-            <div class="text-[11px]" style="color:var(--muted)">
-              origins: {k.allowed_origins?.length ? k.allowed_origins.join(', ') : 'any'} · {k.rate_per_min}/min{#if k.daily_msg_cap} · cap {k.daily_msg_cap} msg/day{/if}{#if k.daily_cost_cap} · ${k.daily_cost_cap}/day{/if}
-              · {st.visitors || 0} visitors · {st.messages || 0} msgs (30d)
-            </div>
+          <div class="wacts">
+            <button class="btn sm" onclick={() => copy(snippet(k.public_key))}>Copy snippet</button>
+            <button class="btn sm" onclick={() => { monKey = k.id; tab = 'monitoring'; }}>Stats</button>
+            <button class="btn sm" onclick={() => toggle(k)}>{k.active ? 'Disable' : 'Enable'}</button>
+            <button class="btn sm" onclick={() => rotate(k)}>Rotate</button>
+            <button class="del" onclick={() => del(k)} title="Delete">✕</button>
           </div>
         </div>
       {/each}
     {/if}
-    </Section>
   {/if}
 
   <!-- ============ MONITORING ============ -->
   {#if tab === 'monitoring'}
-    <Section title="Traffic" desc="Message volume and the widgets driving it over the last 30 days.">
-      <div class="grid grid-cols-2 gap-4">
-        <div class="rounded-xl border p-4" style="border-color:#efefec;background:#fff">
-          <div class="text-[12px] mb-1" style="color:var(--muted)">Messages / day · 30d</div>
-          <EChart option={seriesOpt} height={200} />
-        </div>
-        <div class="rounded-xl border p-4" style="border-color:#efefec;background:#fff">
-          <div class="text-[12px] mb-1" style="color:var(--muted)">Busiest widgets</div>
-          <EChart option={topWidgets} height={200} />
-        </div>
+    <div class="lbl-sec">Traffic · last 30 days</div>
+    <div class="theme-grid">
+      <div class="panel">
+        <div class="panel-sub" style="margin-bottom:6px">Messages / day · 30d</div>
+        <EChart option={seriesOpt} height={200} />
       </div>
-    </Section>
-    <Section title="Blocks & sessions" desc="Requests denied by origin or rate limits, plus total sessions.">
-      <div class="grid grid-cols-3 gap-3">
-        <div class="tile"><div class="tval" style="color:#c0492f">{stats.blocked?.origin_block || 0}</div><div class="tlbl">origin blocks</div></div>
-        <div class="tile"><div class="tval" style="color:#c98a2e">{stats.blocked?.rate_block || 0}</div><div class="tlbl">rate blocks</div></div>
-        <div class="tile"><div class="tval" style="color:#1a1a18">{stats.totals?.sessions || 0}</div><div class="tlbl">sessions · 30d</div></div>
+      <div class="panel">
+        <div class="panel-sub" style="margin-bottom:6px">Busiest widgets</div>
+        <EChart option={topWidgets} height={200} />
       </div>
-    </Section>
-    <Section title="Per-widget breakdown" desc="Visitors, sessions and messages for each embed key.">
-      <div class="rounded-xl border" style="border-color:#efefec;background:#fff;overflow:hidden">
-        <table class="w-full text-[13px]">
-          <thead><tr style="background:#f6f3ec;color:var(--muted)"><th class="th">Widget</th><th class="th">Visitors</th><th class="th">Sessions</th><th class="th">Messages</th><th class="th">Status</th></tr></thead>
-          <tbody>
-            {#each stats.widgets || [] as w}
-              <tr style="border-top:1px solid #efece4"><td class="td">{w.name}</td><td class="td">{w.visitors || 0}</td><td class="td">{w.sessions || 0}</td><td class="td">{w.messages || 0}</td><td class="td">{w.active ? 'active' : 'off'}</td></tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-    </Section>
+    </div>
+
+    <div class="lbl-sec" style="margin-top:18px">Blocks &amp; sessions</div>
+    <div class="tiles4 tiles3">
+      <div class="tile"><div class="tval" style="color:#c0492f">{stats.blocked?.origin_block || 0}</div><div class="tlbl">origin blocks</div></div>
+      <div class="tile"><div class="tval" style="color:#c98a2e">{stats.blocked?.rate_block || 0}</div><div class="tlbl">rate blocks</div></div>
+      <div class="tile"><div class="tval" style="color:#1a1a18">{stats.totals?.sessions || 0}</div><div class="tlbl">sessions · 30d</div></div>
+    </div>
+
+    <div class="lbl-sec" style="margin-top:18px">Per-widget breakdown</div>
+    <div class="tblwrap">
+      <table class="brk">
+        <thead><tr><th>Widget</th><th>Visitors</th><th>Sessions</th><th>Messages</th><th>Status</th></tr></thead>
+        <tbody>
+          {#each stats.widgets || [] as w}
+            <tr><td>{w.name}</td><td>{w.visitors || 0}</td><td>{w.sessions || 0}</td><td>{w.messages || 0}</td><td>{w.active ? 'active' : 'off'}</td></tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
   {/if}
 
   <!-- ============ DEVELOPER ============ -->
   {#if tab === 'developer'}
-    <Section title="Integration guide" desc="Copy-paste recipes for embedding, SSO and the raw chat API.">
-      <div class="space-y-4">
-        <div class="rounded-xl border p-5" style="border-color:#efefec;background:#fff">
-          <div class="font-semibold text-[14px] mb-2">① HTML widget — paste before &lt;/body&gt;</div>
-          <pre class="code">{`<script src="${host}/widget.js" data-key="pk_live_xxx" async><\/script>`}</pre>
-          <div class="text-[12px] mt-2" style="color:var(--muted)">Optional: <code>data-accent</code> · <code>data-position="left"</code> · <code>data-title</code></div>
-        </div>
-        <div class="rounded-xl border p-5" style="border-color:#efefec;background:#fff">
-          <div class="font-semibold text-[14px] mb-2">② SSO — server-side, with the secret key</div>
-          <pre class="code">{`// your backend (never expose sk_ to the browser)
+    <div class="lhead"><div><h3>Integration guide</h3><p>Copy-paste recipes for embedding, SSO and the raw chat API.</p></div></div>
+    <div class="dev-stack">
+      <div class="panel">
+        <div class="panel-ttl">① HTML widget — paste before &lt;/body&gt;</div>
+        <pre class="code">{`<script src="${host}/widget.js" data-key="pk_live_xxx" async><\/script>`}</pre>
+        <div class="dev-note">Optional: <code>data-accent</code> · <code>data-position="left"</code> · <code>data-title</code></div>
+      </div>
+      <div class="panel">
+        <div class="panel-ttl">② SSO — server-side, with the secret key</div>
+        <pre class="code">{`// your backend (never expose sk_ to the browser)
 const r = await fetch("${host}/api/embed/token", {
   method: "POST",
   headers: { "Content-Type": "application/json",
@@ -398,84 +402,172 @@ const r = await fetch("${host}/api/embed/token", {
   body: JSON.stringify({ visitor_id: user.id, name: user.name }),
 });
 const { token } = await r.json();  // 30-min visitor JWT`}</pre>
-        </div>
-        <div class="rounded-xl border p-5" style="border-color:#efefec;background:#fff">
-          <div class="font-semibold text-[14px] mb-2">③ Raw chat API</div>
-          <pre class="code">{`POST ${host}/api/ask/stream
+      </div>
+      <div class="panel">
+        <div class="panel-ttl">③ Raw chat API</div>
+        <pre class="code">{`POST ${host}/api/ask/stream
 Authorization: Bearer <visitor token>
 { "q": "How do I reset a price?", "mode": "quick" }
 // NDJSON stream: meta → token* → done`}</pre>
-        </div>
-        <p class="text-[12px]" style="color:var(--muted)">Full reference lives in <code>EMBED.md</code> at the project root.</p>
       </div>
-    </Section>
+      <p class="dev-foot">Full reference lives in <code>EMBED.md</code> at the project root.</p>
+    </div>
   {/if}
-  </div><!-- /.emc -->
+    </div><!-- /.emc -->
+  </div>
 </div>
 
 <style>
-  /* top pill tabs */
-  .toptabs { display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
-  .ptab { font-size: 13px; font-weight: 600; padding: 7px 15px; border-radius: 999px; border: none; cursor: pointer; background: transparent; color: var(--muted); transition: background .12s, color .12s; }
-  .ptab:hover { background: #f0efed; color: var(--ink); }
-  .ptab.on { background: var(--clay); color: #fff; }
-  .tabsub { font-size: 12px; color: var(--muted); margin: 12px 0 14px; }
-  .emc { min-width: 0; }
-  /* sandbox — single screen, internal layout, no page scroll */
-  .sbwrap { display: flex; flex-direction: column; gap: 10px; height: clamp(320px, calc(100vh - 300px), 900px); min-height: 320px; }
-  .sbbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; flex: none; }
-  .sbtok { max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
-  .sbgrid { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(300px, 1fr); gap: 14px; flex: 1; min-height: 0; }
-  .sbpane { min-height: 0; display: flex; }
-  .sbframe { width: 100%; height: 100%; border: 1px solid #efefec; border-radius: 14px; background: #fff; }
-  .sbph { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 13px; border: 1px dashed #ddd8cd; border-radius: 14px; color: var(--muted); background: #fff; }
-  .sbside { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow: auto; }
-  .sbcard { border: 1px solid #efefec; border-radius: 12px; padding: 14px 16px; background: #fff; flex: none; }
-  .sbempty { text-align: center; padding: 48px 12px; }
-  .tile { background: #fff; border: 1px solid #efefec; border-radius: 12px; padding: 14px 16px; }
-  .tval { font-size: 26px; font-weight: 700; line-height: 1.1; }
-  .tlbl { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .tsub { font-size: 11px; color: #a8a59d; }
-  .fld { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
-  .fld input, .fld textarea, .fld select { border: 1px solid #ddd8cd; border-radius: 8px; padding: 8px 10px; font-size: 13px; color: var(--ink); background: #fff; }
-  /* color picker = clean square swatch (override the generic input padding/flex) */
-  .fld input.swatch { flex: none !important; width: 44px; height: 38px; padding: 3px; cursor: pointer; }
-  .fld input.swatch::-webkit-color-swatch-wrapper { padding: 0; }
-  .fld input.swatch::-webkit-color-swatch { border: none; border-radius: 5px; }
-  .fld input.swatch::-moz-color-swatch { border: none; border-radius: 5px; }
-  .fld input.hexin { flex: 1; min-width: 0; }
-  .ppmode { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
-  .ppopt { text-align: left; border: 1.5px solid #ddd8cd; border-radius: 10px; padding: 10px 12px; background: #fff; cursor: pointer; display: flex; flex-direction: column; gap: 3px; transition: border-color .12s, background .12s; }
-  .ppopt:hover { border-color: var(--clay); }
-  .ppopt.on { border-color: var(--clay); background: #fdf3ee; }
-  .ppopt b { font-size: 12.5px; font-weight: 600; color: var(--ink); }
-  .ppopt i { font-size: 11px; font-style: normal; color: var(--muted); line-height: 1.4; }
-  .hint { font-size: 11px; color: var(--muted); margin-top: 5px; }
-  .fld .flex input { flex: 1; }
-  .col-span-2 { grid-column: span 2; }
-  .sel { border: 1px solid #ddd8cd; border-radius: 8px; padding: 8px 12px; font-size: 13px; background: #fff; color: var(--ink); }
-  .cbtn.block { display: inline-block; margin-left: 0; }
-  .primary { background: var(--clay); color: #fff; border: none; border-radius: 9px; padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
-  .primary:disabled { opacity: .5; }
-  .lbl { display: inline-block; width: 64px; color: var(--muted); }
-  .kc { background: #f7f7f5; border: 1px solid var(--border); border-radius: 6px; padding: 2px 7px; font-family: ui-monospace, monospace; font-size: 12px; color: var(--ink); }
-  .kc.snip { display: inline-block; max-width: 540px; overflow-x: auto; white-space: nowrap; vertical-align: middle; }
-  .cbtn { margin-left: 8px; font-size: 11px; color: var(--clay); cursor: pointer; background: none; border: none; }
-  .lnk { color: #46443f; cursor: pointer; background: none; border: none; }
-  .lnk:hover { text-decoration: underline; }
-  .code { background: #2b2a27; color: #e8e4da; border-radius: 9px; padding: 12px 14px; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.55; overflow-x: auto; white-space: pre; }
-  .th { text-align: left; padding: 8px 12px; font-weight: 600; font-size: 12px; }
-  .td { padding: 8px 12px; }
+  .wrap{max-width:1280px;}
+  .ttlsub{font-size:12.5px; color:var(--muted); margin-bottom:18px;}
+  .errbar{background:#fbeae6; color:#c0492f; border-radius:9px; padding:9px 13px; font-size:13px; margin-bottom:16px;}
+
+  /* secret reveal */
+  .reveal{border:1px solid #cdebd6; background:#f1faf4; border-radius:13px; padding:16px; margin-bottom:18px;}
+  .rv-ttl{font-size:14px; font-weight:600; color:#2f8f5f; display:flex; align-items:center; gap:6px; margin-bottom:10px;}
+  .rv-rows{display:flex; flex-direction:column; gap:8px; font-size:13px;}
+  .rv-dismiss{margin-top:10px; font-size:12px; color:var(--muted); background:none; border:none; cursor:pointer; text-decoration:underline;}
+
+  /* top pill tabs (match auth page) */
+  .toptabs{display:flex; flex-wrap:wrap; gap:6px; border-bottom:1px solid var(--border); padding-bottom:12px;}
+  .ptab{font-size:13px; font-weight:600; padding:7px 15px; border-radius:999px; border:none; cursor:pointer; background:transparent; color:var(--muted); transition:background .12s, color .12s;}
+  .ptab:hover{background:#f0efed; color:var(--ink);}
+  .ptab.on{background:var(--clay); color:#fff;}
+  .tabsub{font-size:12px; color:var(--muted); margin:12px 0 16px;}
+  .emc{min-width:0;}
+  .lbl-sec{font-size:11px; letter-spacing:.05em; text-transform:uppercase; font-weight:600; color:var(--muted); margin-bottom:10px;}
+
+  /* stat tiles */
+  .tiles4{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:18px;}
+  .tiles3{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .tile{background:#fff; border:1px solid var(--border); border-radius:12px; padding:14px 16px;}
+  .tval{font-size:26px; font-weight:700; line-height:1.1;}
+  .tlbl{font-size:12px; color:var(--muted); margin-top:2px;}
+  .tsub{font-size:11px; color:#a8a59d; margin-top:1px;}
+
+  /* rowcard (match auth page) */
+  .rowcard{display:flex; align-items:center; gap:13px; border:1px solid var(--border); border-radius:13px; padding:13px 15px; margin-bottom:11px; background:#fff;}
+  .ico{width:42px; height:42px; border-radius:10px; background:#f4f3f0; display:grid; place-items:center; flex:0 0 auto;}
+  .meta{flex:1; min-width:0;}
+  .nm{font-size:14px; font-weight:600; color:var(--ink); display:flex; align-items:center; gap:8px;}
+  .sub{font-size:12px; color:var(--muted); margin-top:3px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;}
+  .sub .dot{color:#cfcabf;}
+  .kcm{font-family:ui-monospace,monospace; font-size:11.5px; color:var(--ink); background:#f7f7f5; border:1px solid var(--border); border-radius:6px; padding:1px 6px;}
+  .st{font-size:11px; font-weight:500; color:var(--muted);}
+  .st.on{color:#2f8f5f;}
+  .howcard .meta{padding-right:6px;}
+  .howtxt{font-size:13px; color:var(--muted); margin-top:4px; line-height:1.5;}
+  .wstat{font-size:11px; color:#a8a59d; margin-top:5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .wacts{display:flex; align-items:center; gap:7px; flex:0 0 auto; flex-wrap:wrap; justify-content:flex-end;}
+
+  /* list head */
+  .lhead{display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:14px;}
+  .lhead h3{font-size:15px; font-weight:600; color:var(--ink);}
+  .lhead p{font-size:12.5px; color:var(--muted); margin-top:3px; max-width:480px;}
+
+  /* empty */
+  .empty{font-size:13px; color:var(--muted); border:1px dashed var(--border); border-radius:12px; padding:28px 18px; text-align:center; margin-bottom:12px;}
+  .emp-ttl{font-size:15px; font-weight:600; color:var(--ink); margin-bottom:4px;}
+  .emp-sub{font-size:13px; color:var(--muted); margin-bottom:14px;}
+
+  /* panels (Section-style cards) */
+  .panel{border:1px solid var(--border); border-radius:13px; padding:16px 18px; background:#fff; margin-bottom:14px;}
+  .panel-ttl{font-size:14px; font-weight:600; color:var(--ink);}
+  .panel-sub{font-size:12.5px; color:var(--muted); margin-top:2px; margin-bottom:12px;}
+  .panel-row{display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:12px;}
+  .panel-row .panel-sub{margin-bottom:0;}
+  .inherit-note{margin-top:16px; padding-top:12px; font-size:12px; color:var(--muted); border-top:1px solid #efece4;}
+
+  /* buttons (match auth page) */
+  .btn{height:38px; padding:0 16px; border-radius:9px; font-size:13px; font-weight:500; cursor:pointer; border:1px solid var(--border); background:#fff; color:var(--ink); display:inline-flex; align-items:center; gap:6px;}
+  .btn:hover{border-color:#cfcabf;}
+  .btn.sm{height:32px; padding:0 11px; font-size:12px; white-space:nowrap;}
+  .btn.pri{background:var(--clay); color:#fff; border-color:var(--clay); font-weight:600;}
+  .btn.add{background:var(--clay); color:#fff; border-color:var(--clay); white-space:nowrap; font-weight:600;}
+  .btn:disabled{opacity:.5; cursor:default;}
+  .del{width:32px; height:32px; border-radius:8px; border:1px solid var(--border); background:#fff; color:var(--muted); cursor:pointer; font-size:13px; flex:0 0 auto;}
+  .del:hover{background:#fbeae6; color:#b03a22; border-color:#e6bdb2;}
+
+  /* fields */
+  .fld{display:flex; flex-direction:column; gap:5px; font-size:12px; color:var(--muted);}
+  .fld input, .fld textarea, .fld select{border:1px solid var(--border); border-radius:9px; padding:9px 11px; font-size:13.5px; color:var(--ink); background:#fff; outline:none;}
+  .fld input:focus, .fld textarea:focus, .fld select:focus{border-color:var(--clay);}
+  .fld input.swatch{flex:none !important; width:44px; height:40px; padding:3px; cursor:pointer;}
+  .fld input.swatch::-webkit-color-swatch-wrapper{padding:0;}
+  .fld input.swatch::-webkit-color-swatch{border:none; border-radius:5px;}
+  .fld input.swatch::-moz-color-swatch{border:none; border-radius:5px;}
+  .fld input.hexin{flex:1; min-width:0;}
+  .fld .flex input{flex:1;}
+  .col-span-2{grid-column:span 2;}
+  .ppmode{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:4px;}
+  .ppopt{text-align:left; border:1.5px solid var(--border); border-radius:10px; padding:10px 12px; background:#fff; cursor:pointer; display:flex; flex-direction:column; gap:3px; transition:border-color .12s, background .12s;}
+  .ppopt:hover{border-color:var(--clay);}
+  .ppopt.on{border-color:var(--clay); background:#fdf3ee;}
+  .ppopt b{font-size:12.5px; font-weight:600; color:var(--ink);}
+  .ppopt i{font-size:11px; font-style:normal; color:var(--muted); line-height:1.4;}
+  .hint{font-size:11px; color:var(--muted); margin-top:5px;}
+  .sel{height:38px; border:1px solid var(--border); border-radius:9px; padding:0 12px; font-size:13px; background:#fff; color:var(--ink); outline:none;}
+  .sel:focus{border-color:var(--clay);}
+  .muted-sm{font-size:12px; color:var(--muted);}
+
+  /* code + key chips */
+  .kc{background:#f7f7f5; border:1px solid var(--border); border-radius:6px; padding:2px 7px; font-family:ui-monospace,monospace; font-size:12px; color:var(--ink);}
+  .kc.snip{display:inline-block; max-width:540px; overflow-x:auto; white-space:nowrap; vertical-align:middle;}
+  .lbl{display:inline-block; width:64px; color:var(--muted);}
+  .cbtn{margin-left:8px; font-size:11px; color:var(--clay); cursor:pointer; background:none; border:none;}
+  .cbtn.block{display:inline-block; margin-left:0;}
+  .code{background:#2b2a27; color:#e8e4da; border-radius:9px; padding:12px 14px; font-family:ui-monospace,monospace; font-size:12px; line-height:1.55; overflow-x:auto; white-space:pre;}
+
+  /* theme + monitoring grid */
+  .theme-grid{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+
+  /* monitoring table */
+  .tblwrap{border:1px solid var(--border); border-radius:13px; background:#fff; overflow:hidden;}
+  .brk{width:100%; font-size:13px; border-collapse:collapse;}
+  .brk thead tr{background:#f6f3ec; color:var(--muted);}
+  .brk th{text-align:left; padding:9px 13px; font-weight:600; font-size:12px;}
+  .brk td{padding:9px 13px; border-top:1px solid #efece4; color:var(--ink);}
+
+  /* developer */
+  .dev-stack{display:flex; flex-direction:column; gap:14px;}
+  .dev-note{font-size:12px; color:var(--muted); margin-top:8px;}
+  .dev-foot{font-size:12px; color:var(--muted);}
+
+  /* sandbox — single screen, internal layout */
+  .sbwrap{display:flex; flex-direction:column; gap:10px; height:clamp(320px, calc(100vh - 320px), 900px); min-height:320px;}
+  .sbbar{display:flex; align-items:center; gap:10px; flex-wrap:wrap; flex:none;}
+  .sbtok{max-width:300px; overflow:hidden; text-overflow:ellipsis;}
+  .sbgrid{display:grid; grid-template-columns:minmax(320px,1fr) minmax(300px,1fr); gap:14px; flex:1; min-height:0;}
+  .sbpane{min-height:0; display:flex;}
+  .sbframe{width:100%; height:100%; border:1px solid var(--border); border-radius:14px; background:#fff;}
+  .sbph{flex:1; display:flex; align-items:center; justify-content:center; text-align:center; font-size:13px; border:1px dashed var(--border); border-radius:14px; color:var(--muted); background:#fff;}
+  .sbside{display:flex; flex-direction:column; gap:12px; min-height:0; overflow:auto;}
+  .sbcard{border:1px solid var(--border); border-radius:12px; padding:14px 16px; background:#fff; flex:none;}
+  .sbcard-ttl{font-weight:600; font-size:13px; margin-bottom:8px; color:var(--ink);}
+  .mt-2{margin-top:8px;} .mt-3{margin-top:12px;} .mt-4{margin-top:16px;}
+
   /* live preview widget */
-  .pv { flex: 1; display: flex; flex-direction: column; border-radius: 14px; overflow: hidden; box-shadow: none; background: #fff; min-height: 320px; }
-  .pv-head { background: var(--a); color: #fff; padding: 12px 14px; display: flex; align-items: center; gap: 10px; }
-  .pv-logo { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; background: #fff; }
-  .pv-dotwrap { width: 28px; height: 28px; border-radius: 50%; background: rgba(255,255,255,.2); display: flex; align-items: center; justify-content: center; }
-  .pv-dot { width: 9px; height: 9px; border-radius: 50%; background: #fff; }
-  .pv-title { font-weight: 600; font-size: 14px; }
-  .pv-sub { font-size: 11px; opacity: .85; }
-  .pv-body { flex: 1; background: #faf9f5; padding: 14px; }
-  .pv-bubble { background: #fff; border: 1px solid #ece9e2; border-radius: 14px; border-bottom-left-radius: 4px; padding: 9px 12px; font-size: 13px; max-width: 85%; color: #2b2a27; }
-  .pv-input { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; border-top: 1px solid #ece9e2; background: #fff; color: #a8a59d; font-size: 13px; }
-  .pv-send { width: 28px; height: 28px; border-radius: 50%; background: var(--a); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .pv{display:flex; flex-direction:column; border-radius:14px; overflow:hidden; background:#fff; min-height:320px; border:1px solid var(--border);}
+  .pv-head{background:var(--a); color:#fff; padding:12px 14px; display:flex; align-items:center; gap:10px;}
+  .pv-logo{width:28px; height:28px; border-radius:50%; object-fit:cover; background:#fff;}
+  .pv-dotwrap{width:28px; height:28px; border-radius:50%; background:rgba(255,255,255,.2); display:flex; align-items:center; justify-content:center;}
+  .pv-dot{width:9px; height:9px; border-radius:50%; background:#fff;}
+  .pv-title{font-weight:600; font-size:14px;}
+  .pv-sub{font-size:11px; opacity:.85;}
+  .pv-body{flex:1; background:#faf9f5; padding:14px;}
+  .pv-bubble{background:#fff; border:1px solid #ece9e2; border-radius:14px; border-bottom-left-radius:4px; padding:9px 12px; font-size:13px; max-width:85%; color:#2b2a27;}
+  .pv-input{display:flex; align-items:center; justify-content:space-between; padding:9px 12px; border-top:1px solid #ece9e2; background:#fff; color:#a8a59d; font-size:13px;}
+  .pv-send{width:28px; height:28px; border-radius:50%; background:var(--a); color:#fff; display:flex; align-items:center; justify-content:center; font-size:14px;}
+  .pv-cap{font-size:11px; margin-top:8px; text-align:center; color:var(--muted);}
+
+  @media (max-width:640px){
+    .tiles4, .tiles4.tiles3{grid-template-columns:1fr;}
+    .theme-grid{grid-template-columns:1fr;}
+    .grid.grid-cols-2{grid-template-columns:1fr !important;}
+    .ppmode{grid-template-columns:1fr;}
+    .sbgrid{grid-template-columns:1fr;}
+    .lhead{flex-direction:column;}
+    .rowcard{flex-wrap:wrap;}
+    .wacts{justify-content:flex-start;}
+  }
 </style>

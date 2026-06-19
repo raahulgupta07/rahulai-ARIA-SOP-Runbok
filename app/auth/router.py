@@ -8,7 +8,7 @@ from .. import notify
 from .security import hash_password, verify_password, make_token
 from .deps import current_user, require_admin
 from .ldap_auth import ldap_login, ldap_test, LdapError
-from .oidc import auth_url, exchange, redirect_uri, OidcError
+from .oidc import auth_url, exchange, redirect_uri, OidcError, consume_state
 
 router = APIRouter()
 
@@ -37,6 +37,7 @@ class Credentials(BaseModel):
     email: str
     password: str
     name: str | None = None
+    from_admin: bool = False    # /login/admin → super-admin escape hatch
 
 
 @router.post("/auth/signup")
@@ -62,7 +63,11 @@ def login(body: Credentials):
     from ..security_log import log_event, recent_fail_count
     from ..config import LOGIN_MAX_FAIL, LOGIN_LOCK_MIN
     cfg = store.get_config()
-    if not cfg["enable_local"]:
+    # local login can be turned off org-wide, BUT the /login/admin route
+    # (from_admin=true) is an escape hatch: admins can always sign in with a
+    # local password so a broken SSO/LDAP can never lock everyone out. A
+    # non-admin who hits /login/admin is still rejected after the password check.
+    if not cfg["enable_local"] and not body.from_admin:
         raise HTTPException(status_code=403, detail="local login disabled")
     # brute-force lockout: too many recent failures for this email → 429
     if recent_fail_count(body.email, LOGIN_LOCK_MIN) >= LOGIN_MAX_FAIL:
@@ -75,7 +80,11 @@ def login(body: Credentials):
         log_event("login_fail", email=body.email,
                   meta={"reason": "no user" if not u else "bad password"})
         raise HTTPException(status_code=401, detail="invalid email or password")
-    log_event("login_ok", email=u["email"], meta={"source": "local"})
+    # escape hatch is admins only — a normal local user can't bypass the toggle
+    if body.from_admin and not cfg["enable_local"] and u["role"] != "admin":
+        log_event("login_fail", email=body.email, meta={"reason": "admin-route non-admin"})
+        raise HTTPException(status_code=403, detail="admin sign-in only")
+    log_event("login_ok", email=u["email"], meta={"source": "local", "admin_route": body.from_admin})
     return _issue(u)
 
 
@@ -83,15 +92,19 @@ def login(body: Credentials):
 class LdapCreds(BaseModel):
     username: str
     password: str
+    directory: str | None = None    # which LDAP directory (multi-provider); None = first enabled
 
 
 @router.post("/auth/ldap")
 def ldap(body: LdapCreds):
-    cfg = store.get_config()
-    if not cfg["enable_ldap"]:
+    dirs = [d for d in store.ldap_directories() if d.get("enabled") and d.get("host")]
+    if not dirs:
         raise HTTPException(status_code=403, detail="LDAP disabled")
+    directory = store.ldap_directory(body.directory) if body.directory else None
+    if directory is None or not directory.get("enabled"):
+        directory = dirs[0]
     try:
-        info = ldap_login(cfg, body.username, body.password)
+        info = ldap_login(directory, body.username, body.password)
     except LdapError as e:
         raise HTTPException(status_code=401, detail=str(e))
     # directory mail attribute is trusted → treat as a verified email
@@ -104,23 +117,34 @@ def ldap(body: LdapCreds):
 
 # ---------------- oidc / sso ----------------
 @router.get("/auth/oidc/login")
-def oidc_login(request: Request):
-    cfg = store.get_config()
-    if not cfg["enable_oidc"]:
+def oidc_login(request: Request, pid: str | None = None):
+    provs = [p for p in store.oidc_providers() if p.get("enabled") and p.get("issuer") and p.get("client_id")]
+    if not provs:
         raise HTTPException(status_code=403, detail="SSO disabled")
+    provider = store.oidc_provider(pid) if pid else None
+    if provider is None or not provider.get("enabled"):
+        provider = provs[0]
     base = str(request.base_url).rstrip("/")
     try:
-        return RedirectResponse(auth_url(cfg, public_url=base))
+        return RedirectResponse(auth_url(provider, public_url=base))
     except OidcError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/auth/oidc/callback")
 def oidc_callback(code: str, state: str, request: Request):
-    cfg = store.get_config()
     base = str(request.base_url).rstrip("/")
+    ok, pid = consume_state(state)
+    if not ok:
+        return RedirectResponse("/login?error=invalid+state")
+    provider = store.oidc_provider(pid) if pid else None
+    if provider is None:
+        provs = [p for p in store.oidc_providers() if p.get("issuer") and p.get("client_id")]
+        provider = provs[0] if provs else None
+    if provider is None:
+        return RedirectResponse("/login?error=unknown+provider")
     try:
-        info = exchange(cfg, code, state, public_url=base)
+        info = exchange(provider, code, state, public_url=base)
     except OidcError as e:
         return RedirectResponse(f"/login?error={e}")
     try:
