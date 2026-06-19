@@ -295,6 +295,8 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at      TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, id);
+-- persisted thinking trace ({steps:[{label,detail}], thought_ms}) so reopened chats show it
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS meta JSONB DEFAULT '{}'::jsonb;
 
 -- ---- shareable answer links (read-only permalink to one bot answer) ----
 CREATE TABLE IF NOT EXISTS shares (

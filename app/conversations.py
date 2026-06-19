@@ -42,7 +42,7 @@ def owned(conv_id: int, user_id: int) -> dict | None:
 def messages(conv_id: int) -> list[dict]:
     with get_conn() as conn:
         return conn.execute(
-            "SELECT id, role, text, pages, created_at FROM messages "
+            "SELECT id, role, text, pages, meta, created_at FROM messages "
             "WHERE conversation_id = %s ORDER BY id",
             (conv_id,),
         ).fetchall()
@@ -68,12 +68,13 @@ def delete(conv_id: int, user_id: int) -> bool:
 
 
 # ---------- messages ----------
-def add_message(conv_id: int, role: str, text: str, pages: list | None = None) -> int | None:
+def add_message(conv_id: int, role: str, text: str, pages: list | None = None,
+                meta: dict | None = None) -> int | None:
     with get_conn() as conn:
         row = conn.execute(
-            "INSERT INTO messages (conversation_id, role, text, pages) "
-            "VALUES (%s, %s, %s, %s) RETURNING id",
-            (conv_id, role, text, json.dumps(pages or [])),
+            "INSERT INTO messages (conversation_id, role, text, pages, meta) "
+            "VALUES (%s, %s, %s, %s, %s) RETURNING id",
+            (conv_id, role, text, json.dumps(pages or []), json.dumps(meta or {})),
         ).fetchone()
         conn.execute(
             "UPDATE conversations SET updated_at = now() WHERE id = %s", (conv_id,)

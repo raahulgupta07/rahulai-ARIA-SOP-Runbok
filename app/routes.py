@@ -530,11 +530,17 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
     from .config import ROLE_DEPTH
     _audience = "simple" if (ROLE_DEPTH and user.get("role") != "admin") else "expert"
 
+    _trace: dict = {}   # ordered label->detail, persisted with the answer so reopened chats show the trace
     def _step(label, detail="", state="done", reset=False):
+        _trace[label] = detail
         d = {"type": "step", "label": label, "detail": detail, "state": state}
         if reset:
             d["reset"] = True
         return json.dumps(d) + "\n"
+
+    def _trace_meta(t0):
+        return {"steps": [{"label": k, "detail": v} for k, v in _trace.items()],
+                "thought_ms": int((time.monotonic() - t0) * 1000)}
 
     kid = user.get("_embed_key_id")     # set only for embed-widget visitors
 
@@ -568,7 +574,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
                 for i in range(0, len(ans), 48):   # chunk for a streamed feel
                     yield json.dumps({"type": "token", "v": ans[i:i + 48]}) + "\n"
                 convo.add_message(conv_id, "user", req.q, [])
-                bot_id = convo.add_message(conv_id, "bot", ans, cited)
+                bot_id = convo.add_message(conv_id, "bot", ans, cited, meta=_trace_meta(_t0_req))
                 qa_mod.bump_served(hit["id"])
                 try:
                     analytics_mod.record_metric(
@@ -752,7 +758,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
         clean, fups = parse_followups(clean)
 
         convo.add_message(conv_id, "user", req.q, [])
-        bot_id = convo.add_message(conv_id, "bot", clean, cited)
+        bot_id = convo.add_message(conv_id, "bot", clean, cited, meta=_trace_meta(_t0_req))
 
         # ---- persist answer telemetry (fail-soft; never breaks the stream) ----
         try:
