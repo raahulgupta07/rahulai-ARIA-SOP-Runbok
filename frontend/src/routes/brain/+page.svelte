@@ -9,7 +9,7 @@
   import { parseDocName, cleanText } from '$lib/docname';
   import Lightbox from '$lib/Lightbox.svelte';
   import { auth } from '$lib/auth';
-  import { brainTeachSignal, brainFilesSignal, brainScanSignal, brainS3Signal, brainData, loadBrainData } from '$lib/dashstore';
+  import { brainTeachSignal, brainFilesSignal, brainScanSignal, brainS3Signal, brainData, loadBrainData, mobileNav } from '$lib/dashstore';
   let _me = $state<any>(auth.cachedUser());
   $effect(() => { if (!_me) auth.me().then((u) => (_me = u)).catch(() => {}); });
   let isAdmin = $derived(_me?.role === 'admin');
@@ -354,7 +354,18 @@
   let docView = $state<'cards' | 'list'>('list');
   // A3: category chip + date pill filters for the doc browser
   let docCat = $state('all');
-  let docDate = $state<'all' | 'today' | '7d' | '30d' | 'year'>('all');
+  let docDate = $state<'all' | 'today' | '7d' | '30d' | 'year' | 'custom'>('all');
+  // custom calendar date range (YYYY-MM-DD); when set, docDate = 'custom'
+  let dateFrom = $state('');
+  let dateTo = $state('');
+  let dateCalOpen = $state(false);
+  function applyDateRange() {
+    docDate = (dateFrom || dateTo) ? 'custom' : 'all';
+    dateCalOpen = false;
+  }
+  function clearDateRange() {
+    dateFrom = ''; dateTo = ''; docDate = 'all'; dateCalOpen = false;
+  }
   // group the feed by auto-category or by upload date (newest first)
   let docGroupBy = $state<'date' | 'category'>('date');
   function setGroupBy(g: 'date' | 'category') { docGroupBy = g; try { localStorage.setItem('aria_docgroup', g); } catch {} }
@@ -364,7 +375,11 @@
   const CAT_CHIP_MAX = 6;   // show top-N chips inline, rest go in the "More" dropdown
   let catMoreOpen = $state(false);
   function setDocView(v: 'cards' | 'list') { docView = v; try { localStorage.setItem('aria_docview2', v); } catch {} }
-  $effect(() => { try { const v = localStorage.getItem('aria_docview2'); if (v === 'list' || v === 'cards') docView = v; } catch {} });
+  $effect(() => { try {
+    // phones read better as cards than a wide table → force cards on small screens
+    if (typeof window !== 'undefined' && window.innerWidth <= 640) { docView = 'cards'; return; }
+    const v = localStorage.getItem('aria_docview2'); if (v === 'list' || v === 'cards') docView = v;
+  } catch {} });
   function langColor(l?: string) {
     const x = (l || '').toLowerCase();
     if (x.startsWith('my') || x === 'mm') return { bg: '#fbecd4', fg: '#a9742a' };   // Burmese — amber
@@ -438,6 +453,11 @@
     if (docDate === '7d') return now - t <= 7 * dayMs;
     if (docDate === '30d') return now - t <= 30 * dayMs;
     if (docDate === 'year') return now - t <= 365 * dayMs;
+    if (docDate === 'custom') {
+      const from = dateFrom ? new Date(dateFrom + 'T00:00:00').getTime() : -Infinity;
+      const to = dateTo ? new Date(dateTo + 'T23:59:59').getTime() : Infinity;
+      return t >= from && t <= to;
+    }
     return true;
   }
   let maxPages = $derived(Math.max(1, ...docs.map((d) => d.page_count || 0)));
@@ -1727,7 +1747,8 @@
 
   <!-- ===== left sub-rail (hidden when embedded in Workspace) ===== -->
   {#if !embedded}
-  <aside class="shrink-0 w-[200px] flex flex-col border-r px-2.5 py-4" style="background:var(--sand); border-color:#efefec">
+  {#if $mobileNav}<button class="brail-scrim" onclick={() => mobileNav.set(false)} aria-label="Close menu"></button>{/if}
+  <aside class="brail-aside shrink-0 w-[200px] flex flex-col border-r px-2.5 py-4" class:mob-open={$mobileNav} style="background:var(--sand); border-color:#efefec" onclick={() => mobileNav.set(false)} role="presentation">
     <div class="brail-grp">Brain</div>
     <nav class="space-y-0.5">
       <button class="brail {railTab === 'brain' && !sel ? 'on' : ''}" onclick={() => { _railTab = 'brain'; sel = null; }}>
@@ -1779,7 +1800,7 @@
   <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
 
   <!-- ===== full-width header ===== -->
-  <div class="shrink-0 px-7 pt-5 pb-4 border-b" style="border-color:var(--border)">
+  <div class="brain-head shrink-0 px-7 pt-5 pb-4 border-b" class:standalone-pad={!embedded} style="border-color:var(--border)">
     <div class="flex items-center justify-between gap-4 mb-3">
       <div>
         <h1 class="serif text-[21px] font-medium leading-tight" style="color:var(--ink)">Agent Brain</h1>
@@ -3137,6 +3158,22 @@
             {#each DOC_DATE_OPTS as [k, l] (k)}
               <button class="pill {docDate === k ? 'on' : ''}" onclick={() => (docDate = k as any)}>{l}</button>
             {/each}
+            <div class="calwrap">
+              <button class="pill {docDate === 'custom' ? 'on' : ''}" onclick={() => (dateCalOpen = !dateCalOpen)} title="Pick a custom date range">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{docDate === 'custom' && (dateFrom || dateTo) ? `${dateFrom || '…'} → ${dateTo || '…'}` : 'Calendar'}
+              </button>
+              {#if dateCalOpen}
+                <button class="calscrim" onclick={() => (dateCalOpen = false)} aria-label="Close"></button>
+                <div class="calpop">
+                  <label class="callbl">From<input type="date" bind:value={dateFrom} /></label>
+                  <label class="callbl">To<input type="date" bind:value={dateTo} /></label>
+                  <div class="calacts">
+                    <button class="calbtn" onclick={clearDateRange}>Clear</button>
+                    <button class="calbtn apply" onclick={applyDateRange}>Apply</button>
+                  </div>
+                </div>
+              {/if}
+            </div>
             <button class="jobspill" onclick={() => (jobsOpen = true)} title="Show ingest jobs">
               <span class="jp-spin" class:still={remaining === 0}>⟳</span> Jobs{#if remaining > 0} <b>{remaining}</b> · {overallPct}%{/if}
             </button>
@@ -3996,6 +4033,21 @@
 
   /* ===== cover-card grid (Option A) ===== */
   .dgrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(158px,1fr)); gap:12px;}
+
+  /* ---- mobile: brain sub-rail becomes a slide-in overlay (toggled by header hamburger); cards single-column ---- */
+  .brail-scrim{display:none;}
+  @media (max-width:820px){
+    .brail-aside{
+      position:fixed; top:56px; bottom:0; left:0; z-index:71;
+      transform:translateX(-100%); transition:transform .2s ease;
+      box-shadow:2px 0 24px rgba(40,35,30,.16);
+    }
+    .brail-aside.mob-open{transform:none;}
+    .brail-scrim{display:block; position:fixed; inset:0; z-index:70; background:rgba(30,28,25,.34); border:none; cursor:default;}
+  }
+  @media (max-width:460px){
+    .dgrid{grid-template-columns:1fr;}
+  }
   /* compact feed list view */
   .flist{display:flex; flex-direction:column; gap:6px;}
   .frow{display:flex; align-items:center; gap:11px; background:#fff; border:1px solid var(--border); border-radius:10px; padding:9px 13px; cursor:pointer; transition:border-color .12s, box-shadow .12s, background .12s;}
@@ -4312,7 +4364,19 @@
   .catmore-item:hover{background:var(--hover,#efefec);}
   .catmore-item.on{background:var(--navpill); font-weight:600;}
   .catmore-item b{font-weight:700; color:var(--muted); font-size:11.5px;}
-  .dbar{display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:9px 12px; background:#fff; border:1px solid var(--border); border-radius:11px; margin-bottom:16px; box-shadow:0 3px 16px rgba(0,0,0,.03);}
+  .dbar{display:flex; align-items:center; gap:6px; flex-wrap:nowrap; padding:9px 12px; background:#fff; border:1px solid var(--border); border-radius:11px; margin-bottom:16px; box-shadow:0 3px 16px rgba(0,0,0,.03);}
+  .dbar > *{flex:none;}   /* one row — controls keep their size */
+  .dbar .ml-auto{min-width:0;}
+  /* phones: the single row scrolls sideways instead of overflowing */
+  @media (max-width:760px){ .dbar{overflow-x:auto;} }
+  .calwrap{position:relative; display:inline-flex;}
+  .calscrim{position:fixed; inset:0; z-index:39; background:transparent; border:none; cursor:default;}
+  .calpop{position:absolute; top:calc(100% + 6px); left:0; z-index:40; width:210px; background:#fff; border:1px solid var(--border); border-radius:11px; box-shadow:0 12px 30px rgba(40,35,30,.16); padding:11px; display:flex; flex-direction:column; gap:9px;}
+  .callbl{display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12px; color:var(--muted);}
+  .callbl input{font-size:12px; padding:5px 8px; border:1px solid var(--border); border-radius:7px; color:var(--ink); background:#fff;}
+  .calacts{display:flex; gap:7px; justify-content:flex-end; margin-top:2px;}
+  .calbtn{font-size:12px; padding:5px 13px; border-radius:7px; border:1px solid var(--border); background:#fff; color:var(--ink); cursor:pointer;}
+  .calbtn.apply{background:var(--clay); color:#fff; border-color:var(--clay);}
   .dbar-lbl{font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:#a89b8c; margin-right:2px;}
   .pill{font-size:12px; padding:4px 11px; border-radius:999px; color:var(--muted); background:#efefec; border:1px solid transparent; cursor:pointer; transition:all .12s; white-space:nowrap;}
   .pill:hover{color:var(--ink);}

@@ -6,12 +6,24 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.18.0"
+VERSION = "2.18.1"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.18.1",
+        "date": "2026-06-19",
+        "title": "Mobile & tablet ready — bottom tab bar, header menu, responsive rails",
+        "lines": [
+            "Works on phone & iPad: rails slide in from one header hamburger (consistent everywhere)",
+            "Native-style bottom tab bar: Chat · Workspace · Brain · Settings",
+            "Wide tables scroll and document lists stack as cards on small screens",
+            "Documents toolbar on one row + a calendar date-range picker",
+            "Jobs drawer opens reliably and never hides the menu",
+        ],
+    },
     {
         "version": "2.18.0",
         "date": "2026-06-19",

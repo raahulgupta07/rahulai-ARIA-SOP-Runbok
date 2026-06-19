@@ -9,6 +9,7 @@
   import Bell from '$lib/Bell.svelte';
   import IngestRobot from '$lib/IngestRobot.svelte';
   import { convs, activeConvId, reloadConvs, openConvId, triggerNewChat } from '$lib/chatstore';
+  import { mobileNav } from '$lib/dashstore';
 
   let { children } = $props();
 
@@ -18,9 +19,11 @@
   let renameText = $state('');
   $effect(() => { if (!isLogin && !isEmbed && auth.isAuthed()) reloadConvs(); });
 
-  let railMobileOpen = $state(false);   // chat-history rail as overlay on phones
-  function railNewChat() { railMobileOpen = false; triggerNewChat(); if ($page.url.pathname !== '/') goto('/'); }
-  function railOpen(id: number) { railMobileOpen = false; openConvId(id); if ($page.url.pathname !== '/') goto('/'); }
+  // chat-history rail overlay shares the global mobileNav toggle (header hamburger)
+  function railNewChat() { mobileNav.set(false); triggerNewChat(); if ($page.url.pathname !== '/') goto('/'); }
+  function railOpen(id: number) { mobileNav.set(false); openConvId(id); if ($page.url.pathname !== '/') goto('/'); }
+  // close any open mobile overlay when the route changes
+  $effect(() => { $page.url.pathname; mobileNav.set(false); });
   async function railDelete(c: any, e: Event) {
     e.stopPropagation();
     if (!confirm(`Delete "${c.title}"?`)) return;
@@ -89,6 +92,14 @@
     { href: '/settings', label: 'Settings', section: '/settings', d: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 13a7.5 7.5 0 0 0 0-2l2-1.5-2-3.5-2.4 1a7.5 7.5 0 0 0-1.7-1L15 3h-4l-.3 2.5a7.5 7.5 0 0 0-1.7 1l-2.4-1-2 3.5L4.6 11a7.5 7.5 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7.5 7.5 0 0 0 1.7 1L11 21h4l.3-2.5a7.5 7.5 0 0 0 1.7-1l2.4 1 2-3.5z' }
   ];
 
+  // mobile bottom tab bar — Chat · Workspace · Brain · Settings
+  const bottomnav = [
+    { href: '/', label: 'Chat', section: '/', d: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z' },
+    { href: '/workspace', label: 'Workspace', section: '/workspace', d: 'M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z' },
+    { href: '/brain', label: 'Brain', section: '/brain', d: 'M9.5 2a4.5 4.5 0 0 0-4.5 4.5c-1.2.5-2 1.7-2 3 0 .8.3 1.5.8 2-.5.5-.8 1.2-.8 2 0 1.6 1.3 3 3 3a3 3 0 0 0 3 3 2.5 2.5 0 0 0 2.5-2.5V4.5A2.5 2.5 0 0 0 9.5 2zM14.5 2A2.5 2.5 0 0 0 12 4.5v14.5a2.5 2.5 0 0 0 2.5 2.5 3 3 0 0 0 3-3c1.7 0 3-1.4 3-3 0-.8-.3-1.5-.8-2 .5-.5.8-1.2.8-2 0-1.3-.8-2.5-2-3A4.5 4.5 0 0 0 14.5 2z' },
+    { href: '/settings', label: 'Settings', section: '/settings', d: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 13a7.5 7.5 0 0 0 0-2l2-1.5-2-3.5-2.4 1a7.5 7.5 0 0 0-1.7-1L15 3h-4l-.3 2.5a7.5 7.5 0 0 0-1.7 1l-2.4-1-2 3.5L4.6 11a7.5 7.5 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7.5 7.5 0 0 0 1.7 1L11 21h4l.3-2.5a7.5 7.5 0 0 0 1.7-1l2.4 1 2-3.5z' }
+  ];
+
   // collapsible rail (persisted)
   let collapsed = $state(false);
   $effect(() => {
@@ -115,8 +126,8 @@
 
   <!-- ===== GLOBAL FULL-WIDTH HEADER (logo · nav · bell · user) ===== -->
   <header class="h-14 shrink-0 flex items-center gap-1 px-3 border-b" style="border-color:#efefec; background:var(--sand)">
-    {#if onChat && me}
-      <button class="chat-burger" onclick={() => { collapsed = false; railMobileOpen = true; }} aria-label="Chat history">
+    {#if me}
+      <button class="hdr-burger" onclick={() => { collapsed = false; mobileNav.set(true); }} aria-label="Menu">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
     {/if}
@@ -124,6 +135,7 @@
       <img src="/brand-logo.png" alt="City Agent Aria" class="h-9 w-auto" />
     </a>
     <div class="w-2"></div>
+    <nav class="topnav-row flex items-center gap-1">
     {#each (isAdmin ? topnav : topnav.filter((t) => t.href === '/')) as t}
       {@const on = sectionActive(t.section)}
       <a href={t.href} class="flex items-center gap-2 rounded-[9px] h-9 px-3 text-[14px] transition"
@@ -135,6 +147,7 @@
         <span class="hidden sm:inline">{t.label}</span>
       </a>
     {/each}
+    </nav>
     {#if me}
       <div class="ml-auto flex items-center gap-1.5">
         <IngestRobot inline />
@@ -165,10 +178,10 @@
 
   <!-- ===== LEFT RAIL (warm sand) — Chat route only ===== -->
   {#if onChat}
-  {#if railMobileOpen}
-    <button class="chat-rail-scrim" onclick={() => (railMobileOpen = false)} aria-label="Close chat history"></button>
+  {#if $mobileNav}
+    <button class="chat-rail-scrim" onclick={() => mobileNav.set(false)} aria-label="Close chat history"></button>
   {/if}
-  <aside class="chat-rail shrink-0 flex flex-col border-r transition-[width] duration-150" class:mopen={railMobileOpen} style="width:{collapsed ? '58px' : '232px'}; background:var(--sand); border-color:#efefec">
+  <aside class="chat-rail shrink-0 flex flex-col border-r transition-[width] duration-150" class:mopen={$mobileNav} style="width:{collapsed ? '58px' : '232px'}; background:var(--sand); border-color:#efefec">
 
     <!-- New chat -->
     <div class="px-2.5 pt-3 pb-2 shrink-0">
@@ -240,6 +253,19 @@
 
   </div><!-- /rail+main row -->
 
+  <!-- ===== MOBILE BOTTOM TAB BAR (in-flow, phones only) ===== -->
+  {#if me}
+    <nav class="botbar">
+      {#each (isAdmin ? bottomnav : bottomnav.filter((t) => t.href === '/')) as t}
+        {@const on = sectionActive(t.section)}
+        <a href={t.href} class="botbar-item" class:on>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={t.d}/></svg>
+          <span>{t.label}</span>
+        </a>
+      {/each}
+    </nav>
+  {/if}
+
   <!-- robot now lives in the header next to the Bell (inline) -->
 
 </div>
@@ -249,11 +275,28 @@
   /* floating bell: fixed top-right, above page content, below reader/modals */
   .float-bell{ position:fixed; top:10px; right:16px; z-index:30; }
 
+  /* mobile bottom tab bar — in-flow so content shrinks above it (no overlap) */
+  .botbar { display: none; }
+  @media (max-width: 820px) {
+    .topnav-row { display: none; }   /* primary nav moves to the bottom bar */
+    .botbar {
+      display: flex; flex-shrink: 0; align-items: stretch;
+      border-top: 1px solid #efefec; background: var(--sand);
+      padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+    .botbar-item {
+      flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+      padding: 7px 0 6px; font-size: 11px; color: #8a857c; text-decoration: none;
+    }
+    .botbar-item.on { color: var(--clay); font-weight: 600; }
+    .botbar-item svg { opacity: .9; }
+  }
+
   /* mobile: chat-history rail becomes a slide-in overlay so the thread gets full width */
-  .chat-burger { display: none; }
+  .hdr-burger { display: none; }
   .chat-rail-scrim { display: none; }
   @media (max-width: 820px) {
-    .chat-burger {
+    .hdr-burger {
       display: inline-flex; align-items: center; justify-content: center;
       width: 34px; height: 34px; border-radius: 9px; margin-right: 2px;
       background: transparent; border: none; color: #46443f; cursor: pointer;

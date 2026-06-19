@@ -12,6 +12,11 @@ function initRange(): number {
 }
 
 export const range = writable<number>(initRange());
+
+// shared mobile-nav toggle: the global header hamburger sets it true; whichever
+// page is mounted (Workspace / Brain / Settings / Chat) opens its rail overlay
+// when it's true, and clears it on nav / scrim close. One header burger for all.
+export const mobileNav = writable<boolean>(false);
 range.subscribe((v) => {
   if (typeof localStorage !== 'undefined') localStorage.setItem(KEY, String(v));
 });

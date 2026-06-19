@@ -204,6 +204,13 @@ you can flip live** (no redeploy). Knobs: `DREAM_ENABLED`, `DREAM_INTERVAL_H`,
 `DREAM_STALE_DAYS`, `DREAM_PROMOTE_AGE_H`, `DREAM_AUTO_RESOLVE`, `DREAM_GAP_FILL`,
 `DREAM_AUTOLINK`, `SALIENCE_BOOST`.
 
+### Mobile & tablet
+Aria is **responsive** down to phone width. On small screens the side rails
+(chat history, Workspace, Brain, Settings) slide in from a single **menu button
+in the header**, primary navigation moves to a **bottom tab bar** (Chat ·
+Workspace · Brain · Settings), wide tables scroll sideways, and document lists
+stack as cards. The desktop layout is unchanged on larger screens.
+
 ## Using it
 A **full-width top bar** is the shell: the **brand logo** (left) · top nav **💬 Chat · ▦ Dashboard · 🧠 Brain · ⚙ Settings** (Chat first) · then the **notification bell** + your **account menu** (right) — identical on every page (activity + What's-new / version in the bell). On **Chat**, a **left rail** (warm sand) holds **＋ New chat** · 🔍 search · your **chat history** · connection status. On **Dashboard / Brain / Settings** that chat rail is replaced by the page's own layout (Brain → Brain/Graph/Audit + Documents/Facts; Settings → Overview/Users/Authentication). The selected nav item shows in a coral peach pill.
 
