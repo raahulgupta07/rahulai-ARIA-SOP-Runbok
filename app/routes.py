@@ -6,7 +6,7 @@ import shutil
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Header, Request, Query
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Header, Request, Query, Body
 from fastapi.responses import FileResponse, StreamingResponse, Response, RedirectResponse
 from pydantic import BaseModel
 
@@ -29,6 +29,7 @@ from . import notify
 from . import conversations as convo
 from . import audit as audit_mod
 from . import digest as digest_mod
+from . import dream as dream_mod
 from . import dashboard as dashboard_mod
 from . import keywords as keywords_mod
 from . import analytics as analytics_mod
@@ -1402,6 +1403,38 @@ def digest_latest():
 def digest_run(force: bool = True):
     """Build + emit a weekly digest now (admin). force=True ignores the interval."""
     return digest_mod.run_now(force=force)
+
+
+@router.get("/dream/latest", dependencies=[Depends(require_key)])
+def dream_latest():
+    """Most recent dream-cycle (nightly self-improvement) run: stats + touched ids."""
+    return {"dream": dream_mod.latest()}
+
+
+@router.get("/dream/runs", dependencies=[Depends(require_key)])
+def dream_runs(limit: int = 10):
+    """Recent dream-cycle runs (newest first) for the Brain-health UI."""
+    return {"runs": dream_mod.recent_runs(limit=limit)}
+
+
+@router.get("/dream/config", dependencies=[Depends(require_admin)])
+def dream_config_get():
+    """Effective dream-cycle config (DB over env)."""
+    return appcfg.get_dream()
+
+
+@router.post("/dream/config", dependencies=[Depends(require_admin)])
+def dream_config_save(patch: dict = Body(...)):
+    """Update dream-cycle config live (admin). Flags apply on the next run."""
+    return appcfg.save_dream(patch)
+
+
+@router.post("/dream/run", dependencies=[Depends(require_admin)])
+def dream_run(force: bool = True):
+    """Run one dream cycle now (admin): dedup/promote/retire facts, resolve
+    conflicts, score salience, auto-link entities, fill gaps. force ignores the
+    interval gate."""
+    return dream_mod.run_dream(force=force)
 
 
 @router.get("/ingest/log", dependencies=[Depends(require_key)])

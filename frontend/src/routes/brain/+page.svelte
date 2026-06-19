@@ -4232,7 +4232,9 @@
   .jp-spin{display:inline-block; animation:jspin 1.1s linear infinite;}
   .jp-spin.still{animation:none;}
   @keyframes jspin{to{transform:rotate(360deg);}}
-  .jobs-scrim{position:fixed; inset:0; z-index:70; background:rgba(30,28,25,.28); border:none; cursor:default; animation:jfade .15s ease-out;}
+  /* non-modal: transparent + click-through so the left menu stays visible AND
+     usable while the Jobs side-panel is open (close via the panel's X / jobs pill). */
+  .jobs-scrim{position:fixed; inset:0; z-index:70; background:transparent; border:none; cursor:default; pointer-events:none; animation:jfade .15s ease-out;}
   @keyframes jfade{from{opacity:0;}to{opacity:1;}}
   .jobs-panel{position:fixed; top:0; right:0; z-index:71; width:420px; max-width:92vw; height:100vh; background:#fff; border-left:1px solid var(--border); box-shadow:-12px 0 36px rgba(40,35,30,.16); display:flex; flex-direction:column; animation:jslide .2s cubic-bezier(.2,.7,.3,1);}
   @keyframes jslide{from{transform:translateX(100%);}to{transform:none;}}

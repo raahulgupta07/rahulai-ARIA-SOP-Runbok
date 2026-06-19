@@ -108,6 +108,23 @@ AUTO_CATEGORIZE = os.getenv("AUTO_CATEGORIZE", "1") == "1"
 DIGEST_ENABLED = os.getenv("DIGEST_ENABLED", "1") not in ("0", "false", "False", "")
 DIGEST_INTERVAL_DAYS = int(os.getenv("DIGEST_INTERVAL_DAYS", "7"))
 
+# ---- dream cycle: nightly self-improvement pass (gbrain-style) ----
+# One leader-gated daemon that consolidates the brain while idle: dedup facts,
+# promote/retire, resolve conflicts, score salience, auto-link entities (zero LLM)
+# and fill coverage gaps. Each step is fail-soft; the whole pass emits a digest.
+DREAM_ENABLED = os.getenv("DREAM_ENABLED", "1") == "1"
+DREAM_INTERVAL_H = int(os.getenv("DREAM_INTERVAL_H", "24"))      # how often the cycle runs
+DREAM_STALE_DAYS = int(os.getenv("DREAM_STALE_DAYS", "60"))      # active+uncited+older → retire
+DREAM_PROMOTE_AGE_H = int(os.getenv("DREAM_PROMOTE_AGE_H", "24"))  # pending must be ≥ this old to auto-promote
+DREAM_AUTO_RESOLVE = os.getenv("DREAM_AUTO_RESOLVE", "0") == "1"  # auto-pick conflict winner (else flag for review)
+DREAM_GAP_FILL = os.getenv("DREAM_GAP_FILL", "0") == "1"         # run gap→Q&A fill in the cycle (costs LLM)
+DREAM_AUTOLINK = os.getenv("DREAM_AUTOLINK", "1") == "1"          # zero-LLM entity auto-linking pass
+
+# ---- salience: boost retrieval by how much a page actually gets cited ----
+# Pure graph/usage signal (no embeddings). Computed nightly by the dream cycle
+# into pages.salience; added as a small term to the search ORDER BY.
+SALIENCE_BOOST = float(os.getenv("SALIENCE_BOOST", "0.3"))
+
 # ---- auto-learning (Layer B): always-extract facts from chat (default OFF) ----
 # Layer A (reactive, intent-gated) always runs. Layer B mines EVERY answer.
 AUTO_LEARN_ENABLED = os.getenv("AUTO_LEARN_ENABLED", "1") == "1"   # ON by default

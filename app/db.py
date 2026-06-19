@@ -86,6 +86,10 @@ CREATE TABLE IF NOT EXISTS pages (
 );
 ALTER TABLE pages ADD COLUMN IF NOT EXISTS text_layer  TEXT;
 ALTER TABLE pages ADD COLUMN IF NOT EXISTS vision_text TEXT;
+-- salience: usage-derived importance score (citation count + co-citation degree
+-- + recency), recomputed nightly by the dream cycle. Pure graph signal, no ML.
+-- Added as a small boost term in retrieve.search_pages ORDER BY.
+ALTER TABLE pages ADD COLUMN IF NOT EXISTS salience REAL NOT NULL DEFAULT 0;
 -- Contextual Retrieval (Anthropic-style, vectorless): a 1-2 sentence blurb
 -- generated at ingest situating this page within its document. Folded into the
 -- FTS source (tsv below) so isolated pages are not ambiguous.
@@ -401,6 +405,17 @@ CREATE TABLE IF NOT EXISTS notifications (
     read        BOOLEAN NOT NULL DEFAULT FALSE,
     created_at  TIMESTAMPTZ DEFAULT now()
 );
+
+-- dream cycle run log: one row per self-improvement pass. stats = the step
+-- counts (merged/promoted/…); touched = ids changed this run (fact ids, doc ids,
+-- entity-link edges) so the UI can highlight "what changed tonight".
+CREATE TABLE IF NOT EXISTS dream_runs (
+    id          BIGSERIAL PRIMARY KEY,
+    stats       JSONB NOT NULL DEFAULT '{}'::jsonb,
+    touched     JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_dream_runs_at ON dream_runs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at DESC);
 
 -- ---- compiled "wiki" layer (Karpathy second-brain): vision-once -> clean markdown ----

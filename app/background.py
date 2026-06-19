@@ -30,6 +30,8 @@ def start_all() -> bool:
     _learn.start_auto_learn_daemon()  # nightly fact mining (AUTO_LEARN_ENABLED nightly)
     from . import auto_qa_gaps as _qagaps
     _qagaps.start()                   # gap-driven Q&A daemon (AUTO_QA_GAP_ENABLED)
+    from . import dream as _dream
+    _dream.start()                    # nightly self-improvement cycle (DREAM_ENABLED)
     from . import sharepoint as _sp
     _sp.start()                       # SharePoint auto-sync (SHAREPOINT_SYNC_ENABLED)
     try:

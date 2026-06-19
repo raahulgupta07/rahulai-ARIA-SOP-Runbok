@@ -118,6 +118,56 @@ def save_s3(patch: dict) -> dict:
     return get_s3(reveal=False)
 
 
+# ---- dream cycle config (under app_config.data.dream) — DB overrides env ----
+# Lets an admin flip the dream-cycle behaviour live (no redeploy). dream.py reads
+# the effective value at run time via these helpers.
+_DREAM_BOOL_KEYS = {"enabled", "auto_resolve", "gap_fill", "autolink"}
+_DREAM_INT_KEYS = {"interval_h", "stale_days", "promote_age_h"}
+
+
+def _dream_env_defaults() -> dict:
+    from . import config as _c
+    return {
+        "enabled": _c.DREAM_ENABLED,
+        "interval_h": _c.DREAM_INTERVAL_H,
+        "stale_days": _c.DREAM_STALE_DAYS,
+        "promote_age_h": _c.DREAM_PROMOTE_AGE_H,
+        "auto_resolve": _c.DREAM_AUTO_RESOLVE,
+        "gap_fill": _c.DREAM_GAP_FILL,
+        "autolink": _c.DREAM_AUTOLINK,
+    }
+
+
+def get_dream() -> dict:
+    """Effective dream-cycle config = DB over env."""
+    saved = _raw().get("dream") or {}
+    eff = {**_dream_env_defaults(), **{k: v for k, v in saved.items() if v is not None}}
+    for k in _DREAM_BOOL_KEYS:
+        eff[k] = bool(eff.get(k))
+    for k in _DREAM_INT_KEYS:
+        try:
+            eff[k] = int(eff.get(k))
+        except Exception:
+            pass
+    return eff
+
+
+def save_dream(patch: dict) -> dict:
+    data = _raw()
+    cur = data.get("dream") or {}
+    for k, v in (patch or {}).items():
+        if k in _DREAM_BOOL_KEYS and v is not None:
+            cur[k] = bool(v)
+        elif k in _DREAM_INT_KEYS and v is not None:
+            try:
+                cur[k] = int(v)
+            except Exception:
+                pass
+    data["dream"] = cur
+    _write(data)
+    return get_dream()
+
+
 def save_config(patch: dict) -> dict:
     allowed = {"minutes_saved_per_answer", "llm_price_per_mtok", "tokens_per_answer"}
     clean = {}

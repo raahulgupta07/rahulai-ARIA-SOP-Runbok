@@ -61,6 +61,7 @@ export const WS_ITEMS: WsItem[] = [
   { id: 'brain-facts',  label: 'Facts',     group: 'Brain', kind: 'knowledge', roles: ['admin', 'user'], view: { tab: 'brain', feed: 'fact' } },
   { id: 'brain-graph',  label: 'Graph',     group: 'Brain', kind: 'knowledge', roles: ['admin', 'user'], view: { tab: 'graph' } },
   { id: 'brain-health', label: 'Health',    group: 'Brain', kind: 'knowledge', roles: ['admin', 'user'], view: { tab: 'audit' }, badge: 'health' },
+  { id: 'dream',        label: 'Self-improvement', group: 'Brain', kind: 'insight', roles: ['admin'] },
 
   { id: 'exec',     label: 'Exec',     group: 'Insights', kind: 'insight', roles: ['admin'] },
   { id: 'users',    label: 'Users',    group: 'Insights', kind: 'insight', roles: ['admin'] },

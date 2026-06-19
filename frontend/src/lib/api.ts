@@ -374,6 +374,22 @@ export const api = {
     return jsonOrThrow(await fetch(`${BASE}/digest/run?force=true`, { method: 'POST', headers: headers(false) }));
   },
 
+  async dreamLatest() {
+    return jsonOrThrow(await fetch(`${BASE}/dream/latest`, { headers: headers(false) }));
+  },
+  async dreamRuns(limit = 10) {
+    return jsonOrThrow(await fetch(`${BASE}/dream/runs?limit=${limit}`, { headers: headers(false) }));
+  },
+  async dreamRun() {
+    return jsonOrThrow(await fetch(`${BASE}/dream/run?force=true`, { method: 'POST', headers: headers(false) }));
+  },
+  async dreamConfig() {
+    return jsonOrThrow(await fetch(`${BASE}/dream/config`, { headers: headers(false) }));
+  },
+  async dreamSaveConfig(patch: any) {
+    return jsonOrThrow(await fetch(`${BASE}/dream/config`, { method: 'POST', headers: headers(), body: JSON.stringify(patch) }));
+  },
+
   async usage() {
     return jsonOrThrow(await fetch(`${BASE}/usage`, { headers: headers(false) }));
   },

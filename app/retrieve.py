@@ -28,7 +28,7 @@ def last_funnel() -> dict:
     """Funnel counts from the most recent search_pages() in this context:
     {scanned, pool, reranked}. Empty dict if none. Fail-soft for callers."""
     return dict(_last_funnel.get() or {})
-from .config import OPENROUTER_API_KEY, CHAT_MODEL, OPENROUTER_BASE_URL
+from .config import OPENROUTER_API_KEY, CHAT_MODEL, OPENROUTER_BASE_URL, SALIENCE_BOOST
 
 RETRIEVE_EXPAND = os.getenv("RETRIEVE_EXPAND", "1") == "1"
 DEFAULT_K = int(os.getenv("RETRIEVE_K", "6"))
@@ -247,12 +247,14 @@ def search_pages(query: str, k: int | None = None) -> list[dict]:
                     AND n.tsv @@ q.tsq), 0)
               + 0.5 * similarity(left(p.text, 2000), %(raw)s)
               + 0.3 * (SELECT count(*) FROM unnest(%(ilike)s::text[]) term
-                       WHERE p.text ILIKE '%%' || term || '%%')) DESC
+                       WHERE p.text ILIKE '%%' || term || '%%')
+              + %(sal)s * COALESCE(p.salience, 0)) DESC
     LIMIT %(k)s
     """
     # over-fetch a candidate pool when reranking, then trim to k by relevance
     fetch_k = max(k, min(RERANK_POOL, k * 2)) if (RETRIEVE_RERANK and _client) else k
-    params = {"tsq": tsq or "x", "raw": raw, "ilike": ilike_terms or [raw], "k": fetch_k}
+    params = {"tsq": tsq or "x", "raw": raw, "ilike": ilike_terms or [raw],
+              "k": fetch_k, "sal": SALIENCE_BOOST}
     with get_conn() as conn:
         rows = conn.execute(sql, params).fetchall()
 
