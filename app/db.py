@@ -273,6 +273,8 @@ CREATE TABLE IF NOT EXISTS oidc_state (
     state       TEXT PRIMARY KEY,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- which SSO provider this auth attempt is for (multi-provider). NULL = legacy single.
+ALTER TABLE oidc_state ADD COLUMN IF NOT EXISTS pid TEXT;
 
 -- ---- per-user chat conversations + messages ----
 CREATE TABLE IF NOT EXISTS conversations (
@@ -293,6 +295,8 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at      TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, id);
+-- persisted thinking trace ({steps:[{label,detail}], thought_ms}) so reopened chats show it
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS meta JSONB DEFAULT '{}'::jsonb;
 
 -- ---- shareable answer links (read-only permalink to one bot answer) ----
 CREATE TABLE IF NOT EXISTS shares (

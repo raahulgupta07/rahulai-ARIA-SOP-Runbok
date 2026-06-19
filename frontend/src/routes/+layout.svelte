@@ -114,7 +114,7 @@
   // else is chat-only (no Workspace/Brain/Settings, no upload/teach/edit).
   let isAdmin = $derived(me?.role === 'admin');
 
-  let isLogin = $derived($page.url.pathname === '/login');
+  let isLogin = $derived($page.url.pathname.startsWith('/login'));  // /login + /login/admin
   let isEmbed = $derived($page.url.pathname === '/embed');  // bare iframe widget
   let isShare = $derived($page.url.pathname.startsWith('/s/'));  // read-only shared answer
   $effect(() => {

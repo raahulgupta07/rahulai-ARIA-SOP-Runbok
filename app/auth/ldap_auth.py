@@ -9,7 +9,7 @@ class LdapError(Exception):
 def ldap_login(cfg: dict, username: str, password: str) -> dict:
     """Returns {email, name} on success, raises LdapError otherwise.
     cfg = auth_config['ldap'] block."""
-    lc = cfg["ldap"]
+    lc = cfg.get("ldap", cfg)   # accepts a single directory dict OR legacy {ldap:{...}}
     if not lc.get("host"):
         raise LdapError("LDAP not configured")
     if not password:
@@ -54,7 +54,7 @@ def ldap_login(cfg: dict, username: str, password: str) -> dict:
 
 def ldap_test(cfg: dict) -> dict:
     """Admin 'Test connection' — just the service bind."""
-    lc = cfg["ldap"]
+    lc = cfg.get("ldap", cfg)   # accepts a single directory dict OR legacy {ldap:{...}}
     server = Server(lc["host"], port=int(lc.get("port", 389)), get_info=ALL)
     try:
         c = Connection(server, user=lc["bind_dn"], password=lc["bind_password"],

@@ -16,27 +16,32 @@ from ..db import get_conn
 _STATE_TTL_MIN = 10
 
 
-def _state_put(state: str) -> None:
+def _state_put(state: str, pid: str | None = None) -> None:
     with get_conn() as conn:
-        conn.execute("INSERT INTO oidc_state (state) VALUES (%s) "
-                     "ON CONFLICT (state) DO NOTHING", (state,))
+        conn.execute("INSERT INTO oidc_state (state, pid) VALUES (%s, %s) "
+                     "ON CONFLICT (state) DO NOTHING", (state, pid))
 
 
-def _state_consume(state: str) -> bool:
-    """Atomically take a fresh, unexpired state (one-shot). True if valid."""
+def _state_consume(state: str):
+    """Atomically take a fresh, unexpired state (one-shot). Returns (ok, pid)."""
     with get_conn() as conn:
         conn.execute("DELETE FROM oidc_state WHERE created_at < now() - make_interval(mins => %s)",
                      (_STATE_TTL_MIN,))
         row = conn.execute(
             "DELETE FROM oidc_state WHERE state = %s "
-            "AND created_at >= now() - make_interval(mins => %s) RETURNING state",
+            "AND created_at >= now() - make_interval(mins => %s) RETURNING pid",
             (state, _STATE_TTL_MIN),
         ).fetchone()
-    return bool(row)
+    return (bool(row), (row.get("pid") if row else None))
 
 
 class OidcError(Exception):
     pass
+
+
+def consume_state(state: str):
+    """Public one-shot state check for the callback route. Returns (ok, pid)."""
+    return _state_consume(state)
 
 
 def _discover(issuer: str) -> dict:
@@ -51,13 +56,14 @@ def redirect_uri(public_url: str | None = None) -> str:
     return f"{base}/api/auth/oidc/callback"
 
 
-def auth_url(cfg: dict, public_url: str | None = None) -> str:
-    oc = cfg["oidc"]
+def auth_url(provider: dict, public_url: str | None = None) -> str:
+    """`provider` is one SSO provider dict (id, issuer, client_id, ...)."""
+    oc = provider
     if not oc.get("issuer") or not oc.get("client_id"):
         raise OidcError("OIDC not configured")
     disc = _discover(oc["issuer"])
     state = secrets.token_urlsafe(24)
-    _state_put(state)
+    _state_put(state, str(oc.get("id") or ""))
     params = {
         "client_id": oc["client_id"],
         "response_type": "code",
@@ -68,12 +74,11 @@ def auth_url(cfg: dict, public_url: str | None = None) -> str:
     return disc["authorization_endpoint"] + "?" + urllib.parse.urlencode(params)
 
 
-def exchange(cfg: dict, code: str, state: str, public_url: str | None = None) -> dict:
-    """Returns {email, name, sub}. Verifies state + id_token signature."""
-    if not _state_consume(state):
-        raise OidcError("invalid state")
-
-    oc = cfg["oidc"]
+def exchange(provider: dict, code: str, state: str, public_url: str | None = None) -> dict:
+    """Returns {email, name, sub}. Verifies state + id_token signature.
+    `provider` MUST be the same provider the state was issued for (caller resolves
+    it from the pid returned by consume_state)."""
+    oc = provider
     disc = _discover(oc["issuer"])
 
     tok = httpx.post(disc["token_endpoint"], data={
