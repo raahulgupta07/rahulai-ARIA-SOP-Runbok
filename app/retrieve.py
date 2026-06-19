@@ -341,6 +341,48 @@ def search_pages(query: str, k: int | None = None) -> list[dict]:
         except Exception as e:
             print(f"[retrieve] entity-fill failed (non-fatal): {e!r}")
 
+    # graph-walk (GraphRAG-lite): from the seed docs, follow the knowledge-graph
+    # edges ONE hop and pull each connected doc's best-matching page. Catches the
+    # answer when it lives in a LINKED doc that shares no keywords with the query
+    # (e.g. a prerequisite SOP). Pure SQL over existing edge tables — no embeddings,
+    # no extra LLM call. Bounded + fail-soft.
+    #   doc_dependency : prerequisites ("do SOP X first")  — highest value
+    #   doc_links      : co-citation / okf links ("answered together")
+    if rows and tsq and os.getenv("GRAPHWALK_ENABLED", "1") == "1":
+        try:
+            walk_max = int(os.getenv("GRAPHWALK_MAX", "3"))
+            seed_docs = list({r["doc_id"] for r in rows})
+            have_docs = set(seed_docs)
+            with get_conn() as conn:
+                neigh = conn.execute(
+                    "SELECT to_doc AS d FROM doc_dependency WHERE from_doc = ANY(%(s)s) "
+                    "UNION SELECT from_doc FROM doc_dependency WHERE to_doc = ANY(%(s)s) "
+                    "UNION SELECT dst_doc FROM doc_links WHERE src_doc = ANY(%(s)s) "
+                    "UNION SELECT src_doc FROM doc_links WHERE dst_doc = ANY(%(s)s)",
+                    {"s": seed_docs},
+                ).fetchall()
+                cand = [r["d"] for r in neigh if r["d"] and r["d"] not in have_docs][:walk_max]
+                if cand:
+                    ex = conn.execute(
+                        "WITH q AS (SELECT to_tsquery('simple', %(tsq)s) AS tsq) "
+                        "SELECT DISTINCT ON (p.doc_id) p.id AS page_id, p.doc_id, "
+                        "d.name AS doc_name, p.page_no, p.image_path, "
+                        "left(p.text,400) AS snippet, left(p.text,16000) AS text_full, "
+                        "m.md AS page_md "
+                        "FROM pages p JOIN docs d ON d.id = p.doc_id "
+                        "LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no, q "
+                        "WHERE d.status = 'ready' AND p.doc_id = ANY(%(docs)s) "
+                        "ORDER BY p.doc_id, (ts_rank(p.tsv, q.tsq) + "
+                        "0.3 * similarity(left(p.text,2000), %(raw)s)) DESC, p.page_no",
+                        {"tsq": tsq, "raw": raw, "docs": cand},
+                    ).fetchall()
+                    for e in ex:
+                        if (e["doc_id"], e["page_no"]) not in have:
+                            rows.append(e)
+                            have.add((e["doc_id"], e["page_no"]))
+        except Exception as e:
+            print(f"[retrieve] graph-walk failed (non-fatal): {e!r}")
+
     use_wiki = os.getenv("CHAT_USE_WIKI", "0") == "1"
     out = []
     for r in rows:

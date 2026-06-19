@@ -352,6 +352,7 @@
   let fStatus = $state<'all' | 'ready' | 'failed'>('all');
   let fSort = $state<'recent' | 'oldest' | 'pages' | 'name' | 'used'>('recent');
   let docView = $state<'cards' | 'list'>('list');
+  let filterSheet = $state(false);   // mobile Group+Sort bottom-sheet
   // A3: category chip + date pill filters for the doc browser
   let docCat = $state('all');
   let docDate = $state<'all' | 'today' | '7d' | '30d' | 'year' | 'custom'>('all');
@@ -366,6 +367,11 @@
   function clearDateRange() {
     dateFrom = ''; dateTo = ''; docDate = 'all'; dateCalOpen = false;
   }
+  let dateLabel = $derived(
+    docDate === 'all' ? ''
+    : docDate === 'custom' ? `${dateFrom || '…'} → ${dateTo || '…'}`
+    : ({ today: 'Today', '7d': 'Last 7 days', '30d': 'Last 30 days', year: 'This year' } as Record<string, string>)[docDate] || 'Date'
+  );
   // group the feed by auto-category or by upload date (newest first)
   let docGroupBy = $state<'date' | 'category'>('date');
   function setGroupBy(g: 'date' | 'category') { docGroupBy = g; try { localStorage.setItem('aria_docgroup', g); } catch {} }
@@ -1236,6 +1242,44 @@
   let graphInitFlight = false;                 // guard double-init
   let graphData: { nodes: any[]; links: any[] } = { nodes: [], links: [] };  // last loaded (reused on layout switch)
 
+  // ---- firing-synapse animation (force layout only; ported from BrainGraph) ----
+  let gAnimated = $state(true);
+  let gEnergy = new Map<string, number>();    // node id → 0..1 transient glow
+  let gLinkHot = new Map<number, number>();   // link index → 0..1 fired edge
+  let gPulseTimer: any = null;
+  const G_FIRE = [255, 209, 138];             // warm synapse flash
+  function gLerp(hex: string, e: number) {
+    if (e <= 0.02 || !hex || hex[0] !== '#') return hex;
+    const h = hex.replace('#', '');
+    const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+    if ([r, g, b].some(Number.isNaN)) return hex;
+    const t = Math.min(1, e), mix = (a: number, c: number) => Math.round(a + (c - a) * t * 0.8);
+    return `rgb(${mix(r, G_FIRE[0])},${mix(g, G_FIRE[1])},${mix(b, G_FIRE[2])})`;
+  }
+  function gPulse() {
+    if (!gAnimated || !graphChart || graphLayout !== 'force') return;
+    for (const [k, v] of gEnergy) { const nv = v * 0.84; nv < 0.02 ? gEnergy.delete(k) : gEnergy.set(k, nv); }
+    for (const [k, v] of gLinkHot) { const nv = v * 0.8; nv < 0.03 ? gLinkHot.delete(k) : gLinkHot.set(k, nv); }
+    const ns = graphData.nodes || [], ls = graphData.links || [];
+    for (let f = 0; f < 3 && ns.length; f++) { const n = ns[(Math.random() * ns.length) | 0]; if (n) gEnergy.set(n.id, 1); }
+    if (ls.length) {
+      const k = Math.min(22, Math.ceil(ls.length * 0.05));
+      for (let f = 0; f < k; f++) {
+        const idx = (Math.random() * ls.length) | 0; gLinkHot.set(idx, 1);
+        const l = ls[idx]; const s = l && (typeof l.source === 'object' ? l.source.id : l.source);
+        if (s != null) gEnergy.set(s, Math.max(gEnergy.get(s) || 0, 0.7));
+      }
+    }
+    try { graphChart.setOption(graphOption(graphData), { lazyUpdate: true, silent: true }); } catch {}
+  }
+  function startGPulse() { stopGPulse(); if (gAnimated) gPulseTimer = setInterval(gPulse, 170); }
+  function stopGPulse() { if (gPulseTimer) clearInterval(gPulseTimer); gPulseTimer = null; }
+  function toggleGAnim() {
+    gAnimated = !gAnimated;
+    if (gAnimated && railTab === 'graph' && graphLayout === 'force') startGPulse();
+    else { stopGPulse(); gEnergy.clear(); gLinkHot.clear(); if (graphChart) try { graphChart.setOption(graphOption(graphData)); } catch {} }
+  }
+
   // ---- chart-type switcher (graph layouts + hierarchical chart types) ----
   // 'force'|'circular'|'cluster' are echarts GRAPH layouts; 'tree'|'sunburst'|
   // 'treemap'|'sankey' are different series types built client-side from graphData.
@@ -1351,16 +1395,24 @@
     graphNodeMap = new Map(data.nodes.map((n) => [n.id, n]));
     const ndl = needle;   // brain search box, lowercased
     // node colors/sizes computed per-node from doc_id (color-by-document)
+    const fire = graphLayout === 'force' && gAnimated;   // firing-synapse overlay
     let nodes = data.nodes.map((n) => {
       const matchHit = ndl ? String(n.label || '').toLowerCase().includes(ndl) : false;
       const dim = ndl && !matchHit;
       const baseSize = gSymbolSize(n.val);
+      const e = fire ? (gEnergy.get(n.id) || 0) : 0;
+      const baseColor = nodeColor(n);
       return {
         id: n.id,
         name: n.label,
         value: n.val,
-        symbolSize: matchHit ? baseSize * 1.5 : baseSize,
-        itemStyle: { color: nodeColor(n), opacity: dim ? 0.12 : 1 },
+        symbolSize: (matchHit ? baseSize * 1.5 : baseSize) * (1 + e * 0.7),
+        itemStyle: {
+          color: e > 0.02 ? gLerp(baseColor, e) : baseColor,
+          opacity: dim ? 0.12 : 1,
+          shadowBlur: e > 0.05 ? 6 + e * 24 : 0,
+          shadowColor: e > 0.05 ? 'rgba(255,200,140,.9)' : 'transparent',
+        },
         // labels: docs always; pages only when zoomed in (labelsExpanded); facts off by default.
         // search active → only matches show labels, everything else off.
         label: {
@@ -1390,7 +1442,7 @@
                                    { layout: 'force', force: { repulsion: 90, edgeLength: [20, 120], gravity: 0.1, friction: 0.6 } };
 
     // edges: thin/low-opacity. sequence = same-doc hue + slightly opaque; similar = doc-doc, a touch thicker.
-    const links = (data.links || []).map((l) => {
+    const links = (data.links || []).map((l, i) => {
       const kind = l.kind || 'contains';
       const srcN = graphNodeMap.get(l.source);
       const did = srcN?.doc_id ?? (srcN?.type === 'doc' ? +String(srcN.id).replace(/^d/, '') : null);
@@ -1399,6 +1451,9 @@
       else if (kind === 'similar') ls = { color: '#7a86b8', opacity: 0.35, width: 1.4, curveness: 0.2 };
       else if (kind === 'cocite' || kind === 'cite') ls = { color: '#666', opacity: 0.28, width: 0.7, curveness: ls.curveness };
       else if (kind === 'requires') ls = { color: 'var(--clay)', opacity: 0.7, width: 1.8, curveness: 0.25, type: 'dashed' };
+      // firing-synapse overlay (force layout only): a fired edge flashes warm + thick
+      const e = fire ? (gLinkHot.get(i) || 0) : 0;
+      if (e > 0.04) ls = { ...ls, color: `rgba(255,196,128,${0.35 + e * 0.55})`, opacity: 0.9, width: 0.8 + e * 3 };
       return { source: l.source, target: l.target, lineStyle: ls };
     });
 
@@ -1677,6 +1732,7 @@
         }
         graphChart.setOption(buildOption(graphData), { notMerge: true });
         try { graphChart.resize(); } catch {}
+        if (graphLayout === 'force' && gAnimated) startGPulse();   // firing-synapse animation
       });
     } catch (e: any) {
       graphErr = e?.message || 'Could not load graph';
@@ -1709,9 +1765,23 @@
   });
 
   function disposeGraph() {
+    stopGPulse();
     if (graphChart) { try { graphChart.dispose(); } catch {} }
     graphChart = null;   // always null after dispose so a later tab-entry re-inits
   }
+
+  // start/stop the firing animation as the tab / layout / pause-state changes
+  $effect(() => {
+    const live = railTab === 'graph' && graphLayout === 'force' && gAnimated;
+    if (live && graphChart) startGPulse(); else stopGPulse();
+    return stopGPulse;
+  });
+  // respect the OS reduced-motion preference (one-shot)
+  let _gRmChecked = false;
+  $effect(() => {
+    if (_gRmChecked) return; _gRmChecked = true;
+    try { if (typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches) gAnimated = false; } catch {}
+  });
 
   function toggleGraphFilter(k: 'docs' | 'pages' | 'facts') {
     graphFilters = { ...graphFilters, [k]: !graphFilters[k] };
@@ -2240,6 +2310,13 @@
             <button class="gtog {graphFilters.facts ? 'on' : ''}" onclick={() => toggleGraphFilter('facts')}><span class="gdot" style="background:#e0569b"></span> Facts</button>
             <span class="ghue">hue = document</span>
           </div>
+
+          <!-- firing-synapse animation toggle (force layout only) -->
+          {#if graphLayout === 'force'}
+            <button class="ganim {gAnimated ? 'on' : ''}" onclick={toggleGAnim} title="Toggle the live firing-synapse animation">
+              <span class="gdot" style="background:{gAnimated ? '#ffba7d' : '#8a8478'}"></span>{gAnimated ? 'Live' : 'Paused'}
+            </button>
+          {/if}
 
           <!-- chart-type switcher (top-right overlay, dark pills, scrollable) -->
           <div class="goverlay gtr">
@@ -3155,16 +3232,20 @@
           <!-- date pills + sort + view -->
           <div class="dbar">
             <span class="dbar-lbl">Date</span>
-            {#each DOC_DATE_OPTS as [k, l] (k)}
-              <button class="pill {docDate === k ? 'on' : ''}" onclick={() => (docDate = k as any)}>{l}</button>
-            {/each}
             <div class="calwrap">
-              <button class="pill {docDate === 'custom' ? 'on' : ''}" onclick={() => (dateCalOpen = !dateCalOpen)} title="Pick a custom date range">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{docDate === 'custom' && (dateFrom || dateTo) ? `${dateFrom || '…'} → ${dateTo || '…'}` : 'Calendar'}
+              <button class="pill {docDate !== 'all' ? 'on' : ''}" onclick={() => (dateCalOpen = !dateCalOpen)} title="Filter by date">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{dateLabel}
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="margin-left:4px;vertical-align:-1px"><path d="M6 9l6 6 6-6"/></svg>
               </button>
               {#if dateCalOpen}
                 <button class="calscrim" onclick={() => (dateCalOpen = false)} aria-label="Close"></button>
                 <div class="calpop">
+                  <div class="calpresets">
+                    {#each DOC_DATE_OPTS as [k, l] (k)}
+                      <button class="calpre {docDate === k ? 'on' : ''}" onclick={() => { docDate = k as any; dateFrom = ''; dateTo = ''; dateCalOpen = false; }}>{l}</button>
+                    {/each}
+                  </div>
+                  <div class="calsep">or pick a range</div>
                   <label class="callbl">From<input type="date" bind:value={dateFrom} /></label>
                   <label class="callbl">To<input type="date" bind:value={dateTo} /></label>
                   <div class="calacts">
@@ -3178,17 +3259,21 @@
               <span class="jp-spin" class:still={remaining === 0}>⟳</span> Jobs{#if remaining > 0} <b>{remaining}</b> · {overallPct}%{/if}
             </button>
             <div class="ml-auto flex items-center gap-2.5">
-              <span class="dbar-lbl">Group</span>
-              <div class="seg-group">
+              <span class="dbar-lbl tb-adv">Group</span>
+              <div class="seg-group tb-adv">
                 <button onclick={() => setGroupBy('date')} class="segb {docGroupBy === 'date' ? 'on' : ''}" title="Group by upload date">Date</button>
                 <button onclick={() => setGroupBy('category')} class="segb {docGroupBy === 'category' ? 'on' : ''}" title="Group by category">Category</button>
               </div>
+              <!-- mobile: collapse Group + Sort behind a Filters bottom-sheet -->
+              <button class="tb-filterbtn" onclick={() => (filterSheet = true)} title="Filters">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="10" y1="18" x2="14" y2="18"/></svg>Filters
+              </button>
               <span class="text-[12px]" style="color:var(--muted)">{docMatches.length} shown</span>
               <div class="seg-group">
                 <button onclick={() => setDocView('cards')} class="segb {isViewCards ? 'on' : ''}" title="Card view">▦ Cards</button>
                 <button onclick={() => setDocView('list')} class="segb {!isViewCards ? 'on' : ''}" title="List view">≣ List</button>
               </div>
-              <select bind:value={fSort} class="fsort">
+              <select bind:value={fSort} class="fsort tb-adv">
                 <option value="recent">Newest</option>
                 <option value="oldest">Oldest</option>
                 <option value="pages">Most pages</option>
@@ -3673,6 +3758,27 @@
     </div>
   {/if}
 
+  <!-- ===== MOBILE FILTERS BOTTOM-SHEET (Group + Sort) ===== -->
+  {#if filterSheet}
+    <button class="fsheet-scrim" onclick={() => (filterSheet = false)} aria-label="Close filters"></button>
+    <div class="fsheet" role="dialog" aria-modal="true">
+      <div class="fsheet-grip"></div>
+      <div class="fsheet-ttl">Filters</div>
+      <div class="fsheet-lbl">Group by</div>
+      <div class="fsheet-seg">
+        <button class="fsheet-opt {docGroupBy === 'date' ? 'on' : ''}" onclick={() => setGroupBy('date')}>Date</button>
+        <button class="fsheet-opt {docGroupBy === 'category' ? 'on' : ''}" onclick={() => setGroupBy('category')}>Category</button>
+      </div>
+      <div class="fsheet-lbl">Sort by</div>
+      <div class="fsheet-chips">
+        {#each [['recent','Newest'],['oldest','Oldest'],['pages','Most pages'],['name','Name A–Z'],['used','Most used']] as [v, l]}
+          <button class="fsheet-chip {fSort === v ? 'on' : ''}" onclick={() => (fSort = v as any)}>{l}</button>
+        {/each}
+      </div>
+      <button class="fsheet-done" onclick={() => (filterSheet = false)}>Done</button>
+    </div>
+  {/if}
+
   <!-- ===== JOBS SLIDE-OVER (right drawer, all ingest activity) ===== -->
   {#if jobsOpen}
     <aside class="jobs-panel" role="dialog" aria-modal="true">
@@ -3895,6 +4001,9 @@
   .gtog:hover{color:#ddd;}
   .gtog.on{color:#eee; background:#2d2d2d; opacity:1;}
   .gdot{width:8px; height:8px; border-radius:999px; display:inline-block; flex-shrink:0;}
+  .ganim{position:absolute; z-index:5; left:14px; bottom:14px; display:flex; align-items:center; gap:6px; padding:5px 11px; border-radius:8px; font-size:12px; color:#9aa0a6; background:rgba(28,28,28,.78); border:1px solid #333; backdrop-filter:blur(6px); cursor:pointer; transition:color .12s;}
+  .ganim:hover{color:#ddd;}
+  .ganim.on{color:#ffba7d;}
   .gtr{top:14px; right:16px; display:flex; flex-wrap:wrap; justify-content:flex-end; gap:4px; padding:5px; border-radius:11px; max-width:min(64%,520px);}
   .ghue{font-size:10.5px; color:#6f747a; padding:5px 6px; letter-spacing:.02em; align-self:center;}
   .gdot.gdoc{background:hsl(265,58%,58%);}
@@ -4367,11 +4476,38 @@
   .dbar{display:flex; align-items:center; gap:6px; flex-wrap:nowrap; padding:9px 12px; background:#fff; border:1px solid var(--border); border-radius:11px; margin-bottom:16px; box-shadow:0 3px 16px rgba(0,0,0,.03);}
   .dbar > *{flex:none;}   /* one row — controls keep their size */
   .dbar .ml-auto{min-width:0;}
-  /* phones: the single row scrolls sideways instead of overflowing */
-  @media (max-width:760px){ .dbar{overflow-x:auto;} }
+  .tb-filterbtn{display:none;}
+  /* phones: collapse Group + Sort into a Filters bottom-sheet, keep Date + view inline */
+  @media (max-width:640px){
+    .dbar{overflow:visible; flex-wrap:wrap;}
+    .tb-adv{display:none !important;}
+    .tb-filterbtn{display:inline-flex; align-items:center; gap:5px; font-size:12.5px; padding:5px 11px; border-radius:8px; border:1px solid var(--border); background:#fff; color:var(--ink); cursor:pointer;}
+    .jobspill{order:5;}
+  }
+  /* mobile filters bottom-sheet */
+  .fsheet-scrim{position:fixed; inset:0; z-index:80; background:rgba(30,28,25,.4); border:none; cursor:default;}
+  .fsheet{position:fixed; left:0; right:0; bottom:0; z-index:81; background:#fff; border-radius:18px 18px 0 0; box-shadow:0 -10px 30px rgba(40,35,30,.18); padding:14px 18px 22px; animation:fsslide .2s ease-out;}
+  @keyframes fsslide{from{transform:translateY(100%);}to{transform:none;}}
+  .fsheet-grip{width:36px; height:4px; border-radius:4px; background:var(--border); margin:0 auto 12px;}
+  .fsheet-ttl{font-size:15px; font-weight:600; color:var(--ink); margin-bottom:14px;}
+  .fsheet-lbl{font-size:12px; color:var(--muted); margin-bottom:7px;}
+  .fsheet-seg{display:flex; gap:8px; margin-bottom:16px;}
+  .fsheet-opt{flex:1; text-align:center; font-size:13.5px; padding:9px 0; border-radius:9px; border:1px solid var(--border); background:#fff; color:var(--ink); cursor:pointer;}
+  .fsheet-opt.on{background:var(--clay); color:#fff; border-color:var(--clay);}
+  .fsheet-chips{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px;}
+  .fsheet-chip{font-size:12.5px; padding:7px 13px; border-radius:999px; border:1px solid var(--border); background:#fff; color:var(--ink); cursor:pointer;}
+  .fsheet-chip.on{background:var(--clay); color:#fff; border-color:var(--clay);}
+  .fsheet-done{width:100%; padding:11px 0; border-radius:10px; background:var(--clay); color:#fff; border:none; font-size:14px; font-weight:600; cursor:pointer;}
   .calwrap{position:relative; display:inline-flex;}
   .calscrim{position:fixed; inset:0; z-index:39; background:transparent; border:none; cursor:default;}
-  .calpop{position:absolute; top:calc(100% + 6px); left:0; z-index:40; width:210px; background:#fff; border:1px solid var(--border); border-radius:11px; box-shadow:0 12px 30px rgba(40,35,30,.16); padding:11px; display:flex; flex-direction:column; gap:9px;}
+  .calpop{position:absolute; top:calc(100% + 6px); left:0; z-index:40; width:220px; background:#fff; border:1px solid var(--border); border-radius:11px; box-shadow:0 12px 30px rgba(40,35,30,.16); padding:11px; display:flex; flex-direction:column; gap:9px;}
+  .calpresets{display:flex; flex-wrap:wrap; gap:6px;}
+  .calpre{font-size:12px; padding:5px 11px; border-radius:999px; color:var(--muted); background:#f3f3f1; border:1px solid transparent; cursor:pointer; transition:all .12s;}
+  .calpre:hover{background:#ecebe8;}
+  .calpre.on{background:var(--clay); color:#fff; border-color:var(--clay);}
+  .calsep{font-size:11px; color:var(--muted); text-align:center; position:relative; margin:2px 0;}
+  .calsep::before,.calsep::after{content:''; position:absolute; top:50%; width:34%; height:1px; background:var(--border);}
+  .calsep::before{left:0;} .calsep::after{right:0;}
   .callbl{display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12px; color:var(--muted);}
   .callbl input{font-size:12px; padding:5px 8px; border:1px solid var(--border); border-radius:7px; color:var(--ink); background:#fff;}
   .calacts{display:flex; gap:7px; justify-content:flex-end; margin-top:2px;}

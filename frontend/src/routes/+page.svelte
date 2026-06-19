@@ -850,6 +850,12 @@
 </div>
 
 <style>
+  /* mobile safety: long URLs / codes / tables in an answer must never push the
+     bubble wider than the screen (that shifted content + half-hid the left edge) */
+  :global(.md) { overflow-wrap: anywhere; word-break: break-word; }
+  :global(.md pre), :global(.md table) { max-width: 100%; overflow-x: auto; display: block; }
+  :global(.md img) { max-width: 100%; height: auto; }
+
   /* inline citation markers ([N] / [p.N]) → small coral superscript chips */
   :global(.md sup.cite) {
     display: inline-flex;

@@ -10,6 +10,54 @@
   import IngestRobot from '$lib/IngestRobot.svelte';
   import { convs, activeConvId, reloadConvs, openConvId, triggerNewChat } from '$lib/chatstore';
   import { mobileNav } from '$lib/dashstore';
+  import { onMount } from 'svelte';
+
+  // PWA: register the service worker so the app is installable on phones
+  onMount(() => {
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+  });
+
+  // pull-to-refresh (touch): drag down from the top of any scroll area to reload
+  let ptr = $state(0);                 // current pull distance (px, damped)
+  const PTR_TRIGGER = 70;
+  onMount(() => {
+    let startY = 0, pulling = false, sc: any = null;
+    const findScroller = (el: any) => {
+      while (el && el !== document.body) {
+        const oy = getComputedStyle(el).overflowY;
+        if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2) return el;
+        el = el.parentElement;
+      }
+      return null;
+    };
+    const ts = (e: TouchEvent) => {
+      sc = findScroller(e.target);
+      pulling = (sc ? sc.scrollTop <= 0 : (window.scrollY || 0) <= 0);
+      startY = e.touches[0].clientY; ptr = 0;
+    };
+    const tm = (e: TouchEvent) => {
+      if (!pulling) return;
+      const dy = e.touches[0].clientY - startY;
+      const atTop = sc ? sc.scrollTop <= 0 : (window.scrollY || 0) <= 0;
+      if (dy > 0 && atTop) { ptr = Math.min(110, dy * 0.5); if (e.cancelable) e.preventDefault(); }
+      else { ptr = 0; pulling = false; }
+    };
+    const te = () => {
+      if (pulling && ptr > PTR_TRIGGER) { ptr = 56; setTimeout(() => location.reload(), 150); }
+      else ptr = 0;
+      pulling = false;
+    };
+    document.addEventListener('touchstart', ts, { passive: true });
+    document.addEventListener('touchmove', tm, { passive: false });
+    document.addEventListener('touchend', te, { passive: true });
+    return () => {
+      document.removeEventListener('touchstart', ts);
+      document.removeEventListener('touchmove', tm);
+      document.removeEventListener('touchend', te);
+    };
+  });
 
   let { children } = $props();
 
@@ -124,6 +172,15 @@
 {:else}
 <div class="flex flex-col h-screen overflow-hidden">
 
+  <!-- pull-to-refresh indicator (mobile) -->
+  {#if ptr > 0}
+    <div class="ptr-ind" style="transform:translateX(-50%) translateY({ptr - 44}px); opacity:{Math.min(1, ptr / 56)}">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate({Math.min(ptr * 2.4, 360)}deg); transition:transform .05s">
+        {#if ptr > 70}<path d="M21 12a9 9 0 1 1-6.2-8.5"/><path d="M21 3v6h-6"/>{:else}<path d="M12 5v14M5 12l7 7 7-7"/>{/if}
+      </svg>
+    </div>
+  {/if}
+
   <!-- ===== GLOBAL FULL-WIDTH HEADER (logo · nav · bell · user) ===== -->
   <header class="h-14 shrink-0 flex items-center gap-1 px-3 border-b" style="border-color:#efefec; background:var(--sand)">
     {#if me}
@@ -136,7 +193,7 @@
     </a>
     <div class="w-2"></div>
     <nav class="topnav-row flex items-center gap-1">
-    {#each (isAdmin ? topnav : topnav.filter((t) => t.href === '/')) as t}
+    {#each (isAdmin ? topnav : []) as t}
       {@const on = sectionActive(t.section)}
       <a href={t.href} class="flex items-center gap-2 rounded-[9px] h-9 px-3 text-[14px] transition"
          style={on ? 'background:#f0efed; color:var(--ink); font-weight:600;' : 'color:#46443f;'}
@@ -150,8 +207,11 @@
     </nav>
     {#if me}
       <div class="ml-auto flex items-center gap-1.5">
-        <IngestRobot inline />
-        <Bell />
+        <!-- ingest activity robot + notifications are admin/ops tools — hide for chat-only users -->
+        {#if isAdmin}
+          <IngestRobot inline />
+          <Bell />
+        {/if}
         <div class="relative">
           <button onclick={() => (menuOpen = !menuOpen)} class="flex items-center gap-2 px-1.5 py-1.5 rounded-lg hover:bg-[#efefec]">
             <span class="w-7 h-7 shrink-0 rounded-full grid place-items-center text-white text-xs font-semibold" style="background:var(--clay)">{(me.name || me.email)[0]?.toUpperCase()}</span>
@@ -253,10 +313,11 @@
 
   </div><!-- /rail+main row -->
 
-  <!-- ===== MOBILE BOTTOM TAB BAR (in-flow, phones only) ===== -->
-  {#if me}
+  <!-- ===== MOBILE BOTTOM TAB BAR (in-flow, phones only) — admins only;
+       normal users have just Chat, so a tab bar is pointless ===== -->
+  {#if me && isAdmin}
     <nav class="botbar">
-      {#each (isAdmin ? bottomnav : bottomnav.filter((t) => t.href === '/')) as t}
+      {#each bottomnav as t}
         {@const on = sectionActive(t.section)}
         <a href={t.href} class="botbar-item" class:on>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={t.d}/></svg>
@@ -274,6 +335,12 @@
 <style>
   /* floating bell: fixed top-right, above page content, below reader/modals */
   .float-bell{ position:fixed; top:10px; right:16px; z-index:30; }
+
+  /* pull-to-refresh indicator */
+  .ptr-ind{ position:fixed; top:10px; left:50%; z-index:90; width:38px; height:38px;
+    display:flex; align-items:center; justify-content:center; border-radius:50%;
+    background:#fff; border:1px solid var(--border, #e0dfda); color:var(--clay, #c2683f);
+    box-shadow:0 4px 14px rgba(40,35,30,.16); pointer-events:none; }
 
   /* mobile bottom tab bar — in-flow so content shrinks above it (no overlap) */
   .botbar { display: none; }

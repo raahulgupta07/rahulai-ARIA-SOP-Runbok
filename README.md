@@ -209,7 +209,15 @@ Aria is **responsive** down to phone width. On small screens the side rails
 (chat history, Workspace, Brain, Settings) slide in from a single **menu button
 in the header**, primary navigation moves to a **bottom tab bar** (Chat ·
 Workspace · Brain · Settings), wide tables scroll sideways, and document lists
-stack as cards. The desktop layout is unchanged on larger screens.
+stack as cards. The desktop layout is unchanged on larger screens. **Pull down
+from the top to refresh.** Normal (chat-only) users get a clean shell — no empty
+navigation.
+
+### Install on your phone (PWA)
+Aria is a Progressive Web App. Open it on a phone over **HTTPS** and use
+**Add to Home Screen** (Safari) or **Install app** (Chrome) — it launches
+fullscreen with its own icon and an offline app shell. (Install requires HTTPS;
+`localhost` is exempt for desktop testing.)
 
 ## Using it
 A **full-width top bar** is the shell: the **brand logo** (left) · top nav **💬 Chat · ▦ Dashboard · 🧠 Brain · ⚙ Settings** (Chat first) · then the **notification bell** + your **account menu** (right) — identical on every page (activity + What's-new / version in the bell). On **Chat**, a **left rail** (warm sand) holds **＋ New chat** · 🔍 search · your **chat history** · connection status. On **Dashboard / Brain / Settings** that chat rail is replaced by the page's own layout (Brain → Brain/Graph/Audit + Documents/Facts; Settings → Overview/Users/Authentication). The selected nav item shows in a coral peach pill.

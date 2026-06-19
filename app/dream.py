@@ -40,6 +40,7 @@ def _cfg() -> dict:
         return {
             "enabled": c.DREAM_ENABLED, "interval_h": c.DREAM_INTERVAL_H,
             "stale_days": c.DREAM_STALE_DAYS, "promote_age_h": c.DREAM_PROMOTE_AGE_H,
+            "promote_min_conf": c.AUTO_APPROVE_MIN_CONF,
             "auto_resolve": c.DREAM_AUTO_RESOLVE, "gap_fill": c.DREAM_GAP_FILL,
             "autolink": c.DREAM_AUTOLINK,
         }
@@ -250,7 +251,7 @@ def run_dream(force: bool = False) -> dict:
 
     from .config import AUTO_APPROVE_MIN_CONF
     merged_n, merged_ids = _dedup_facts()
-    promo_n, promo_ids = _promote_pending(AUTO_APPROVE_MIN_CONF, cfg["promote_age_h"])
+    promo_n, promo_ids = _promote_pending(cfg.get("promote_min_conf", AUTO_APPROVE_MIN_CONF), cfg["promote_age_h"])
     retire_n, retire_ids = _retire_stale(cfg["stale_days"])
     conflicts = _resolve_conflicts(cfg["auto_resolve"])
     scored = _score_salience()

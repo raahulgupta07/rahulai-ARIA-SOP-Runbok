@@ -123,7 +123,7 @@
     <div class="verwrap">
       <button class="verpill" onclick={() => (verOpen = !verOpen)}>
         <span class="vdot"></span>
-        v{ver.version} · {ver.sha} · {String(ver.built ?? '').slice(0, 10)}
+        v{ver.version}<span class="verextra"> · {ver.sha} · {String(ver.built ?? '').slice(0, 10)}</span>
       </button>
       {#if verOpen}
         <div class="verpop">
@@ -313,6 +313,25 @@
 
   /* version pill + popover */
   .verwrap{position:absolute; top:22px; right:28px; z-index:20;}
+  /* mobile: trim the version pill to just the number + shrink the logo so they don't collide */
+  @media (max-width:640px){
+    .brandlogo{height:40px;}
+    .verwrap{top:12px; right:12px;}
+    .verpill{font-size:11px; padding:4px 9px;}
+    .verextra{display:none;}
+    /* fit the whole login on one mobile screen — no scroll, content centred */
+    .topbar{padding:12px 18px;}
+    .stage{padding:0 18px 12px; gap:0; align-items:center;}
+    .left{width:100%;}
+    .left h1{font-size:24px; line-height:1.2; margin-bottom:8px;}
+    .sub{font-size:14px; line-height:1.45; margin-bottom:10px;}
+    .stat{font-size:12px; margin-bottom:12px;}
+    .card{padding:16px; max-width:none;}
+    .inp{height:42px;}
+    .remember{margin:8px 0;}
+    .or{margin:8px 0;}
+    .foot{padding:8px 18px 12px; font-size:11px;}
+  }
   .verpill{display:inline-flex; align-items:center; gap:7px; cursor:pointer;
     background:#fff; border:1px solid var(--border); border-radius:999px;
     padding:6px 13px; font-size:12px; font-weight:500; color:var(--clay);

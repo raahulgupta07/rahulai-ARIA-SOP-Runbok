@@ -123,6 +123,7 @@ def save_s3(patch: dict) -> dict:
 # the effective value at run time via these helpers.
 _DREAM_BOOL_KEYS = {"enabled", "auto_resolve", "gap_fill", "autolink"}
 _DREAM_INT_KEYS = {"interval_h", "stale_days", "promote_age_h"}
+_DREAM_FLOAT_KEYS = {"promote_min_conf"}   # auto-activate pending facts at/above this confidence
 
 
 def _dream_env_defaults() -> dict:
@@ -132,6 +133,7 @@ def _dream_env_defaults() -> dict:
         "interval_h": _c.DREAM_INTERVAL_H,
         "stale_days": _c.DREAM_STALE_DAYS,
         "promote_age_h": _c.DREAM_PROMOTE_AGE_H,
+        "promote_min_conf": _c.AUTO_APPROVE_MIN_CONF,
         "auto_resolve": _c.DREAM_AUTO_RESOLVE,
         "gap_fill": _c.DREAM_GAP_FILL,
         "autolink": _c.DREAM_AUTOLINK,
@@ -149,6 +151,11 @@ def get_dream() -> dict:
             eff[k] = int(eff.get(k))
         except Exception:
             pass
+    for k in _DREAM_FLOAT_KEYS:
+        try:
+            eff[k] = float(eff.get(k))
+        except Exception:
+            pass
     return eff
 
 
@@ -161,6 +168,11 @@ def save_dream(patch: dict) -> dict:
         elif k in _DREAM_INT_KEYS and v is not None:
             try:
                 cur[k] = int(v)
+            except Exception:
+                pass
+        elif k in _DREAM_FLOAT_KEYS and v is not None:
+            try:
+                cur[k] = float(v)
             except Exception:
                 pass
     data["dream"] = cur

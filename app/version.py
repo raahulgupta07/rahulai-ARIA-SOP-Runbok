@@ -6,12 +6,25 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.18.1"
+VERSION = "2.19.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.19.0",
+        "date": "2026-06-19",
+        "title": "Installable app, graph-walk retrieval, animated graph, fully-auto brain",
+        "lines": [
+            "Install Aria on your phone (PWA): Add to Home Screen, fullscreen, offline shell",
+            "Graph-walk retrieval: answers now pull in linked/prerequisite docs FTS alone missed",
+            "Knowledge Graph animates everywhere (firing-synapse) while keeping all 7 layouts",
+            "Dream cycle can run fully hands-off: auto-resolve conflicts + auto-promote facts",
+            "Mobile polish: one-row docs toolbar + calendar picker, Filters sheet, pull-to-refresh",
+            "Cleaner chat-only shell for normal users (no empty nav)",
+        ],
+    },
     {
         "version": "2.18.1",
         "date": "2026-06-19",

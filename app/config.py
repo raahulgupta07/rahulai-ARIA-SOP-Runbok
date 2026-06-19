@@ -85,6 +85,11 @@ ENTITY_INDEX = os.getenv("ENTITY_INDEX", "1") == "1"
 #   question (cross-doc recall). ENTITY_FILL_MAX caps the extra pages pulled in.
 ENTITY_RETRIEVE = os.getenv("ENTITY_RETRIEVE", "1") == "1"
 ENTITY_FILL_MAX = int(os.getenv("ENTITY_FILL_MAX", "3"))
+# GRAPHWALK: GraphRAG-lite — from the FTS seed docs, follow doc_dependency +
+#   doc_links edges ONE hop and pull each connected doc's best page (prerequisites,
+#   co-cited docs). Pure SQL on existing edge tables. GRAPHWALK_MAX caps added pages.
+GRAPHWALK_ENABLED = os.getenv("GRAPHWALK_ENABLED", "1") == "1"
+GRAPHWALK_MAX = int(os.getenv("GRAPHWALK_MAX", "3"))
 # KB_LINT: detect same-term/divergent-value conflicts; DOC_STALE_DAYS = freshness floor.
 KB_LINT = os.getenv("KB_LINT", "1") == "1"
 DOC_STALE_DAYS = int(os.getenv("DOC_STALE_DAYS", "365"))
