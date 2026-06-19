@@ -129,6 +129,21 @@ sized to your OpenRouter rate tier. Scale replicas for reads; scale the OpenRout
 keep the Q&A cache warm for cost. Postgres read-replicas only if metrics show DB strain
 (unlikely at this range).
 
+#### Ready-made production stack (`docker-compose.prod.yml`)
+The repo ships a horizontal-scale compose: **nginx** (load balancer / TLS) → **N stateless app
+replicas** → Postgres + worker. nginx re-resolves replicas at request time, so scaling is live.
+```bash
+cp .env.prod.example .env.prod                              # fill secrets + tune concurrency
+docker compose -f docker-compose.prod.yml build
+docker compose -f docker-compose.prod.yml up -d --scale app=3
+# scale up/down anytime — leader-lock keeps daemons on one replica:
+docker compose -f docker-compose.prod.yml up -d --scale app=5
+```
+nginx publishes `:80` (uncomment `:443` + mount certs in `deploy/nginx.conf` for TLS). Single
+host can share page images via the `./data` mount; **multi-host → set `STORAGE=s3`** so every
+replica shares object storage. For managed Postgres, point `DATABASE_URL` at RDS/Cloud SQL and
+delete the `db` service.
+
 ### Local dev (no Docker)
 ```bash
 docker compose up -d db
