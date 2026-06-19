@@ -61,6 +61,74 @@ deployments. Background daemons are leader-locked, so exactly one process ingest
 **Going to production?** Work through `docs/PRODUCTION.md` (env/secrets, backups via
 `scripts/backup.sh`, cost guardrails, validation).
 
+### Scaling by user count
+
+Aria is **read-heavy** (most users only chat; a handful of admins upload). The DB and
+app are rarely the bottleneck — the ceiling is **LLM throughput + cost**, softened by the
+zero-LLM **Q&A cache** that serves repeat questions for free. Pick the bucket you're in:
+
+| Users | Shape | What to run |
+|---|---|---|
+| **0–100** | one box | `docker compose up -d` — everything in one container |
+| **100–500** | one box, isolate ingest | API container + **dedicated worker** container |
+| **500–2 000** | one strong box, tuned | multi-worker API + worker + managed Postgres + S3 |
+| **2 000–10 000** | horizontal | load balancer → **N app replicas** + worker + managed Postgres + S3 |
+
+Pool math (must hold): `replicas × WEB_CONCURRENCY × DB_POOL_MAX + ~15 < pg max_connections`.
+
+#### 0–100 users — single container
+```bash
+cp .env.example .env          # set OPENROUTER_API_KEY + JWT_SECRET
+./release.sh && docker compose up -d
+```
+Defaults are fine (`WEB_CONCURRENCY=2`, local storage, ingest in-process). 1 box, 2 vCPU / 4 GB.
+
+#### 100–500 users — split out ingest
+Keep one box but move LLM-heavy ingest off the API so chat stays snappy:
+```bash
+# .env
+INGEST_IN_API=0
+WEB_CONCURRENCY=4
+LLM_MAX_CONCURRENCY=20
+docker compose --profile worker up -d app worker
+```
+1 box, 4 vCPU / 8 GB. Background daemons stay leader-locked (one ingester).
+
+#### 500–2 000 users — tuned single box + managed PG + S3
+```bash
+# .env
+APP_ENV=production
+JWT_SECRET=<64-char random>
+PUBLIC_URL=https://aria.yourco.com
+CORS_ALLOW_ORIGINS=https://aria.yourco.com
+INGEST_IN_API=0
+WEB_CONCURRENCY=6
+DB_POOL_MAX=15
+LLM_MAX_CONCURRENCY=30
+AUTO_QA_SERVE_ENABLED=1            # keep the cache warm = cost lever
+STORAGE=s3                         # + S3_BUCKET / keys / region
+DATABASE_URL=postgresql://…@managed-pg:5432/docsensei   # RDS / Cloud SQL
+docker compose --profile worker up -d app worker
+```
+App box 4–8 vCPU / 8 GB · managed Postgres (`max_connections=200`) · S3 for page images.
+TLS at a reverse proxy (also unlocks PWA install). Cron `scripts/backup.sh`.
+
+#### 2 000–10 000 users — horizontal replicas
+The app is **stateless** (JWT auth; rate-limit + OIDC state live in Postgres), so put a load
+balancer in front of **N identical app replicas** sharing one Postgres + S3. The PG
+**advisory leader-lock** guarantees only ONE replica runs the daemons (dream cycle, ingest
+worker, watcher) — no extra coordination needed.
+```
+        ┌─ nginx / traefik / ALB (TLS) ─┐
+users → │  app replica ×3 (stateless)   │ → shared managed Postgres
+        └───────────────────────────────┘ → S3 (page images)
+                 1 worker container (ingest)  →  OpenRouter (LLM)
+```
+Per replica: `WEB_CONCURRENCY=4`, `DB_POOL_MAX=10` (so `3×4×10=120 < 200`), `LLM_MAX_CONCURRENCY`
+sized to your OpenRouter rate tier. Scale replicas for reads; scale the OpenRouter tier +
+keep the Q&A cache warm for cost. Postgres read-replicas only if metrics show DB strain
+(unlikely at this range).
+
 ### Local dev (no Docker)
 ```bash
 docker compose up -d db
