@@ -134,15 +134,24 @@
     const v = new URLSearchParams(location.search).get('v') || location.hash.replace('#', '');
     if (v && WS_ITEMS.some((t) => t.id === v)) wsItem.set(v);
   });
+  let railMobile = $state(false);   // slide-in rail on small screens
   function pick(id: string) {
     wsItem.set(id);
+    railMobile = false;             // close the mobile rail after choosing
     try { history.replaceState(null, '', '/workspace?v=' + id); } catch {}
   }
 </script>
 
 <div class="ws">
+  <!-- mobile hamburger (small screens only) -->
+  <button class="ws-burger" onclick={() => (railMobile = true)} aria-label="Open menu">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  {#if railMobile}
+    <button class="wsrail-scrim" onclick={() => (railMobile = false)} aria-label="Close menu"></button>
+  {/if}
   <!-- persistent left rail -->
-  <aside class="wsrail">
+  <aside class="wsrail" class:mob-open={railMobile}>
     {#each groups as g}
       {#if g !== 'Overview'}<div class="wsr-grp">{g}</div>{/if}
       {#each items.filter((i) => i.group === g) as it}
@@ -446,7 +455,34 @@
   /* the embedded Brain root is h-full flex — give it height */
   .ws-brain :global(> div) { height: 100%; }
 
-  @media (max-width: 720px) { .ws { grid-template-columns: 1fr; } .wsrail { display: none; } }
+  /* hamburger + mobile rail overlay (hidden on desktop) */
+  .ws-burger { display: none; }
+  .wsrail-scrim { display: none; }
+
+  @media (max-width: 860px) {
+    .ws { grid-template-columns: 1fr; }
+    /* rail becomes a slide-in overlay instead of vanishing */
+    .wsrail {
+      position: fixed; top: 0; left: 0; bottom: 0; width: 250px; max-width: 82vw;
+      z-index: 71; transform: translateX(-100%); transition: transform .22s ease;
+      box-shadow: 2px 0 24px rgba(40,35,30,.16);
+    }
+    .wsrail.mob-open { transform: none; }
+    .wsrail-scrim {
+      display: block; position: fixed; inset: 0; z-index: 70;
+      background: rgba(30,28,25,.34); border: none; cursor: default;
+    }
+    .ws-burger {
+      display: inline-flex; align-items: center; justify-content: center;
+      position: fixed; top: 63px; left: 9px; z-index: 60;
+      width: 38px; height: 38px; border-radius: 10px;
+      background: #fff; border: 1px solid var(--border); color: var(--ink); cursor: pointer;
+      box-shadow: 0 2px 10px rgba(40,35,30,.1);
+    }
+    /* clear the floating hamburger */
+    .statbar { padding-left: 50px; }
+    .ws-head, .ws-body { padding-left: 16px; padding-right: 16px; }
+  }
 
   /* SharePoint import modal */
   .sp-scrim { position: fixed; inset: 0; background: rgba(20,18,15,.34); z-index: 60; border: 0; }

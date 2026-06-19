@@ -26,11 +26,18 @@
   let groups = $derived([...new Set(visible.map((t) => t.group))]);
   function active(t: Tab) { return t.exact ? path === t.href : path.startsWith(t.href); }
   let current = $derived(tabs.find((t) => active(t)));
+  let railMobile = $state(false);
 </script>
 
 <div class="h-full flex" style="background:var(--cream)">
+  <button class="srail-burger" onclick={() => (railMobile = true)} aria-label="Settings menu">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  {#if railMobile}
+    <button class="srail-scrim" onclick={() => (railMobile = false)} aria-label="Close menu"></button>
+  {/if}
   <!-- left sub-rail -->
-  <aside class="srail shrink-0 flex flex-col">
+  <aside class="srail shrink-0 flex flex-col" class:mob-open={railMobile}>
     <div class="srail-search">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
       <input placeholder="Search settings…" bind:value={q} />
@@ -40,7 +47,7 @@
         <div class="srail-group">{g}</div>
         {#each visible.filter((t) => t.group === g) as t}
           {@const on = active(t)}
-          <a href={t.href} class="srail-item" class:on title={t.desc}>
+          <a href={t.href} class="srail-item" class:on title={t.desc} onclick={() => (railMobile = false)}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={t.d}/></svg>
             <span>{t.label}</span>
           </a>
@@ -51,8 +58,8 @@
   </aside>
 
   <!-- content -->
-  <div class="flex-1 min-h-0 overflow-y-auto">
-    <div class="px-7 pt-6 pb-1">
+  <div class="flex-1 min-h-0 overflow-y-auto settings-area">
+    <div class="px-7 pt-6 pb-1 settings-content-pad">
       <h1 class="serif text-[21px] font-medium" style="color:var(--ink)">{current?.label ?? 'Settings'}</h1>
       {#if current?.desc}<p class="text-[13px] mt-1" style="color:var(--muted)">{current.desc}</p>{/if}
     </div>
@@ -72,4 +79,31 @@
   .srail-item.on { background: #f0efed; color: var(--ink); font-weight: 600; }
   .srail-item svg { flex: none; opacity: .85; }
   .srail-empty { font-size: 12.5px; color: var(--muted); padding: 12px 8px; }
+
+  /* mobile: settings sub-rail becomes a slide-in overlay */
+  .srail-burger { display: none; }
+  .srail-scrim { display: none; }
+  @media (max-width: 820px) {
+    .srail {
+      position: fixed; top: 56px; bottom: 0; left: 0; z-index: 71;
+      transform: translateX(-100%); transition: transform .2s ease;
+      box-shadow: 2px 0 24px rgba(40,35,30,.16);
+    }
+    .srail.mob-open { transform: none; }
+    .srail-scrim { display: block; position: fixed; inset: 0; z-index: 70; background: rgba(30,28,25,.34); border: none; cursor: default; }
+    .srail-burger {
+      display: inline-flex; align-items: center; justify-content: center;
+      position: fixed; top: 63px; left: 9px; z-index: 60;
+      width: 38px; height: 38px; border-radius: 10px;
+      background: #fff; border: 1px solid var(--border); color: var(--ink); cursor: pointer;
+      box-shadow: 0 2px 10px rgba(40,35,30,.1);
+    }
+  }
+  @media (max-width: 820px) {
+    :global(.settings-content-pad) { padding-left: 52px; }
+  }
+  /* wide settings tables scroll instead of overflowing on phones */
+  @media (max-width: 640px) {
+    :global(.settings-area table) { display: block; overflow-x: auto; white-space: nowrap; }
+  }
 </style>

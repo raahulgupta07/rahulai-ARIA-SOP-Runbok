@@ -18,8 +18,9 @@
   let renameText = $state('');
   $effect(() => { if (!isLogin && !isEmbed && auth.isAuthed()) reloadConvs(); });
 
-  function railNewChat() { triggerNewChat(); if ($page.url.pathname !== '/') goto('/'); }
-  function railOpen(id: number) { openConvId(id); if ($page.url.pathname !== '/') goto('/'); }
+  let railMobileOpen = $state(false);   // chat-history rail as overlay on phones
+  function railNewChat() { railMobileOpen = false; triggerNewChat(); if ($page.url.pathname !== '/') goto('/'); }
+  function railOpen(id: number) { railMobileOpen = false; openConvId(id); if ($page.url.pathname !== '/') goto('/'); }
   async function railDelete(c: any, e: Event) {
     e.stopPropagation();
     if (!confirm(`Delete "${c.title}"?`)) return;
@@ -114,6 +115,11 @@
 
   <!-- ===== GLOBAL FULL-WIDTH HEADER (logo · nav · bell · user) ===== -->
   <header class="h-14 shrink-0 flex items-center gap-1 px-3 border-b" style="border-color:#efefec; background:var(--sand)">
+    {#if onChat && me}
+      <button class="chat-burger" onclick={() => { collapsed = false; railMobileOpen = true; }} aria-label="Chat history">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+    {/if}
     <a href="/" class="flex items-center shrink-0 pl-1 pr-1" title="City Agent Aria">
       <img src="/brand-logo.png" alt="City Agent Aria" class="h-9 w-auto" />
     </a>
@@ -126,7 +132,7 @@
          onmouseenter={(e)=>{ if(!on) e.currentTarget.style.background='#efefec'; }}
          onmouseleave={(e)=>{ if(!on) e.currentTarget.style.background='transparent'; }}>
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={t.d}/></svg>
-        {t.label}
+        <span class="hidden sm:inline">{t.label}</span>
       </a>
     {/each}
     {#if me}
@@ -159,7 +165,10 @@
 
   <!-- ===== LEFT RAIL (warm sand) — Chat route only ===== -->
   {#if onChat}
-  <aside class="shrink-0 flex flex-col border-r transition-[width] duration-150" style="width:{collapsed ? '58px' : '232px'}; background:var(--sand); border-color:#efefec">
+  {#if railMobileOpen}
+    <button class="chat-rail-scrim" onclick={() => (railMobileOpen = false)} aria-label="Close chat history"></button>
+  {/if}
+  <aside class="chat-rail shrink-0 flex flex-col border-r transition-[width] duration-150" class:mopen={railMobileOpen} style="width:{collapsed ? '58px' : '232px'}; background:var(--sand); border-color:#efefec">
 
     <!-- New chat -->
     <div class="px-2.5 pt-3 pb-2 shrink-0">
@@ -239,4 +248,26 @@
 <style>
   /* floating bell: fixed top-right, above page content, below reader/modals */
   .float-bell{ position:fixed; top:10px; right:16px; z-index:30; }
+
+  /* mobile: chat-history rail becomes a slide-in overlay so the thread gets full width */
+  .chat-burger { display: none; }
+  .chat-rail-scrim { display: none; }
+  @media (max-width: 820px) {
+    .chat-burger {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 34px; height: 34px; border-radius: 9px; margin-right: 2px;
+      background: transparent; border: none; color: #46443f; cursor: pointer;
+    }
+    .chat-rail {
+      position: fixed !important; top: 56px; bottom: 0; left: 0;
+      width: 250px !important; max-width: 84vw; z-index: 71;
+      transform: translateX(-100%); transition: transform .2s ease;
+      box-shadow: 2px 0 24px rgba(40,35,30,.16);
+    }
+    .chat-rail.mopen { transform: none; }
+    .chat-rail-scrim {
+      display: block; position: fixed; inset: 0; z-index: 70;
+      background: rgba(30,28,25,.34); border: none; cursor: default;
+    }
+  }
 </style>

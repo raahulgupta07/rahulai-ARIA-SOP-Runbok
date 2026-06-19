@@ -3638,7 +3638,6 @@
 
   <!-- ===== JOBS SLIDE-OVER (right drawer, all ingest activity) ===== -->
   {#if jobsOpen}
-    <button class="jobs-scrim" onclick={() => (jobsOpen = false)} aria-label="Close jobs"></button>
     <aside class="jobs-panel" role="dialog" aria-modal="true">
       <div class="jobs-head">
         <h3 class="jobs-ttl">Jobs</h3>
@@ -4043,6 +4042,11 @@
 
   /* ===== list view ===== */
   .dlist{width:100%; background:#fff; border:1px solid var(--border); border-radius:12px; overflow:hidden;}
+  /* narrow screens: keep the columns readable and scroll horizontally instead of squishing */
+  @media (max-width:760px){
+    .dlist{overflow-x:auto; overflow-y:hidden;}
+    .dlist-head,.dlrow{min-width:740px;}
+  }
   .dlist-head,.dlrow{display:grid; grid-template-columns:minmax(180px,1fr) 52px 50px 50px 76px 78px 78px 96px 84px; align-items:center; gap:10px; padding:0 14px;}
   .dlist-head{height:34px; background:#f7f7f5; border-bottom:1px solid var(--line); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:#a89b8c;}
   .dlrow{min-height:54px; padding-top:8px; padding-bottom:8px; border-top:1px solid var(--line); cursor:pointer; transition:background .12s;}

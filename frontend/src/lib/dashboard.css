@@ -322,5 +322,5 @@ button.uc:hover { color: var(--clay); }
   .subnav .snav { white-space: nowrap; }
   .kstrip { flex-wrap: wrap; }
   .kcell { min-width: 50%; }
-  .card table, .dpage table { display: block; overflow-x: auto; white-space: nowrap; }
+  .card table, .dpage table, .mcbody table { display: block; overflow-x: auto; white-space: nowrap; }
 }
