@@ -570,6 +570,22 @@ CREATE TABLE IF NOT EXISTS entity_mention (
 CREATE INDEX IF NOT EXISTS idx_entity_mention_ent ON entity_mention(entity_id);
 CREATE INDEX IF NOT EXISTS idx_entity_mention_doc ON entity_mention(doc_id);
 
+-- ---- GraphRAG-A: typed entity->entity relationships (LLM-extracted per doc) ----
+-- e.g. "CAR Mass Input —depends_on→ Night Batch Job". Powers multi-hop graph-walk
+-- retrieval (recursive CTE over this + doc_dependency + doc_links + entity_mention).
+CREATE TABLE IF NOT EXISTS entity_edge (
+    id          BIGSERIAL PRIMARY KEY,
+    src_entity  BIGINT REFERENCES entities(id) ON DELETE CASCADE,
+    dst_entity  BIGINT REFERENCES entities(id) ON DELETE CASCADE,
+    rel         TEXT NOT NULL,            -- depends_on|part_of|accessed_via|relates_to|...
+    doc_id      BIGINT REFERENCES docs(id) ON DELETE CASCADE,
+    weight      REAL DEFAULT 1.0,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (src_entity, dst_entity, rel, doc_id)
+);
+CREATE INDEX IF NOT EXISTS idx_entity_edge_src ON entity_edge(src_entity);
+CREATE INDEX IF NOT EXISTS idx_entity_edge_dst ON entity_edge(dst_entity);
+
 -- ---- knowledge-base conflicts (Phase 4): same term, divergent value across docs ----
 CREATE TABLE IF NOT EXISTS kb_conflict (
     id          BIGSERIAL PRIMARY KEY,

@@ -321,6 +321,14 @@ def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=No
         ne = extract_entities(doc_id)
         log_ingest(doc_id, "entities", f"indexed {ne} entities")
         _log_event(doc_id, "entities", f"indexed {ne} entities")
+        # GraphRAG-A: typed entity->entity relationships (needs entities first)
+        try:
+            from . import graphrag
+            if graphrag.GRAPHRAG_ENABLED:
+                nr = graphrag.extract_relationships(doc_id)
+                log_ingest(doc_id, "graph", f"linked {nr} relationships")
+        except Exception as e:
+            print(f"[ingest] graphrag relationships skipped: {e!r}")
 
     def _t_tree():
         if not TROUBLESHOOT_TREE:

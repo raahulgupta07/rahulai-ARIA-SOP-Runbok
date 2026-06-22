@@ -125,6 +125,10 @@ services:
       AUTO_QA_GAP_INTERVAL_H: ${AUTO_QA_GAP_INTERVAL_H:-24}
       # ---- Sector-based row-level access (multi-tenant; default OFF = single-tenant) ----
       RBAC_ENABLED: ${RBAC_ENABLED:-0}
+      # ---- GraphRAG-A: typed entity relationships + multi-hop walk (default OFF — +1 LLM/doc at ingest) ----
+      GRAPHRAG_ENABLED: ${GRAPHRAG_ENABLED:-0}
+      GRAPHWALK_HOPS: ${GRAPHWALK_HOPS:-2}
+      GRAPHRAG_MAX_DOCS: ${GRAPHRAG_MAX_DOCS:-4}
       # ---- Self-Heal agent: parallel per-doc eval-gated self-improvement (default OFF — costs LLM) ----
       SELFHEAL_ENABLED: ${SELFHEAL_ENABLED:-0}
       SELFHEAL_MAX_ROUNDS: ${SELFHEAL_MAX_ROUNDS:-3}

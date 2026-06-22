@@ -3082,6 +3082,30 @@ def brain_search(q: str = "", type: str = "all"):
     return {"items": items}
 
 
+@router.post("/graphrag/build", dependencies=[Depends(require_admin)])
+def graphrag_build(user: dict = Depends(current_user)):
+    """Backfill GraphRAG entity relationships across all ready docs (run once
+    after enabling GRAPHRAG_ENABLED). 1 LLM pass/doc. Admin only."""
+    from . import graphrag
+    res = graphrag.link_all()
+    try:
+        audit_mod.log(user, "graphrag.build", "graph", None, res)
+    except Exception:
+        pass
+    return res
+
+
+@router.get("/graphrag/stats", dependencies=[Depends(require_key)])
+def graphrag_stats():
+    """Edge + entity counts for the relationship graph."""
+    with get_conn() as conn:
+        r = conn.execute(
+            "SELECT (SELECT count(*) FROM entity_edge) AS edges, "
+            "(SELECT count(*) FROM entities) AS entities, "
+            "(SELECT count(DISTINCT rel) FROM entity_edge) AS rel_types").fetchone()
+    return dict(r)
+
+
 @router.get("/brain/graph", dependencies=[Depends(require_key)])
 def brain_graph(docs: int = 1, pages: int = 1, facts: int = 1, limit: int = 400):
     """Obsidian-style force-graph of the brain: docs, pages and taught facts as

@@ -394,6 +394,38 @@ def search_pages(query: str, k: int | None = None,
         except Exception as e:
             print(f"[retrieve] graph-walk failed (non-fatal): {e!r}")
 
+    # GraphRAG-A: MULTI-HOP entity-relationship walk. Beyond the 1-hop doc-edge walk
+    # above, traverse the typed entity graph (entity_edge) up to GRAPHWALK_HOPS from
+    # the seed docs' entities → related docs that share no keywords with the query
+    # (e.g. a system two hops away). Pull each such doc's best-matching page.
+    if rows and tsq:
+        try:
+            from . import graphrag
+            if graphrag.GRAPHRAG_ENABLED:
+                have_docs = {r["doc_id"] for r in rows}
+                seed_docs = list(have_docs)
+                nbr = [d for d in graphrag.graph_neighbor_docs(seed_docs, sectors=sectors)
+                       if d not in have_docs]
+                if nbr:
+                    with get_conn() as conn:
+                        gx = conn.execute(
+                            "WITH q AS (SELECT to_tsquery('simple', %(tsq)s) AS tsq) "
+                            "SELECT DISTINCT ON (p.doc_id) p.id AS page_id, p.doc_id, "
+                            "d.name AS doc_name, p.page_no, p.image_path, "
+                            "left(p.text,400) AS snippet, left(p.text,16000) AS text_full, "
+                            "m.md AS page_md "
+                            "FROM pages p JOIN docs d ON d.id = p.doc_id "
+                            "LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no, q "
+                            "WHERE d.status = 'ready' AND p.doc_id = ANY(%(docs)s) " + _SEC +
+                            "ORDER BY p.doc_id, (ts_rank(p.tsv, q.tsq) + "
+                            "0.3 * similarity(left(p.text,2000), %(raw)s)) DESC, p.page_no",
+                            {"tsq": tsq, "raw": raw, "docs": nbr, "sectors": sectors}).fetchall()
+                    for e in gx:
+                        if (e["doc_id"], e["page_no"]) not in have:
+                            rows.append(e); have.add((e["doc_id"], e["page_no"]))
+        except Exception as e:
+            print(f"[retrieve] graphrag walk failed (non-fatal): {e!r}")
+
     use_wiki = os.getenv("CHAT_USE_WIKI", "0") == "1"
     out = []
     for r in rows:
