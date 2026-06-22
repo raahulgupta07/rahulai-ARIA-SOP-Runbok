@@ -32,6 +32,8 @@ def start_all() -> bool:
     _qagaps.start()                   # gap-driven Q&A daemon (AUTO_QA_GAP_ENABLED)
     from . import dream as _dream
     _dream.start()                    # nightly self-improvement cycle (DREAM_ENABLED)
+    from . import selfheal as _selfheal
+    _selfheal.start_daemon()          # parallel per-doc eval-gated self-heal (SELFHEAL_ENABLED)
     from . import sharepoint as _sp
     _sp.start()                       # SharePoint auto-sync (SHAREPOINT_SYNC_ENABLED)
     try:

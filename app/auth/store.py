@@ -27,8 +27,65 @@ DEFAULT_CONFIG = {
     "oidc": {
         "issuer": "", "client_id": "", "client_secret": "",
         "scopes": "openid email profile",
+        # SSO button styling on the login page. provider picks the icon;
+        # label overrides the button text (blank → derived from provider).
+        "provider": "generic",          # microsoft | google | okta | generic
+        "label": "",                    # e.g. "Continue with Microsoft"
     },
+    # MULTI-PROVIDER (new): admins can add many SSO providers + many LDAP
+    # directories. Each renders its own login button. The legacy single
+    # `oidc`/`ldap` above is migrated into these lists on read (see helpers).
+    "oidc_providers": [],   # [{id,name,provider,label,issuer,client_id,client_secret,scopes,enabled}]
+    "ldap_directories": [], # [{id,name,host,port,bind_dn,bind_password,base_dn,user_filter,email_attr,name_attr,enabled}]
 }
+
+_SSO_DEFLABEL = {"microsoft": "Continue with Microsoft", "google": "Continue with Google",
+                 "okta": "Continue with Okta", "generic": "Continue with SSO"}
+
+
+def oidc_providers() -> list:
+    """All configured SSO providers. Migrates the legacy single `oidc` block into
+    a one-element list when no multi-provider list exists yet (back-compat)."""
+    c = get_config()
+    lst = list(c.get("oidc_providers") or [])
+    if not lst:
+        oc = c.get("oidc") or {}
+        if oc.get("issuer") and oc.get("client_id"):
+            lst = [{
+                "id": "default", "name": (oc.get("provider") or "SSO").title(),
+                "provider": oc.get("provider") or "generic", "label": oc.get("label") or "",
+                "issuer": oc["issuer"], "client_id": oc["client_id"],
+                "client_secret": oc.get("client_secret", ""),
+                "scopes": oc.get("scopes") or "openid email profile",
+                "enabled": bool(c.get("enable_oidc")),
+            }]
+    return lst
+
+
+def ldap_directories() -> list:
+    """All configured LDAP directories. Migrates the legacy single `ldap` block."""
+    c = get_config()
+    lst = list(c.get("ldap_directories") or [])
+    if not lst:
+        lc = c.get("ldap") or {}
+        if lc.get("host"):
+            lst = [{**lc, "id": "default", "name": lc.get("name") or "LDAP / AD",
+                    "enabled": bool(c.get("enable_ldap"))}]
+    return lst
+
+
+def oidc_provider(pid: str) -> dict | None:
+    for p in oidc_providers():
+        if str(p.get("id")) == str(pid):
+            return p
+    return None
+
+
+def ldap_directory(did: str) -> dict | None:
+    for d in ldap_directories():
+        if str(d.get("id")) == str(did):
+            return d
+    return None
 
 
 def ensure_superadmin() -> None:
@@ -87,11 +144,23 @@ def save_config(data: dict) -> dict:
 def public_config() -> dict:
     """What the login page is allowed to see — toggles only, no secrets."""
     c = get_config()
+    # enabled + valid providers only (never expose secrets to the login page)
+    provs = [p for p in oidc_providers() if p.get("enabled") and p.get("issuer") and p.get("client_id")]
+    dirs = [d for d in ldap_directories() if d.get("enabled") and d.get("host")]
+    sso = [{"id": p.get("id"), "provider": p.get("provider") or "generic",
+            "label": (p.get("label") or "").strip() or _SSO_DEFLABEL.get(p.get("provider") or "generic", _SSO_DEFLABEL["generic"])}
+           for p in provs]
+    ld = [{"id": d.get("id"), "name": d.get("name") or "LDAP / AD"} for d in dirs]
     return {
         "enable_local": c["enable_local"],
         "enable_signup": c["enable_signup"],
-        "enable_ldap": c["enable_ldap"],
-        "enable_oidc": c["enable_oidc"] and bool(c["oidc"]["issuer"] and c["oidc"]["client_id"]),
+        "enable_ldap": bool(dirs),
+        "enable_oidc": bool(provs),
+        "sso_providers": sso,
+        "ldap_dirs": ld,
+        # legacy single-provider fields (older cached clients) — first provider
+        "sso_provider": sso[0]["provider"] if sso else "generic",
+        "sso_label": sso[0]["label"] if sso else _SSO_DEFLABEL["generic"],
     }
 
 
@@ -130,11 +199,21 @@ def create_user(
         else:
             role = cfg["default_role"]
     with get_conn() as conn:
-        return conn.execute(
+        row = conn.execute(
             "INSERT INTO users (email, name, role, password_hash, auth_source, oauth_sub) "
             "VALUES (%s,%s,%s,%s,%s,%s) RETURNING *",
             (email, name or email.split("@")[0], role, password_hash, source, oauth_sub),
         ).fetchone()
+    # row-level access: assign the user's home sector from their email domain
+    try:
+        from .. import rbac
+        if rbac.RBAC_ENABLED:
+            rbac.assign_user_sector(row["id"], email)
+            with get_conn() as conn:
+                row = conn.execute("SELECT * FROM users WHERE id=%s", (row["id"],)).fetchone()
+    except Exception as e:
+        print(f"[rbac] sector assign skipped: {e!r}")
+    return row
 
 
 class MergeBlocked(Exception):

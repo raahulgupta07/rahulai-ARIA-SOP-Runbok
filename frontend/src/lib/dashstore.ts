@@ -31,6 +31,8 @@ export const MC_TABS: McTab[] = [
   { id: 'exec',      label: 'Exec',        roles: ['admin'] },
   { id: 'users',     label: 'Users',       roles: ['admin'] },
   { id: 'perf',      label: 'Performance', roles: ['admin'] },
+  { id: 'accuracy',  label: 'Accuracy',    roles: ['admin'] },
+  { id: 'selfheal',  label: 'Self-Heal',   roles: ['admin'] },
   { id: 'knowledge', label: 'Knowledge',   roles: ['admin'] },
   { id: 'review',    label: 'Review',      roles: ['admin'] },
   { id: 'system',    label: 'System',      roles: ['admin'] }
@@ -68,11 +70,15 @@ export const WS_ITEMS: WsItem[] = [
   { id: 'brain-health', label: 'Health',    group: 'Brain', kind: 'knowledge', roles: ['admin', 'user'], view: { tab: 'audit' }, badge: 'health' },
   { id: 'dream',        label: 'Self-improvement', group: 'Brain', kind: 'insight', roles: ['admin'] },
 
-  { id: 'exec',     label: 'Exec',     group: 'Insights', kind: 'insight', roles: ['admin'] },
-  { id: 'users',    label: 'Users',    group: 'Insights', kind: 'insight', roles: ['admin'] },
-  { id: 'learning', label: 'Learning', group: 'Insights', kind: 'insight', roles: ['admin'] },
-  { id: 'review',   label: 'Review',   group: 'Insights', kind: 'insight', roles: ['admin'] },
-  { id: 'system',   label: 'System',   group: 'Insights', kind: 'insight', roles: ['admin'] }
+  { id: 'exec',      label: 'Exec',        group: 'Insights', kind: 'insight', roles: ['admin'] },
+  { id: 'users',     label: 'Users',       group: 'Insights', kind: 'insight', roles: ['admin'] },
+  { id: 'perf',      label: 'Performance', group: 'Insights', kind: 'insight', roles: ['admin'] },
+  { id: 'knowledge', label: 'Knowledge',   group: 'Insights', kind: 'insight', roles: ['admin'] },
+  { id: 'learning',  label: 'Learning',    group: 'Insights', kind: 'insight', roles: ['admin'] },
+  { id: 'review',    label: 'Review',      group: 'Insights', kind: 'insight', roles: ['admin'] },
+  { id: 'accuracy',  label: 'Accuracy',    group: 'Insights', kind: 'insight', roles: ['admin'] },
+  { id: 'selfheal',  label: 'Self-Heal',   group: 'Insights', kind: 'insight', roles: ['admin'] },
+  { id: 'system',    label: 'System',      group: 'Insights', kind: 'insight', roles: ['admin'] }
 ];
 const WKEY = 'aria_ws_item';
 function initWs(): string {

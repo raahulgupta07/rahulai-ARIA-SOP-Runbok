@@ -180,6 +180,59 @@ def save_dream(patch: dict) -> dict:
     return get_dream()
 
 
+# ---- one-logo white-label brand (under app_config.data.brand) ----
+# Dedicated save_brand merges into app_config.data.brand WITHOUT going through
+# the allowlisted save_config (which would strip these keys). GET /api/brand is
+# public and must never raise — get_brand() returns the merged defaults+saved.
+_BRAND_TEXT_KEYS = {"name", "short_name", "tagline", "footer", "assistant_label",
+                    "accent", "accent_dk", "logo_url"}
+
+_BRAND_DEFAULTS = {
+    "name": "City Agent Aria",
+    "short_name": "Aria",
+    "tagline": "Your runbook intelligence — answered with the source page.",
+    "footer": "© 2026 City Agent Aria · Runbooks & IT Assistance",
+    "assistant_label": "ARIA 1.0",
+    "accent": "#c2683f",
+    "accent_dk": "#a8542f",
+    "logo_url": "/brand-logo.png",
+    "mark_url": "/favicon.png",
+    "favicon_url": "/favicon.png",
+    "icon192_url": "/icon-192.png",
+    "icon512_url": "/icon-512.png",
+    "custom": False,
+}
+
+
+def get_brand() -> dict:
+    """Public brand payload = defaults merged with any saved override. Never raises."""
+    out = dict(_BRAND_DEFAULTS)
+    try:
+        saved = _raw().get("brand") or {}
+    except Exception:
+        saved = {}
+    for k, v in saved.items():
+        if v is not None:
+            out[k] = v
+    out["custom"] = bool(saved.get("custom"))
+    return out
+
+
+def save_brand(patch: dict) -> dict:
+    """Merge text/accent fields into app_config.data.brand (preserve other keys).
+    Bypasses the save_config allowlist. Returns the full public brand payload."""
+    data = _raw()
+    cur = data.get("brand") or {}
+    for k, v in (patch or {}).items():
+        if k in _BRAND_TEXT_KEYS and v is not None:
+            cur[k] = str(v)
+        elif k == "custom" and v is not None:
+            cur[k] = bool(v)
+    data["brand"] = cur
+    _write(data)
+    return get_brand()
+
+
 def save_config(patch: dict) -> dict:
     allowed = {"minutes_saved_per_answer", "llm_price_per_mtok", "tokens_per_answer"}
     clean = {}

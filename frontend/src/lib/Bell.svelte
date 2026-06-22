@@ -146,19 +146,20 @@
     display:flex; align-items:center; justify-content:center; cursor:pointer; }
   .bell-btn:hover { background:#ece9e0; }
   .bell-badge { position:absolute; top:-1px; right:-1px; min-width:16px; height:16px; padding:0 4px;
-    border-radius:999px; background:var(--ink,#1a1a18); color:#fff; font-size:10px; font-weight:700;
+    border-radius:999px; background:var(--clay); color:#fff; font-size:10px; font-weight:700;
     display:flex; align-items:center; justify-content:center; line-height:1; }
 
   .bell-back { position:fixed; inset:0; z-index:60; }
   .bell-panel { position:absolute; right:0; top:calc(100% + 8px); width:380px; max-width:92vw; z-index:70;
     background:#fff; border:1px solid #E7E3D8; border-radius:14px;
     box-shadow:0 12px 34px rgba(33,31,28,.16); overflow:hidden;
-    --clay:#1a1a18; --muted:#73706A; --ink:#211F1C; }
+    /* --clay inherits the runtime-injected brand accent (no local override) */
+    --muted:#73706A; --ink:#211F1C; }
 
   .bp-tabs { display:flex; align-items:center; gap:4px; padding:9px 10px; border-bottom:1px solid #ECE8DD; }
   .bp-tab { background:none; border:0; cursor:pointer; font-size:13px; font-weight:500; color:#46443f;
     padding:5px 11px; border-radius:9px; display:flex; align-items:center; gap:6px; }
-  .bp-tab.on { background:#f3f3f1; color:var(--clay); }
+  .bp-tab.on { background:color-mix(in srgb, var(--clay) 12%, #fff); color:var(--clay); }
   .bp-cnt { font-size:10.5px; font-weight:700; background:var(--clay); color:#fff;
     border-radius:999px; min-width:15px; height:15px; padding:0 4px; display:flex; align-items:center; justify-content:center; }
   .bp-spacer { flex:1; }
@@ -173,7 +174,7 @@
   .bp-chips { display:flex; gap:6px; padding:6px 13px 10px; }
   .bp-chip { background:#fff; border:1px solid #E7E3D8; border-radius:999px; cursor:pointer;
     font-size:11.5px; color:#46443f; padding:3px 11px; }
-  .bp-chip.on { background:#f3f3f1; color:var(--clay); border-color:#dcdcd8; }
+  .bp-chip.on { background:color-mix(in srgb, var(--clay) 12%, #fff); color:var(--clay); border-color:#dcdcd8; }
 
   .bp-list { max-height:360px; overflow-y:auto; padding:2px 6px 8px; }
   .bp-empty { text-align:center; color:var(--muted); font-size:12.5px; padding:26px 0; }

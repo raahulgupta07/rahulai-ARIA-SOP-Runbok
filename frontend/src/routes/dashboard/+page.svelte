@@ -6,6 +6,8 @@
   import Exec from '$lib/dashboard/sections/Exec.svelte';
   import Users from '$lib/dashboard/sections/Users.svelte';
   import Perf from '$lib/dashboard/sections/Perf.svelte';
+  import Accuracy from '$lib/dashboard/sections/Accuracy.svelte';
+  import SelfHeal from '$lib/dashboard/sections/SelfHeal.svelte';
   import Knowledge from '$lib/dashboard/sections/Knowledge.svelte';
   import Review from '$lib/dashboard/sections/Review.svelte';
   import System from '$lib/dashboard/sections/System.svelte';
@@ -17,7 +19,7 @@
 
   const COMP: Record<string, any> = {
     overview: Overview, live: Cockpit, exec: Exec, users: Users, perf: Perf,
-    knowledge: Knowledge, review: Review, system: System
+    accuracy: Accuracy, selfheal: SelfHeal, knowledge: Knowledge, review: Review, system: System
   };
   // non-admins only ever see Overview (their personal view); force the tab.
   $effect(() => { if (me && !isAdmin && $mcTab !== 'overview') mcTab.set('overview'); });

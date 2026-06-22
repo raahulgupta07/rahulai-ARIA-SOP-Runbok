@@ -70,12 +70,16 @@ def _doc_text_paged(doc_id: int) -> tuple[str, str, dict]:
     no_to_id = {r["page_no"]: r["page_id"] for r in rows}
     parts, total = [], 0
     for r in rows:
-        t = (r["t"] or "").strip()
+        # per-page cap is LOAD-BEARING: one degenerate/looped page (e.g. a 140k-char
+        # repeated-cover compile) would otherwise blow the budget and `break` the
+        # loop, starving every later page (the real content). Cap each page, and
+        # `continue` past an over-budget page instead of breaking the whole doc.
+        t = (r["t"] or "").strip()[:6000]
         if not t:
             continue
         chunk = f"=== Page {r['page_no']} ===\n{t}"
-        if total + len(chunk) > 14000:
-            break
+        if total + len(chunk) > 24000:
+            continue
         parts.append(chunk)
         total += len(chunk)
     return title, "\n\n".join(parts), no_to_id

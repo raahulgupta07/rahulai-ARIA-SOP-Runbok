@@ -256,6 +256,50 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(lower(email));
 
+-- ---- sector-based row-level access (multi-tenant, flag RBAC_ENABLED) ----
+-- a sector = one company/domain (e.g. cityholdings.com). Only super-admin creates.
+CREATE TABLE IF NOT EXISTS sectors (
+    id          BIGSERIAL PRIMARY KEY,
+    name        TEXT UNIQUE NOT NULL,            -- email domain key, e.g. cityholdings.com
+    label       TEXT,                            -- display name
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+-- folders live inside a sector; docs live inside a folder.
+CREATE TABLE IF NOT EXISTS folders (
+    id          BIGSERIAL PRIMARY KEY,
+    sector_id   BIGINT REFERENCES sectors(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    access_mode TEXT NOT NULL DEFAULT 'sector',  -- sector | specific | org
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_folders_sector ON folders(sector_id);
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS access_mode TEXT NOT NULL DEFAULT 'sector';
+-- for access_mode='specific': who (a user or a group) may access this folder.
+CREATE TABLE IF NOT EXISTS folder_access (
+    folder_id      BIGINT REFERENCES folders(id) ON DELETE CASCADE,
+    principal_type TEXT NOT NULL,                -- 'user' | 'group'
+    principal_id   BIGINT NOT NULL,
+    PRIMARY KEY (folder_id, principal_type, principal_id)
+);
+-- the All-Access group: members read every sector (read-only).
+CREATE TABLE IF NOT EXISTS groups (
+    id          BIGSERIAL PRIMARY KEY,
+    name        TEXT UNIQUE NOT NULL,
+    all_sectors BOOLEAN NOT NULL DEFAULT FALSE,  -- true = read every sector
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS user_groups (
+    user_id     BIGINT REFERENCES users(id) ON DELETE CASCADE,
+    group_id    BIGINT REFERENCES groups(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, group_id)
+);
+-- a user's home sector (set from email domain at signup); role gains 'sector_admin'.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS sector_id BIGINT REFERENCES sectors(id);
+-- every doc is tagged with the sector (+ folder) it belongs to.
+ALTER TABLE docs  ADD COLUMN IF NOT EXISTS sector_id BIGINT REFERENCES sectors(id);
+ALTER TABLE docs  ADD COLUMN IF NOT EXISTS folder_id BIGINT REFERENCES folders(id);
+CREATE INDEX IF NOT EXISTS idx_docs_sector ON docs(sector_id);
+
 -- single-row config blob, editable from the admin Authentication page
 CREATE TABLE IF NOT EXISTS auth_config (
     id     INT PRIMARY KEY DEFAULT 1,
@@ -273,6 +317,8 @@ CREATE TABLE IF NOT EXISTS oidc_state (
     state       TEXT PRIMARY KEY,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- which SSO provider this auth attempt is for (multi-provider). NULL = legacy single.
+ALTER TABLE oidc_state ADD COLUMN IF NOT EXISTS pid TEXT;
 
 -- ---- per-user chat conversations + messages ----
 CREATE TABLE IF NOT EXISTS conversations (
@@ -293,6 +339,8 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at      TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, id);
+-- persisted thinking trace ({steps:[{label,detail}], thought_ms}) so reopened chats show it
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS meta JSONB DEFAULT '{}'::jsonb;
 
 -- ---- shareable answer links (read-only permalink to one bot answer) ----
 CREATE TABLE IF NOT EXISTS shares (
@@ -417,6 +465,44 @@ CREATE TABLE IF NOT EXISTS dream_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_dream_runs_at ON dream_runs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at DESC);
+
+-- ---- per-doc answer-accuracy self-eval (UAT) runs — powers the Accuracy page ----
+CREATE TABLE IF NOT EXISTS doc_eval_runs (
+    id          BIGSERIAL PRIMARY KEY,
+    overall     JSONB NOT NULL DEFAULT '{}'::jsonb,
+    docs        JSONB NOT NULL DEFAULT '[]'::jsonb,
+    gaps        JSONB NOT NULL DEFAULT '[]'::jsonb,
+    questions   INT DEFAULT 0,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_doc_eval_at ON doc_eval_runs(created_at DESC);
+
+-- ---- Self-Heal agent: per-doc eval-gated self-improvement (parallel worker) ----
+-- one row per doc per heal run; discovery = ready docs with no status='done' row.
+CREATE TABLE IF NOT EXISTS selfheal_runs (
+    id          BIGSERIAL PRIMARY KEY,
+    doc_id      BIGINT REFERENCES docs(id) ON DELETE CASCADE,
+    status      TEXT NOT NULL DEFAULT 'pending',   -- pending|running|done|failed
+    rounds      INT DEFAULT 0,
+    before_acc  INT DEFAULT 0,                      -- grounded% before
+    after_acc   INT DEFAULT 0,                      -- grounded% after
+    banked      INT DEFAULT 0,                      -- Q&A pairs locked into the bank
+    review      JSONB NOT NULL DEFAULT '[]'::jsonb, -- couldn't-self-verify questions
+    started_at  TIMESTAMPTZ DEFAULT now(),
+    finished_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_selfheal_doc ON selfheal_runs(doc_id, status);
+CREATE INDEX IF NOT EXISTS idx_selfheal_at ON selfheal_runs(started_at DESC);
+-- streamed activity log (mine/eval/heal/judge/bank) powering the live UI panel.
+CREATE TABLE IF NOT EXISTS selfheal_log (
+    id          BIGSERIAL PRIMARY KEY,
+    doc_id      BIGINT,
+    run_id      BIGINT,
+    tag         TEXT,                               -- mine|eval|heal|judge|bank|warn|info
+    msg         TEXT,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_selfheal_log ON selfheal_log(id DESC);
 
 -- ---- compiled "wiki" layer (Karpathy second-brain): vision-once -> clean markdown ----
 -- per-page compiled markdown (tables/steps/codes preserved, nothing omitted).

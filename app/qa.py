@@ -73,7 +73,7 @@ def add_qa(question: str, answer: str, source: str = "qa",
 
 
 def serve_match(question: str, min_sim: float = 0.72,
-                min_len: int = 0) -> dict | None:
+                min_len: int = 0, sectors: list[int] | None = None) -> dict | None:
     """Best ACTIVE pair whose question is near-identical to `question` (trigram).
     Used to serve a cached answer with zero agent. Conservative by threshold —
     only approved pairs, only very close phrasing, only answers with enough
@@ -90,13 +90,17 @@ def serve_match(question: str, min_sim: float = 0.72,
                r"request assistance|escalate to|contact your (supervisor|superior|manager|it team))")
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, question, answer, page_ids, confidence, source, "
-            "similarity(question, %(q)s) AS sim FROM qa_pairs "
-            "WHERE status = 'active' AND similarity(question, %(q)s) >= %(t)s "
-            "AND length(btrim(answer)) >= %(ml)s "
-            "AND NOT (answer ~* %(df)s AND length(btrim(answer)) < 200) "
+            "SELECT qp.id, qp.question, qp.answer, qp.page_ids, qp.confidence, qp.source, "
+            "similarity(qp.question, %(q)s) AS sim FROM qa_pairs qp "
+            # row-level access: a banked answer may only be served to a user whose
+            # sector owns the source doc (NULL sectors = no filter / single-tenant).
+            "LEFT JOIN docs d ON d.id = qp.doc_id "
+            "WHERE qp.status = 'active' AND similarity(qp.question, %(q)s) >= %(t)s "
+            "AND length(btrim(qp.answer)) >= %(ml)s "
+            "AND NOT (qp.answer ~* %(df)s AND length(btrim(qp.answer)) < 200) "
+            "AND (%(sectors)s::bigint[] IS NULL OR d.sector_id = ANY(%(sectors)s)) "
             "ORDER BY sim DESC LIMIT 1",
-            {"q": q, "t": min_sim, "ml": int(min_len), "df": deflect},
+            {"q": q, "t": min_sim, "ml": int(min_len), "df": deflect, "sectors": sectors},
         ).fetchone()
     return row
 

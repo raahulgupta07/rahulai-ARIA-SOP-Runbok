@@ -123,6 +123,13 @@ services:
       AUTO_QA_GAP_ENABLED: ${AUTO_QA_GAP_ENABLED:-0}
       AUTO_QA_GAP_PER_DAY: ${AUTO_QA_GAP_PER_DAY:-5}
       AUTO_QA_GAP_INTERVAL_H: ${AUTO_QA_GAP_INTERVAL_H:-24}
+      # ---- Sector-based row-level access (multi-tenant; default OFF = single-tenant) ----
+      RBAC_ENABLED: ${RBAC_ENABLED:-0}
+      # ---- Self-Heal agent: parallel per-doc eval-gated self-improvement (default OFF — costs LLM) ----
+      SELFHEAL_ENABLED: ${SELFHEAL_ENABLED:-0}
+      SELFHEAL_MAX_ROUNDS: ${SELFHEAL_MAX_ROUNDS:-3}
+      SELFHEAL_JUDGES: ${SELFHEAL_JUDGES:-3}
+      SELFHEAL_POLL_MIN: ${SELFHEAL_POLL_MIN:-5}
       # ---- Phase 4: serve cached answers from the Q&A bank (default ON) ----
       AUTO_QA_SERVE_ENABLED: ${AUTO_QA_SERVE_ENABLED:-1}
       AUTO_QA_SERVE_MIN_SIM: ${AUTO_QA_SERVE_MIN_SIM:-0.72}

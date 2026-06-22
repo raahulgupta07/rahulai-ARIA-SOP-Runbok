@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Sources — UNIFIED (folders + rich docs + process panel) · Aria</title>
+<style>
+  :root{--cream:#faf9f5;--paper:#fff;--sand:#f0eee6;--ink:#1f1e1d;--muted:#8a857c;--line:#e9e6dd;
+    --coral:#c2683f;--blue:#3f7fb0;--teal:#2f8f83;--violet:#7b6bd6;--amber:#c98a2e;--green:#3f8f5f;--red:#c0492f;}
+  *{box-sizing:border-box}html,body{height:100%}
+  body{margin:0;background:var(--cream);color:var(--ink);font:13.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}
+  .top{display:flex;align-items:center;gap:18px;padding:11px 22px;background:#fbfaf7;border-bottom:1px solid var(--line);flex:none}
+  .logo{width:28px;height:28px;border-radius:8px;background:radial-gradient(circle at 30% 30%,#e98f6b,var(--coral))}
+  .top nav{display:flex;gap:6px}.top a{padding:7px 13px;border-radius:9px;color:var(--muted);font-weight:500;font-size:13.5px;text-decoration:none}
+  .top a.on{background:#efece6;color:var(--ink);font-weight:600}
+  .add{margin-left:auto;background:var(--coral);color:#fff;border:none;border-radius:9px;padding:8px 14px;font-weight:600;font-size:13px;cursor:pointer}
+  .spin{width:11px;height:11px;border:2px solid var(--blue);border-top-color:transparent;border-radius:50%;animation:sp .8s linear infinite;flex:none}
+  .spin.sm{width:10px;height:10px}@keyframes sp{to{transform:rotate(360deg)}}
+  .shell{flex:1;display:flex;min-height:0}
+  /* === LEFT folder rail === */
+  .rail{width:212px;flex:none;background:var(--sand);border-right:1px solid #e4e0d6;display:flex;flex-direction:column;padding:12px 9px;overflow:auto}
+  .grp{font-size:10.5px;text-transform:uppercase;color:var(--muted);font-weight:600;padding:8px 10px 6px}
+  .fi{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:9px;font-size:12.5px;color:#4a463e;cursor:pointer}
+  .fi:hover{background:#e7e3d9}.fi.on{background:#fff;color:var(--blue);font-weight:600;box-shadow:inset 2px 0 0 var(--blue)}
+  .fi .n{margin-left:auto;color:var(--muted);font-size:10.5px}.fi .sh{opacity:.5}.fi .lk{font-size:9.5px;color:var(--amber)}
+  .newf{margin:8px 5px;padding:8px;border:1px dashed #cfc9bc;border-radius:9px;text-align:center;color:var(--muted);font-size:12px;cursor:pointer}
+  .rfoot{margin-top:auto;padding:8px 10px;border-top:1px solid #e4e0d6;color:var(--muted);font-size:11px}
+  /* === CENTER === */
+  .center{flex:1;min-width:0;display:flex;flex-direction:column;overflow:auto}
+  .chead{display:flex;align-items:center;gap:10px;padding:15px 20px 6px}
+  .chead h1{margin:0;font-size:17px}.chead small{color:var(--muted);margin-left:5px;font-size:12.5px}
+  .up{margin-left:auto;background:var(--ink);color:#fff;border:none;border-radius:9px;padding:7px 12px;font-weight:600;font-size:12.5px;cursor:pointer}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;padding:3px 20px 6px;align-items:center}
+  .chip{font-size:12px;padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:#fff;color:#5a554c;cursor:pointer}
+  .chip.on{border-color:var(--coral);background:#fbeee7;color:var(--coral);font-weight:600}.chip .c{color:var(--muted);margin-left:4px}
+  .retag{margin-left:auto;font-size:11.5px;color:var(--coral);border:1px solid #eccdbd;background:#fff;border-radius:8px;padding:4px 9px;cursor:pointer}
+  .tb{display:flex;align-items:center;gap:9px;padding:2px 20px 8px;font-size:12px;color:var(--muted)}
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+  .seg button{border:none;background:none;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--muted)}
+  .seg button.on{background:var(--sand);color:var(--ink);font-weight:600}
+  .jobs{border:1px solid #eccdbd;background:#fff;color:var(--coral);border-radius:8px;padding:4px 9px;cursor:pointer;display:flex;gap:6px;align-items:center}
+  .list{margin:0 20px 20px;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .glbl{padding:10px 16px 5px;font-size:10.5px;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .lh,.lr{display:grid;grid-template-columns:1fr 48px 50px 54px 70px 64px;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line)}
+  .lh{color:var(--muted);font-size:10px;text-transform:uppercase;font-weight:600}
+  .lr{cursor:pointer}.lr:hover{background:#fcfbf8}.lr.sel{background:#f3f8fc;box-shadow:inset 3px 0 0 var(--blue)}.lr:last-child{border-bottom:none}
+  .ti{display:flex;align-items:center;gap:9px;min-width:0}.ic{width:24px;height:28px;border-radius:5px;background:#eef2f6;border:1px solid #dde6ee;flex:none}.ic.my{background:#fbf3e6;border-color:#ecd9b3}
+  .tt{min-width:0}.nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .s{color:var(--muted);font-size:11px;margin-top:2px;display:flex;gap:6px;align-items:center}
+  .badge{font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;background:#fbeee7;color:var(--coral)}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block}.dot.b{background:var(--blue)}
+  .pb{height:4px;background:#edeae3;border-radius:99px;overflow:hidden;width:100%;margin-top:5px}.pb i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),#7cb4da)}
+  .lang{font-size:9.5px;font-weight:700;padding:2px 5px;border-radius:4px;justify-self:start}.lang.en{background:#eaf2f8;color:var(--blue)}.lang.my{background:#fbf3e6;color:var(--amber)}
+  .used{color:var(--coral);font-weight:600}.acc{color:var(--green);font-weight:600}.muted{color:var(--muted)}
+  /* === RIGHT panel (unified) === */
+  .panel{width:432px;flex:none;background:#fff;border-left:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden}
+  .ph{padding:15px 18px 6px;position:relative;border-bottom:1px solid var(--line)}
+  .ph h2{margin:0;font-size:17px;padding-right:30px}.ph .sub{color:var(--muted);font-size:12px;margin-top:3px}
+  .ix{position:absolute;top:14px;right:15px;width:28px;height:28px;border-radius:8px;background:var(--sand);border:none;font-size:15px;color:var(--muted);cursor:pointer}
+  .modeswitch{display:flex;gap:5px;padding:9px 18px;border-bottom:1px solid var(--line)}
+  .modeswitch button{flex:1;border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px;font-size:12px;font-weight:600;cursor:pointer;color:var(--muted)}
+  .modeswitch button.on{background:#eaf2f8;border-color:#cfe0ee;color:var(--blue)}
+  .pbody{flex:1;overflow:auto;padding:14px 18px}
+  .pt{font-size:10.5px;text-transform:uppercase;color:var(--muted);font-weight:600;margin:14px 0 8px}.pt:first-child{margin-top:0}
+  /* processing */
+  .vt{margin-left:5px}.vs{display:flex;gap:11px;padding-bottom:13px;position:relative}
+  .vs::before{content:"";position:absolute;left:8px;top:18px;bottom:-2px;width:2px;background:#dfe7ee}.vs:last-child::before{display:none}
+  .vs .d{width:18px;height:18px;border-radius:50%;background:#dfe7ee;border:2px solid #dfe7ee;flex:none;display:grid;place-items:center;color:#fff;font-size:10px;z-index:1}
+  .vs.done .d{background:var(--blue);border-color:var(--blue)}.vs.cur .d{background:#fff;border-color:var(--blue);animation:pl 1.2s infinite}
+  @keyframes pl{0%,100%{box-shadow:0 0 0 0 rgba(63,127,176,.4)}50%{box-shadow:0 0 0 6px rgba(63,127,176,0)}}
+  .vs .lb{font-size:12.5px;font-weight:600}.vs.cur .lb{color:var(--blue)}.vs:not(.done):not(.cur) .lb{color:var(--muted);font-weight:500}.vs .sub{font-size:11px;color:var(--muted)}
+  .pgs{display:flex;flex-wrap:wrap;gap:5px}.pg{width:32px;height:40px;border-radius:5px;border:1px solid var(--line);display:grid;place-items:center;font-size:10px;font-weight:600;color:var(--muted);background:#faf9f6}
+  .pg.ok{background:#e7f3ec;border-color:#bfe0cb;color:var(--green)}.pg.cur{border-color:var(--blue);color:var(--blue);background:#eaf2f8;animation:pl 1.2s infinite}
+  .enr{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12px;border-bottom:1px dashed var(--line)}.enr:last-child{border-bottom:none}.enr .st{width:14px;text-align:center}
+  .enr.ok .st{color:var(--green)}.enr.run{color:var(--blue);font-weight:600}.enr.wait{color:var(--muted)}.enr .x{margin-left:auto;color:var(--muted);font-size:10.5px}
+  .log{font:11px/1.6 ui-monospace,Menlo,monospace;max-height:120px;overflow:auto;background:#fbfaf7;border-radius:8px;padding:7px 9px}
+  .ln{display:flex;gap:7px}.ln .ts{color:#b8b2a6}.tg{font-weight:700;width:50px}.c-r{color:var(--violet)}.c-v{color:var(--blue)}.c-c{color:var(--teal)}.c-e{color:var(--amber)}
+  .caret{display:inline-block;width:6px;height:11px;background:var(--blue);animation:bl 1s steps(1) infinite}@keyframes bl{50%{opacity:0}}
+  /* ready */
+  .open{width:100%;background:var(--coral);color:#fff;border:none;border-radius:10px;padding:11px;font-weight:600;font-size:13.5px;cursor:pointer;margin-bottom:14px}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:14px}
+  .tile{border:1px solid var(--line);border-radius:9px;padding:9px 4px;text-align:center}.tile b{display:block;font-size:16px}.tile small{color:var(--muted);font-size:9.5px;text-transform:uppercase}
+  .tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px}.tbi{font-size:11.5px;padding:5px 9px;border-radius:7px;background:var(--sand);color:#5a554c;cursor:pointer}.tbi.on{background:#eaf2f8;color:var(--blue);font-weight:600}
+  .kv{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);font-size:12.5px}.kv .v{color:var(--muted)}
+  .bar{display:flex;align-items:center;gap:9px;padding:5px 0;font-size:12px}.bar .lb2{width:40px;color:var(--muted)}.bar .tr{flex:1;height:6px;background:#edeae3;border-radius:99px;overflow:hidden}.bar .tr i{display:block;height:100%}.bar .pc{width:36px;text-align:right;color:var(--muted)}
+  .prev{margin-top:12px;border:1px solid var(--line);border-radius:11px;background:#faf9f6;height:150px;display:grid;place-items:center;color:var(--muted);position:relative;font-size:12px}
+  .prev .pg2{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:10px;align-items:center;font-size:11px}.prev .pg2 b{width:22px;height:22px;border:1px solid var(--line);border-radius:6px;display:grid;place-items:center;background:#fff;cursor:pointer}
+  .oi{display:flex;gap:8px;padding:6px 0;border-bottom:1px dashed var(--line);font-size:12.5px;color:#4a463e}.oi .pn{margin-left:auto;color:var(--muted);font-size:11px}
+  .pfoot{padding:9px 18px;border-top:1px solid var(--line);display:flex;gap:7px;flex-wrap:wrap}
+  .bsm{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 10px;font-size:11.5px;font-weight:600;cursor:pointer}.bsm.tr2{color:var(--teal);border-color:#bfe0d9;background:#eef6f4}.bsm.del{color:var(--red);border-color:#e8c9c1}
+</style></head>
+<body>
+  <div class="top"><div class="logo"></div>
+    <nav><a href="#">Chat</a><a href="#">Workspace</a><a href="#" class="on">Sources</a><a href="#">Settings</a></nav>
+    <button class="add">＋ Add ▾</button></div>
+
+  <div class="shell">
+    <!-- LEFT rail -->
+    <aside class="rail">
+      <div class="grp">Folders</div>
+      <div class="fi on"><span>▦</span> All documents <span class="n">7</span></div>
+      <div class="fi"><span>○</span> Unfiled <span class="n">6</span></div>
+      <div class="grp">Shared folders</div>
+      <div class="fi"><span>📁</span> IT SOPs <span class="sh">⌁</span><span class="n">1</span></div>
+      <div class="fi"><span>📁</span> HR Policies <span class="sh">⌁</span><span class="n">0</span></div>
+      <div class="fi"><span>📁</span> Finance <span class="lk">🔒1</span><span class="sh">⌁</span><span class="n">0</span></div>
+      <div class="newf">＋ New folder</div>
+      <div class="rfoot">7 docs · 65 pages · 32 facts · 1 processing</div>
+    </aside>
+
+    <!-- CENTER rich list -->
+    <main class="center">
+      <div class="chead"><h1>All documents</h1><small>7 documents · 65 pages · 100% read</small><button class="up">⬆ Upload here</button></div>
+      <div class="chips"><span class="chip on">All <span class="c">7</span></span><span class="chip">Store Provisioning <span class="c">2</span></span><span class="chip">User Admin <span class="c">2</span></span><span class="chip">AI Governance <span class="c">1</span></span><span class="chip">Employee Benefits <span class="c">1</span></span><span class="retag">↻ Re-tag</span></div>
+      <div class="tb">Group <span class="seg"><button class="on">Date</button><button>Category</button></span>
+        View <span class="seg"><button>Cards</button><button class="on">List</button></span>
+        <span class="jobs"><span class="spin"></span> Jobs · 1 active</span><span style="margin-left:auto">Sort: Newest ▾</span></div>
+
+      <div class="list">
+        <div class="glbl">Today · 2</div>
+        <div class="lh"><div>Title</div><div>Lang</div><div>Pages</div><div>Used</div><div>Accuracy</div><div>By</div></div>
+        <!-- PROCESSING row -->
+        <div class="lr">
+          <div class="ti"><div class="ic my"></div><div class="tt"><div class="nm">FAQ for Scholarship Program (bilingual)</div>
+            <div class="s"><span class="badge">SOP</span><span class="dot b"></span> Processing · reading 3/5</div><div class="pb"><i style="width:62%"></i></div></div></div>
+          <span class="lang my">MY</span><div class="muted">5</div><div class="muted">—</div><div class="muted">—</div><div class="muted">admin</div>
+        </div>
+        <!-- READY selected -->
+        <div class="lr sel">
+          <div class="ti"><div class="ic"></div><div class="tt"><div class="nm">User Management</div>
+            <div class="s"><span class="badge">SOP</span><span class="dot"></span> GLDCENTRAL · User Admin · Ready</div></div></div>
+          <span class="lang en">EN</span><div class="muted">6</div><div class="used">45×</div><div class="acc">100%</div><div class="muted">admin</div>
+        </div>
+        <div class="glbl">Earlier · 5</div>
+        <div class="lr"><div class="ti"><div class="ic"></div><div class="tt"><div class="nm">New Site Creation</div><div class="s"><span class="badge">SOP</span><span class="dot"></span> Store Provisioning · Ready</div></div></div>
+          <span class="lang en">EN</span><div class="muted">22</div><div class="used">26×</div><div class="acc">100%</div><div class="muted">admin</div></div>
+      </div>
+    </main>
+
+    <!-- RIGHT unified panel -->
+    <aside class="panel">
+      <div class="ph"><button class="ix">✕</button><h2 id="ptitle">User Management</h2><div class="sub" id="psub">User Admin · EN · 6 pages · 9 sections</div></div>
+      <div class="modeswitch"><button id="m-ready" class="on" onclick="mode('ready')">● Ready — inspector</button><button id="m-proc" onclick="mode('proc')">⟳ Processing — live</button></div>
+
+      <!-- READY -->
+      <div class="pbody" id="ready">
+        <button class="open">Open full document →</button>
+        <div class="tiles"><div class="tile"><b>6</b><small>pages</small></div><div class="tile"><b>9</b><small>sections</small></div><div class="tile"><b style="color:var(--coral)">45×</b><small>used</small></div><div class="tile"><b style="color:var(--green)">100%</b><small>read</small></div></div>
+        <div class="tabs"><span class="tbi on">Pages</span><span class="tbi">Text</span><span class="tbi">Playbook</span><span class="tbi">Entities</span><span class="tbi">Lookup</span><span class="tbi">Deps</span><span class="tbi">Tree</span><span class="tbi">Q&amp;A</span></div>
+        <div class="prev">📄 page 1 image — zoom / pan<div class="pg2"><b>‹</b> page 1 / 6 <b>›</b></div></div>
+        <div class="pt">Extraction</div>
+        <div class="bar"><span class="lb2">vision</span><span class="tr"><i style="width:100%;background:var(--green)"></i></span><span class="pc">100%</span></div>
+        <div class="bar"><span class="lb2">text</span><span class="tr"><i style="width:100%;background:var(--coral)"></i></span><span class="pc">100%</span></div>
+        <div class="kv"><span>Uploaded</span><span class="v">19 Jun · 3d ago</span></div>
+        <div class="kv"><span>Last answered</span><span class="v">today · 45 Q</span></div>
+        <div class="kv"><span>Structure</span><span class="v">9 sections · tree ✓</span></div>
+        <div class="pt">In this document</div>
+        <div class="oi">Overview & roles <span class="pn">p.1</span></div><div class="oi">Create a user <span class="pn">p.2</span></div><div class="oi">Assign / modify role <span class="pn">p.3</span></div><div class="oi">Disable / delete <span class="pn">p.4</span></div>
+      </div>
+
+      <!-- PROCESSING -->
+      <div class="pbody" id="proc" style="display:none">
+        <div class="pt">Pipeline · stage 3 of 7 · live 0:42</div>
+        <div class="vt">
+          <div class="vs done"><div class="d">✓</div><div><div class="lb">Queued</div><div class="sub">0:00</div></div></div>
+          <div class="vs done"><div class="d">✓</div><div><div class="lb">Render</div><div class="sub">5 pages @220 DPI · 0:08</div></div></div>
+          <div class="vs cur"><div class="d"></div><div><div class="lb">Read — vision</div><div class="sub">page 3/5 · 8 workers · 0:42</div></div></div>
+          <div class="vs"><div class="d"></div><div><div class="lb">Structure</div><div class="sub">PageIndex tree</div></div></div>
+          <div class="vs"><div class="d"></div><div><div class="lb">Compile</div><div class="sub">wiki markdown</div></div></div>
+          <div class="vs"><div class="d"></div><div><div class="lb">Enrich</div><div class="sub">9 knowledge passes</div></div></div>
+          <div class="vs"><div class="d"></div><div><div class="lb">Ready</div><div class="sub">answerable + cited</div></div></div>
+        </div>
+        <div class="pt">Vision pages</div>
+        <div class="pgs"><div class="pg ok">1✓</div><div class="pg ok">2✓</div><div class="pg cur">3</div><div class="pg">4</div><div class="pg">5</div></div>
+        <div class="pt">Knowledge enrichers (= training)</div>
+        <div class="enr ok"><span class="st">✓</span> Compile wiki <span class="x">5</span></div>
+        <div class="enr ok"><span class="st">✓</span> Doc-type <span class="x">runbook</span></div>
+        <div class="enr run"><span class="spin sm st"></span> Playbook <span class="x">running…</span></div>
+        <div class="enr wait"><span class="st">○</span> Entities · Lookup · Deps <span class="x">queued</span></div>
+        <div class="enr wait"><span class="st">○</span> Tree · Facts · Q&amp;A mining <span class="x">queued</span></div>
+        <div class="pt">Live activity</div>
+        <div class="log"><div class="ln"><span class="ts">0:24</span><span class="tg c-v">VISION</span><span>page 2 · bilingual EN+MY</span></div>
+          <div class="ln"><span class="ts">0:40</span><span class="tg c-e">ENRICH</span><span>doc-type=runbook · playbook started</span></div>
+          <div class="ln" style="color:var(--blue);font-weight:600"><span class="ts">0:42</span><span class="tg c-v">VISION</span><span>reading page 3/5 <span class="caret"></span></span></div></div>
+      </div>
+
+      <div class="pfoot">
+        <button class="bsm tr2">⟳ Re-train</button><button class="bsm">📁 Move</button><button class="bsm">⌁ Share</button><button class="bsm del">🗑 Delete</button>
+      </div>
+    </aside>
+  </div>
+<script>
+  function mode(m){
+    document.getElementById('ready').style.display=m==='ready'?'block':'none';
+    document.getElementById('proc').style.display=m==='proc'?'block':'none';
+    document.getElementById('m-ready').classList.toggle('on',m==='ready');
+    document.getElementById('m-proc').classList.toggle('on',m==='proc');
+    document.getElementById('ptitle').textContent=m==='proc'?'FAQ for Scholarship Program':'User Management';
+    document.getElementById('psub').textContent=m==='proc'?'Processing · 5 pages · IT SOPs · bilingual':'User Admin · EN · 6 pages · 9 sections';
+  }
+</script>
+</body></html>

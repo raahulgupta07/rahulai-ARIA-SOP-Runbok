@@ -161,13 +161,68 @@ export const api = {
     return jsonOrThrow(await fetch(`${BASE}/conversations/${id}`, { method: 'DELETE', headers: headers(false) }));
   },
 
-  async documents() {
-    return jsonOrThrow(await fetch(`${BASE}/documents`, { headers: headers(false) }));
+  async documents(folderId?: number | null) {
+    const qs = (folderId === undefined || folderId === null) ? '' : `?folder_id=${folderId}`;
+    return jsonOrThrow(await fetch(`${BASE}/documents${qs}`, { headers: headers(false) }));
+  },
+
+  // ---- folders (document hub) ----
+  async folders() {
+    return jsonOrThrow(await fetch(`${BASE}/folders`, { headers: headers(false) }));
+  },
+  async createFolder(
+    name: string,
+    opts?: {
+      access_mode?: 'sector' | 'specific' | 'org';
+      principals?: { type: 'user' | 'group'; id: number }[];
+      sector_id?: number | null;
+    }
+  ) {
+    const body: Record<string, any> = { name };
+    if (opts?.access_mode) body.access_mode = opts.access_mode;
+    if (opts?.principals) body.principals = opts.principals;
+    if (opts?.sector_id !== undefined) body.sector_id = opts.sector_id;
+    return jsonOrThrow(await fetch(`${BASE}/folders`, { method: 'POST', headers: headers(), body: JSON.stringify(body) }));
+  },
+
+  // current access for a folder (preloads the Share modal)
+  async folderAccess(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/folders/${id}/access`, { headers: headers(false) }));
+  },
+  // save access back from the Share modal
+  async setFolderAccess(
+    id: number,
+    opts: {
+      access_mode: 'sector' | 'specific' | 'org';
+      principals: { type: 'user' | 'group'; id: number }[];
+    }
+  ) {
+    return jsonOrThrow(await fetch(`${BASE}/folders/${id}/access`, {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify({ access_mode: opts.access_mode, principals: opts.principals })
+    }));
+  },
+
+  // admin: users + groups to populate the folder-access picker
+  async principals() {
+    return jsonOrThrow(await fetch(`${BASE}/principals`, { headers: headers(false) }));
   },
 
   async upload(file: File) {
     const fd = new FormData();
     fd.append('file', file);
+    const h: Record<string, string> = {};
+    const t = token();
+    if (t) h['Authorization'] = `Bearer ${t}`;
+    return jsonOrThrow(await fetch(`${BASE}/upload`, { method: 'POST', headers: h, body: fd }));
+  },
+
+  // like upload() but routes the file into a folder when given
+  async uploadTo(file: File, folderId?: number | null) {
+    const fd = new FormData();
+    fd.append('file', file);
+    if (folderId !== undefined && folderId !== null) fd.append('folder_id', String(folderId));
     const h: Record<string, string> = {};
     const t = token();
     if (t) h['Authorization'] = `Bearer ${t}`;
@@ -180,6 +235,14 @@ export const api = {
 
   async retryDoc(id: number) {
     return jsonOrThrow(await fetch(`${BASE}/documents/${id}/retry`, { method: 'POST', headers: headers(false) }));
+  },
+  async docProcessing(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/documents/${id}/processing`, { headers: headers(false) }));
+  },
+  async moveDoc(id: number, folderId: number | null) {
+    return jsonOrThrow(await fetch(`${BASE}/documents/${id}`, {
+      method: 'PATCH', headers: headers(true), body: JSON.stringify({ folder_id: folderId }),
+    }));
   },
   async categorizeDoc(id: number) {
     return jsonOrThrow(await fetch(`${BASE}/documents/${id}/categorize`, { method: 'POST', headers: headers(false) }));
@@ -427,6 +490,24 @@ export const api = {
   async analyticsDocs(days = 30) {
     return jsonOrThrow(await fetch(`${BASE}/analytics/docs?days=${days}`, { headers: headers(false) }));
   },
+  async docEval() {
+    return jsonOrThrow(await fetch(`${BASE}/analytics/doc-eval`, { headers: headers(false) }));
+  },
+  async docEvalRun(maxQ = 6) {
+    return jsonOrThrow(await fetch(`${BASE}/analytics/doc-eval/run?max_q=${maxQ}`, { method: 'POST', headers: headers(false) }));
+  },
+  // ---- Self-Heal agent (per-doc grounded-answer healing loop) ----
+  async selfheal() {
+    return jsonOrThrow(await fetch(`${BASE}/analytics/selfheal`, { headers: headers(false) }));
+  },
+  async selfhealLogs(docId?: number | null, after = 0) {
+    const qs = `?${docId != null ? `doc_id=${docId}&` : ''}after=${after}`;
+    return jsonOrThrow(await fetch(`${BASE}/analytics/selfheal/logs${qs}`, { headers: headers(false) }));
+  },
+  async selfhealRun(docId?: number | null) {
+    const qs = docId != null ? `?doc_id=${docId}` : '';
+    return jsonOrThrow(await fetch(`${BASE}/analytics/selfheal/run${qs}`, { method: 'POST', headers: headers(false) }));
+  },
   async analyticsVerify(days = 30) {
     return jsonOrThrow(await fetch(`${BASE}/analytics/verify?days=${days}`, { headers: headers(false) }));
   },
@@ -634,6 +715,15 @@ export const api = {
   // ---- capabilities (master catalog: everything Aria can help with, grouped) ----
   async getCatalog() {
     return jsonOrThrow(await fetch(`${BASE}/catalog`, { headers: headers(false) }));
+  },
+
+  // ---- white-label branding (one-logo: name/mark/favicon/icons + accent generated) ----
+  async brand() {
+    return jsonOrThrow(await fetch(`${BASE}/brand`, { headers: headers(false) }));
+  },
+  async saveBrand(fd: FormData) {
+    // headers(false) → no Content-Type so the browser sets the multipart boundary
+    return jsonOrThrow(await fetch(`${BASE}/admin/brand`, { method: 'POST', headers: headers(false), body: fd }));
   },
 
   // ---- KB health (conflicts + stale docs) ----

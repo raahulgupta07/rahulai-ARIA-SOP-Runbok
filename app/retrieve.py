@@ -211,13 +211,22 @@ def _rerank(query: str, rows: list, keep: int) -> list:
         return rows[:keep]
 
 
-def search_pages(query: str, k: int | None = None) -> list[dict]:
-    """Top-k candidate pages with combined hybrid score."""
+def search_pages(query: str, k: int | None = None,
+                 sectors: list[int] | None = None) -> list[dict]:
+    """Top-k candidate pages with combined hybrid score.
+
+    sectors = row-level access filter (rbac.allowed_sectors). None => no filter
+    (single-tenant / super-admin / All-Access). A list scopes EVERY page fetch
+    below — main query, recent-doc fallback, and the cross-doc entity / graph-walk
+    fills — to those sectors, so a scoped user can never retrieve or cite another
+    sector's page."""
     k = k or DEFAULT_K
     terms = _expand(query)
     tsq = _tsquery(terms)
     raw = query.strip()
     ilike_terms = [t for t in terms if 3 <= len(t) <= 50][:10]
+    # SQL fragment reused by every page-fetch query; NULL sectors = pass-through.
+    _SEC = " AND (%(sectors)s::bigint[] IS NULL OR d.sector_id = ANY(%(sectors)s)) "
 
     # one indexed query; score = fts + 2*section + 0.5*trigram + ilike hits
     sql = """
@@ -240,7 +249,7 @@ def search_pages(query: str, k: int | None = None) -> list[dict]:
           p.tsv @@ q.tsq
        OR p.text ILIKE ANY (SELECT '%%' || t || '%%' FROM unnest(%(ilike)s::text[]) t)
        OR EXISTS (SELECT 1 FROM nodes n WHERE n.doc_id = p.doc_id
-                  AND n.page_no = p.page_no AND n.tsv @@ q.tsq))
+                  AND n.page_no = p.page_no AND n.tsv @@ q.tsq)) """ + _SEC + """
     ORDER BY (ts_rank(p.tsv, q.tsq) + 2.0 * COALESCE(
                  (SELECT max(ts_rank(n.tsv, q.tsq)) FROM nodes n
                   WHERE n.doc_id = p.doc_id AND n.page_no = p.page_no
@@ -254,7 +263,7 @@ def search_pages(query: str, k: int | None = None) -> list[dict]:
     # over-fetch a candidate pool when reranking, then trim to k by relevance
     fetch_k = max(k, min(RERANK_POOL, k * 2)) if (RETRIEVE_RERANK and _client) else k
     params = {"tsq": tsq or "x", "raw": raw, "ilike": ilike_terms or [raw],
-              "k": fetch_k, "sal": SALIENCE_BOOST}
+              "k": fetch_k, "sal": SALIENCE_BOOST, "sectors": sectors}
     with get_conn() as conn:
         rows = conn.execute(sql, params).fetchall()
 
@@ -282,9 +291,11 @@ def search_pages(query: str, k: int | None = None) -> list[dict]:
                 "m.md AS page_md "
                 "FROM pages p JOIN docs d ON d.id = p.doc_id "
                 "LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no "
-                "WHERE p.doc_id = (SELECT max(id) FROM docs WHERE status='ready') "
-                "ORDER BY p.page_no LIMIT %s",
-                (k,),
+                "WHERE p.doc_id = (SELECT max(id) FROM docs dd WHERE status='ready' "
+                "  AND (%(sectors)s::bigint[] IS NULL OR dd.sector_id = ANY(%(sectors)s))) "
+                + _SEC +
+                "ORDER BY p.page_no LIMIT %(k)s",
+                {"k": k, "sectors": sectors},
             ).fetchall()
 
     # depth-fill the top doc with its best-matching body pages (relevance-ranked,
@@ -329,10 +340,10 @@ def search_pages(query: str, k: int | None = None) -> list[dict]:
                         "m.md AS page_md "
                         "FROM pages p JOIN docs d ON d.id = p.doc_id "
                         "LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no, q "
-                        "WHERE p.doc_id = ANY(%(docs)s) "
+                        "WHERE p.doc_id = ANY(%(docs)s) " + _SEC +
                         "ORDER BY p.doc_id, (ts_rank(p.tsv, q.tsq) + "
                         "0.3 * similarity(left(p.text,2000), %(raw)s)) DESC, p.page_no",
-                        {"tsq": tsq, "raw": raw, "docs": cand},
+                        {"tsq": tsq, "raw": raw, "docs": cand, "sectors": sectors},
                     ).fetchall()
                 for e in ex:
                     if (e["doc_id"], e["page_no"]) not in have:
@@ -371,10 +382,10 @@ def search_pages(query: str, k: int | None = None) -> list[dict]:
                         "m.md AS page_md "
                         "FROM pages p JOIN docs d ON d.id = p.doc_id "
                         "LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no, q "
-                        "WHERE d.status = 'ready' AND p.doc_id = ANY(%(docs)s) "
+                        "WHERE d.status = 'ready' AND p.doc_id = ANY(%(docs)s) " + _SEC +
                         "ORDER BY p.doc_id, (ts_rank(p.tsv, q.tsq) + "
                         "0.3 * similarity(left(p.text,2000), %(raw)s)) DESC, p.page_no",
-                        {"tsq": tsq, "raw": raw, "docs": cand},
+                        {"tsq": tsq, "raw": raw, "docs": cand, "sectors": sectors},
                     ).fetchall()
                     for e in ex:
                         if (e["doc_id"], e["page_no"]) not in have:
@@ -389,6 +400,11 @@ def search_pages(query: str, k: int | None = None) -> list[dict]:
         raw = r.get("text_full") or r.get("snippet") or ""
         md = r.get("page_md")
         body = md if (use_wiki and md) else raw   # compiled markdown preferred, raw fallback
+        # combined hybrid relevance score (mirrors the main-query ORDER BY weights)
+        # so callers (scope gate, blind detection) can tell a strong match from a
+        # barely-matching page. Filled/fallback rows lack the components → 0.
+        score = (float(r.get("fts") or 0) + 2.0 * float(r.get("node") or 0)
+                 + 0.5 * float(r.get("trg") or 0) + 0.3 * float(r.get("hits") or 0))
         out.append({
             "page_id": r["page_id"],
             "doc_id": r["doc_id"],
@@ -397,6 +413,7 @@ def search_pages(query: str, k: int | None = None) -> list[dict]:
             "image_path": r["image_path"],
             "snippet": r["snippet"] or "",
             "text_full": body,
+            "score": score,
         })
     return out
 
@@ -441,11 +458,13 @@ def _reformulate(query: str) -> list[str]:
         return []
 
 
-def agentic_search(query: str, k: int | None = None) -> tuple[list[dict], list[str]]:
+def agentic_search(query: str, k: int | None = None,
+                   sectors: list[int] | None = None) -> tuple[list[dict], list[str]]:
     """Iterative retrieval. Returns (pages, subqueries_used). If the base search is
-    already solid, subqueries is [] (no extra LLM/DB work)."""
+    already solid, subqueries is [] (no extra LLM/DB work). `sectors` = row-level
+    access filter, threaded into every underlying search_pages."""
     k = k or DEFAULT_K
-    base = search_pages(query, k)
+    base = search_pages(query, k, sectors=sectors)
     if not AGENTIC_RETRIEVE or len(base) >= max(3, (k + 1) // 2):
         return base, []
     subs = _reformulate(query)
@@ -454,7 +473,7 @@ def agentic_search(query: str, k: int | None = None) -> tuple[list[dict], list[s
     seen = {p["page_id"] for p in base}
     out = list(base)
     for s in subs:
-        for p in search_pages(s, k):
+        for p in search_pages(s, k, sectors=sectors):
             if p["page_id"] not in seen:
                 seen.add(p["page_id"]); out.append(p)
         if len(out) >= k:

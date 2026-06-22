@@ -63,7 +63,7 @@
   .logo { height: 30px; }
   .tag { font-size: 12px; color: var(--muted, #8b8b85); text-transform: uppercase; letter-spacing: .05em; }
   .body { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; padding: 34px 22px 60px; }
-  .q { font-family: 'Fraunces', Georgia, serif; font-size: 24px; line-height: 1.3; color: var(--ink); margin-bottom: 18px; }
+  .q { font-family: var(--font); font-size: 24px; line-height: 1.3; color: var(--ink); margin-bottom: 18px; }
   .a { font-size: 15px; line-height: 1.65; color: var(--ink); }
   .srcwrap { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--border, #ececea); }
   .srclbl { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted, #8b8b85); font-weight: 600; margin-bottom: 8px; }
@@ -71,7 +71,7 @@
   .coin { width: 26px; height: 26px; border-radius: 7px; background: #fdeee8; color: #d97757; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; text-decoration: none; border: 1px solid #f6d9cd; }
   .coin:hover { background: #d97757; color: #fff; }
   .msg { text-align: center; padding: 60px 0; }
-  .msg h2 { font-family: 'Fraunces', serif; font-size: 22px; margin: 0 0 8px; }
+  .msg h2 { font-family: var(--font); font-size: 22px; margin: 0 0 8px; }
   .msg p { color: var(--muted, #8b8b85); margin: 0 0 18px; }
   .btn { display: inline-block; background: var(--ink, #1a1a18); color: #fff; padding: 9px 20px; border-radius: 9px; text-decoration: none; font-size: 14px; font-weight: 600; }
   .foot { margin-top: 34px; font-size: 11.5px; color: var(--muted, #8b8b85); text-align: center; }

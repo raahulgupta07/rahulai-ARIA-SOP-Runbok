@@ -69,7 +69,17 @@
     activeConvId.set(id);
     try {
       const r = await api.getConversation(id);
-      messages = (r.messages || []).map((m: any) => ({ role: m.role, text: m.text, pages: m.pages || [] }));
+      messages = (r.messages || []).map((m: any) => {
+        const meta = m.meta || {};
+        const steps = (meta.steps || []).map((s: any) => ({ label: s.label, detail: s.detail, state: 'done' }));
+        return {
+          role: m.role, text: m.text, pages: m.pages || [],
+          messageId: m.id,
+          steps: steps.length ? steps : undefined,
+          thoughtMs: meta.thought_ms || undefined,
+          stepsOpen: false, thinking: false
+        };
+      });
     } catch { messages = []; }
     scrollDown();
   }
@@ -119,7 +129,8 @@
         m.servedQaId = obj.served_qa_id ?? null;   // set when answer came from Q&A cache
         m.citedN = obj.cited_n ?? (obj.pages || []).length;
         messages = messages;
-        // accuracy is on-demand: user clicks the ✦ check-accuracy button (saves an LLM call/answer)
+        // auto-verify accuracy on grounded, freshly-generated answers (skip cache-served — already vetted)
+        if (m.grounded && m.messageId && !m.servedQaId) checkAccuracy(m);
         if (obj.conversation_id && activeId === null) { activeId = obj.conversation_id; activeConvId.set(activeId); }
         // follow-up chips come folded into the answer stream now (no extra LLM call) → instant
         if (obj.followups?.length) { m.follows = obj.followups; messages = messages; }
@@ -652,9 +663,8 @@
       <div class="max-w-3xl mx-auto space-y-7">
         {#each messages as m}
           {#if m.role === 'user'}
-            <div class="flex gap-3.5">
-              <div class="shrink-0 w-[30px] h-[30px] rounded-[7px] grid place-items-center text-[13px] font-semibold" style="background:#e0ddd2; color:#5a5750">R</div>
-              <div class="flex-1 min-w-0 pt-1 text-[15.5px] leading-relaxed" style="color:var(--ink)">{m.text}</div>
+            <div class="flex justify-end">
+              <div class="userbubble">{m.text}</div>
             </div>
           {:else}
             <div class="flex gap-3.5">
@@ -716,15 +726,25 @@
                     </div>
                   {/if}
                   {#if m.pages && m.pages.length}
-                    <div class="mt-4 flex items-center gap-2 flex-wrap">
-                      <span class="text-[11px] uppercase tracking-wide" style="color:var(--muted)">Sources</span>
-                      {#each m.pages as p, i}
-                        <button class="coin" onclick={() => openSourcesSummary(m, p.page_id)} title="{shortDoc(p.doc_name)} · page {p.page_no}">
-                          <span class="coinn">{i + 1}</span>
-                          <span class="coinlbl">{shortDoc(p.doc_name)}·p{p.page_no}</span>
-                        </button>
-                      {/each}
-                      <button class="coinmore" onclick={() => openSourcesSummary(m)}>{m.pages.length} source{m.pages.length === 1 ? '' : 's'} →</button>
+                    <div class="srccard mt-4">
+                      <div class="srccard-h">
+                        <span class="srccard-ttl">{m.pages.length} source{m.pages.length === 1 ? '' : 's'}</span>
+                        <button class="srccard-all" onclick={() => openSourcesSummary(m)}>View all →</button>
+                      </div>
+                      <div class="srccard-list">
+                        {#each m.pages.slice(0, 4) as p, i}
+                          <button class="srcchip2" onclick={() => openSourcesSummary(m, p.page_id)} title="{shortDoc(p.doc_name)} · page {p.page_no}">
+                            <span class="srcchip2-n">{i + 1}</span>
+                            <span class="srcchip2-meta">
+                              <span class="srcchip2-doc">{shortDoc(p.doc_name)}</span>
+                              <span class="srcchip2-pg">page {p.page_no}</span>
+                            </span>
+                          </button>
+                        {/each}
+                        {#if m.pages.length > 4}
+                          <button class="srcchip2 more" onclick={() => openSourcesSummary(m)}>+{m.pages.length - 4} more</button>
+                        {/if}
+                      </div>
                     </div>
                   {/if}
 
@@ -806,8 +826,9 @@
     </div>
 
     <!-- composer -->
-    <div class="px-6 pb-5 pt-3 shrink-0">
-      <div class="composer max-w-3xl mx-auto rounded-2xl border p-3" style="background:var(--paper); border-color:var(--border)">
+    <div class="px-6 pb-5 pt-0 shrink-0 relative">
+      <div class="composer-scrim" aria-hidden="true"></div>
+      <div class="composer max-w-3xl mx-auto rounded-2xl border p-3 relative" style="background:var(--paper); border-color:var(--border); box-shadow:0 2px 14px rgba(0,0,0,.06)">
         <textarea bind:value={input} bind:this={taEl}
           onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
           onfocus={(e)=>{ const c=e.currentTarget.closest('.composer') as HTMLElement; if(c){c.style.borderColor='var(--clay)'; c.style.boxShadow='0 0 0 3px #f3f3f1';} }}
@@ -869,7 +890,7 @@
     font-size: 10px;
     line-height: 1;
     border-radius: 999px;
-    background: #f6e9e2;
+    background: color-mix(in srgb, var(--clay) 12%, #fff);
     color: var(--clay);
     cursor: pointer;
     border: none;
@@ -892,6 +913,67 @@
     background: #f3f3f1;
     color: var(--clay);
     font-weight: 600;
+  }
+
+  /* user question = right-aligned dark bubble (clear turn-taking) */
+  .userbubble {
+    max-width: 80%;
+    background: #1a1a18;
+    color: #fff;
+    padding: 10px 14px;
+    border-radius: 15px 15px 5px 15px;
+    font-size: 15px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* source strip → one tidy card with document chips */
+  .srccard {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: #fff;
+    overflow: hidden;
+  }
+  .srccard-h {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+  }
+  .srccard-ttl {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--muted); font-weight: 600;
+  }
+  .srccard-all { font-size: 11.5px; color: #426693; background: none; border: 0; cursor: pointer; }
+  .srccard-all:hover { color: var(--clay); }
+  .srccard-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px 12px; }
+  .srcchip2 {
+    display: flex; align-items: center; gap: 9px; min-width: 0;
+    border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px;
+    background: #fff; cursor: pointer; text-align: left;
+    transition: border-color .12s ease, background .12s ease;
+  }
+  .srcchip2:hover { border-color: #cfcabf; background: #faf9f5; }
+  .srcchip2-n {
+    width: 22px; height: 22px; flex: 0 0 auto; border-radius: 5px;
+    background: #eef2f7; color: #426693; display: grid; place-items: center;
+    font-size: 10px; font-weight: 700;
+  }
+  .srcchip2-meta { min-width: 0; }
+  .srcchip2-doc { display: block; font-size: 12px; font-weight: 600; color: var(--ink);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .srcchip2-pg { display: block; font-size: 10.5px; color: var(--muted); }
+  .srcchip2.more { justify-content: center; color: var(--muted); font-size: 12px; font-weight: 500; }
+
+  /* composer: scrim fade so the thread scrolls under it */
+  .composer-scrim {
+    position: absolute; left: 0; right: 0; top: -22px; height: 24px;
+    background: linear-gradient(to top, var(--cream, #faf9f5), transparent);
+    pointer-events: none;
+  }
+
+  @media (max-width: 640px) {
+    .userbubble { max-width: 88%; font-size: 14px; }
+    .srccard-list { grid-template-columns: 1fr; }
   }
 
   .starter {

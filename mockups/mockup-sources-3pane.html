@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Sources — folder rail + right process panel (mockup) · Aria</title>
+<style>
+  :root{
+    --cream:#faf9f5;--paper:#fff;--sand:#f0eee6;--ink:#1f1e1d;--muted:#8a857c;--line:#e9e6dd;
+    --coral:#c2683f;--blue:#3f7fb0;--teal:#2f8f83;--violet:#7b6bd6;--amber:#c98a2e;--green:#3f8f5f;--red:#c0492f;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--cream);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}
+  /* top bar */
+  .top{display:flex;align-items:center;gap:18px;padding:11px 22px;background:#fbfaf7;border-bottom:1px solid var(--line);flex:none}
+  .logo{width:28px;height:28px;border-radius:8px;background:radial-gradient(circle at 30% 30%,#e98f6b,var(--coral))}
+  .top nav{display:flex;gap:6px}.top a{padding:7px 13px;border-radius:9px;color:var(--muted);font-weight:500;font-size:13.5px;text-decoration:none}
+  .top a.on{background:#efece6;color:var(--ink);font-weight:600}
+  .jp{margin-left:auto;display:flex;align-items:center;gap:8px;background:#eef4f9;color:var(--blue);font-weight:600;font-size:12.5px;padding:7px 13px;border-radius:999px;border:1px solid #d7e6f1;cursor:pointer}
+  .spin{width:12px;height:12px;border:2px solid var(--blue);border-top-color:transparent;border-radius:50%;animation:sp .8s linear infinite;flex:none}
+  .spin.sm{width:11px;height:11px}@keyframes sp{to{transform:rotate(360deg)}}
+
+  /* 3-pane shell */
+  .shell{flex:1;display:flex;min-height:0}
+  /* === LEFT folder rail (persistent, like the Brain/doc rail) === */
+  .rail{width:228px;flex:none;background:var(--sand);border-right:1px solid #e4e0d6;display:flex;flex-direction:column;padding:12px 10px;overflow:auto}
+  .rail .grp{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;padding:8px 10px 6px}
+  .fitem{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;font-size:13px;color:#4a463e;cursor:pointer}
+  .fitem:hover{background:#e7e3d9}.fitem.on{background:#fff;color:var(--blue);font-weight:600;box-shadow:inset 2px 0 0 var(--blue)}
+  .fitem .ic{width:16px;text-align:center;flex:none}.fitem .n{margin-left:auto;color:var(--muted);font-size:11px}
+  .fitem .sh{opacity:.55;font-size:12px}.fitem .lk{font-size:10px;color:var(--amber)}
+  .newf{margin:8px 6px;padding:9px;border:1px dashed #cfc9bc;border-radius:10px;text-align:center;color:var(--muted);font-size:12.5px;cursor:pointer}
+  .rail .spacer{flex:1}
+  .railfoot{font-size:11px;color:var(--muted);padding:8px 10px;border-top:1px solid #e4e0d6}
+
+  /* === CENTER doc list === */
+  .center{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--cream);overflow:auto}
+  .chead{display:flex;align-items:center;gap:10px;padding:16px 22px 10px}
+  .chead h1{margin:0;font-size:18px}.chead small{color:var(--muted);font-weight:400;margin-left:6px;font-size:13px}
+  .up{margin-left:auto;background:var(--ink);color:#fff;border:none;border-radius:9px;padding:8px 13px;font-weight:600;font-size:13px;cursor:pointer}
+  .list{margin:0 16px 20px;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .lh,.lr{display:grid;grid-template-columns:1fr 64px 150px 150px;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--line)}
+  .lh{color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600}
+  .lr{cursor:pointer}.lr:hover{background:#fcfbf8}.lr.sel{background:#f3f8fc;box-shadow:inset 3px 0 0 var(--blue)}
+  .lr:last-child{border-bottom:none}
+  .nm{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nm .s{color:var(--muted);font-size:11.5px;font-weight:400;margin-top:3px}
+  .muted{color:var(--muted)}
+  .pb{height:5px;background:#edeae3;border-radius:99px;overflow:hidden;width:100%;margin-top:6px}
+  .pb i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),#7cb4da)}
+  .pill{font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;justify-self:start}
+  .p-proc{background:#eaf2f8;color:var(--blue)}.p-ready{background:#e7f3ec;color:var(--green)}.p-fail{background:#f7e7e3;color:var(--red)}
+
+  /* === RIGHT process panel (slide-over) === */
+  .scrim{position:fixed;inset:0;background:rgba(20,18,16,.16);display:none;z-index:30}
+  .scrim.open{display:block}
+  .proc{position:fixed;top:0;right:0;width:520px;max-width:95vw;height:100vh;background:#fff;border-left:1px solid var(--line);
+    transform:translateX(100%);transition:transform .22s ease;z-index:31;display:flex;flex-direction:column}
+  .proc.open{transform:none}
+  .ph{padding:15px 18px;border-bottom:1px solid var(--line);position:relative}
+  .ph h2{margin:0;font-size:15.5px;padding-right:24px}.ph .meta{color:var(--muted);font-size:12px;margin-top:3px}
+  .ph .live{position:absolute;top:15px;right:42px;display:flex;gap:6px;align-items:center;color:var(--blue);font-weight:600;font-size:12px}
+  .px{position:absolute;top:13px;right:14px;background:none;border:none;font-size:20px;color:var(--muted);cursor:pointer}
+  .pbody{flex:1;overflow:auto;padding:16px 18px}
+  .pt{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;margin:14px 0 9px}
+  .pt:first-child{margin-top:0}
+  /* vertical stage timeline */
+  .vt{position:relative;margin-left:6px}
+  .vstep{display:flex;gap:12px;padding-bottom:14px;position:relative}
+  .vstep::before{content:"";position:absolute;left:8px;top:18px;bottom:-2px;width:2px;background:#dfe7ee}
+  .vstep:last-child::before{display:none}
+  .vstep .d{width:18px;height:18px;border-radius:50%;background:#dfe7ee;border:2px solid #dfe7ee;flex:none;display:grid;place-items:center;color:#fff;font-size:10px;z-index:1}
+  .vstep.done .d{background:var(--blue);border-color:var(--blue)}
+  .vstep.cur .d{background:#fff;border-color:var(--blue);animation:pl 1.2s infinite}
+  @keyframes pl{0%,100%{box-shadow:0 0 0 0 rgba(63,127,176,.4)}50%{box-shadow:0 0 0 6px rgba(63,127,176,0)}}
+  .vstep .lbl{font-size:13px;font-weight:600}.vstep.cur .lbl{color:var(--blue)}.vstep:not(.done):not(.cur) .lbl{color:var(--muted);font-weight:500}
+  .vstep .sub{font-size:11.5px;color:var(--muted);margin-top:1px}
+  /* per-page vision chips */
+  .pages{display:flex;flex-wrap:wrap;gap:6px}
+  .pg{width:36px;height:46px;border-radius:6px;border:1px solid var(--line);display:grid;place-items:center;font-size:11px;font-weight:600;color:var(--muted);background:#faf9f6}
+  .pg.ok{background:#e7f3ec;border-color:#bfe0cb;color:var(--green)}
+  .pg.cur{border-color:var(--blue);color:var(--blue);background:#eaf2f8;animation:pl 1.2s infinite}
+  /* enrichers */
+  .enr{display:flex;align-items:center;gap:9px;padding:6px 0;font-size:12.5px;border-bottom:1px dashed var(--line)}
+  .enr:last-child{border-bottom:none}.enr .st{width:15px;text-align:center;flex:none}
+  .enr.ok .st{color:var(--green)}.enr.run{color:var(--blue);font-weight:600}.enr.wait{color:var(--muted)}
+  .enr .x{margin-left:auto;color:var(--muted);font-size:11px}
+  /* log */
+  .log{font:11.5px/1.7 ui-monospace,Menlo,monospace;max-height:150px;overflow:auto;background:#fbfaf7;border-radius:8px;padding:8px 10px}
+  .ln{display:flex;gap:8px}.ln .ts{color:#b8b2a6;flex:none}.tg{font-weight:700;flex:none;width:54px}
+  .c-render{color:var(--violet)}.c-vision{color:var(--blue)}.c-compile{color:var(--teal)}.c-enrich{color:var(--amber)}
+  .caret{display:inline-block;width:6px;height:12px;background:var(--blue);animation:bl 1s steps(1) infinite}@keyframes bl{50%{opacity:0}}
+  .pfoot{padding:11px 18px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center;color:var(--muted);font-size:12px}
+  .bsm{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 11px;font-size:12px;font-weight:600;cursor:pointer}
+  .bsm.del{color:var(--red);border-color:#e8c9c1}
+  .hint{text-align:center;color:var(--muted);font-size:12px;padding:6px}
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="logo"></div>
+    <nav><a href="#">Chat</a><a href="#">Workspace</a><a href="#" class="on">Sources</a><a href="#">Settings</a></nav>
+    <div class="jp" onclick="openProc()"><span class="spin"></span> Jobs · 1 active · 62%</div>
+  </div>
+
+  <div class="shell">
+    <!-- LEFT folder rail -->
+    <aside class="rail">
+      <div class="grp">Folders</div>
+      <div class="fitem"><span class="ic">▦</span> All documents <span class="n">7</span></div>
+      <div class="fitem"><span class="ic">○</span> Unfiled <span class="n">6</span></div>
+      <div class="grp">Shared folders</div>
+      <div class="fitem on"><span class="ic">📁</span> IT SOPs <span class="sh">⌁</span><span class="n">1</span></div>
+      <div class="fitem"><span class="ic">📁</span> HR Policies <span class="sh">⌁</span><span class="n">0</span></div>
+      <div class="fitem"><span class="ic">📁</span> Finance <span class="lk">🔒1</span><span class="sh">⌁</span><span class="n">0</span></div>
+      <div class="newf">＋ New folder</div>
+      <div class="spacer"></div>
+      <div class="railfoot">7 docs · 60 pages · 1 processing</div>
+    </aside>
+
+    <!-- CENTER doc list -->
+    <main class="center">
+      <div class="chead"><h1>IT SOPs</h1><small>1 document</small><button class="up">⬆ Upload here</button></div>
+      <div class="list">
+        <div class="lh"><div>Name</div><div>Pages</div><div>Uploaded by</div><div>Status</div></div>
+        <!-- processing row — click opens RIGHT panel -->
+        <div class="lr sel" onclick="openProc()">
+          <div class="nm">FAQ for Scholarship Program (bilingual)
+            <div class="s">Reading pages 3 / 5 · stage 3 of 7 · 0:42</div>
+            <div class="pb"><i style="width:62%"></i></div></div>
+          <div class="muted">5</div><div class="muted">admin@city.com</div>
+          <span class="pill p-proc">Processing 62%</span>
+        </div>
+      </div>
+      <div class="hint">▸ click a document → process / detail opens on the right</div>
+    </main>
+  </div>
+
+  <!-- RIGHT process panel -->
+  <div class="scrim" id="scrim" onclick="closeProc()"></div>
+  <aside class="proc" id="proc">
+    <div class="ph">
+      <button class="px" onclick="closeProc()">✕</button>
+      <div class="live"><span class="spin sm"></span> live · 0:42</div>
+      <h2>FAQ for Scholarship Program</h2>
+      <div class="meta">Processing · 5 pages · IT SOPs · admin@city.com · bilingual</div>
+    </div>
+    <div class="pbody">
+      <!-- vertical stage timeline -->
+      <div class="pt">Pipeline · stage 3 of 7</div>
+      <div class="vt">
+        <div class="vstep done"><div class="d">✓</div><div><div class="lbl">Queued</div><div class="sub">picked up · 0:00</div></div></div>
+        <div class="vstep done"><div class="d">✓</div><div><div class="lbl">Render</div><div class="sub">5 pages @ 220 DPI · 0:08</div></div></div>
+        <div class="vstep cur"><div class="d"></div><div><div class="lbl">Read — vision</div><div class="sub">reading page 3 / 5 · 8 workers · 0:42</div></div></div>
+        <div class="vstep"><div class="d"></div><div><div class="lbl">Structure</div><div class="sub">PageIndex outline / tree</div></div></div>
+        <div class="vstep"><div class="d"></div><div><div class="lbl">Compile</div><div class="sub">per-page wiki markdown</div></div></div>
+        <div class="vstep"><div class="d"></div><div><div class="lbl">Enrich</div><div class="sub">9 knowledge passes</div></div></div>
+        <div class="vstep"><div class="d"></div><div><div class="lbl">Ready</div><div class="sub">answerable + cited</div></div></div>
+      </div>
+
+      <div class="pt">Vision — page images</div>
+      <div class="pages"><div class="pg ok">1✓</div><div class="pg ok">2✓</div><div class="pg cur">3</div><div class="pg">4</div><div class="pg">5</div></div>
+
+      <div class="pt">Knowledge enrichers</div>
+      <div class="enr ok"><span class="st">✓</span> Compile wiki <span class="x">5 pages</span></div>
+      <div class="enr ok"><span class="st">✓</span> Doc-type classify <span class="x">runbook</span></div>
+      <div class="enr run"><span class="spin sm st"></span> Playbook (steps/verify) <span class="x">running…</span></div>
+      <div class="enr wait"><span class="st">○</span> Entities · Lookup · Dependencies <span class="x">queued</span></div>
+      <div class="enr wait"><span class="st">○</span> Troubleshoot tree · Auto-facts <span class="x">queued</span></div>
+      <div class="enr wait"><span class="st">○</span> Q&amp;A mining <span class="x">queued</span></div>
+
+      <div class="pt">Live activity</div>
+      <div class="log">
+        <div class="ln"><span class="ts">0:09</span><span class="tg c-render">RENDER</span><span>5 pages rasterised</span></div>
+        <div class="ln"><span class="ts">0:24</span><span class="tg c-vision">VISION</span><span>page 2 read · bilingual EN+MY</span></div>
+        <div class="ln"><span class="ts">0:40</span><span class="tg c-enrich">ENRICH</span><span>doc-type=runbook · playbook started</span></div>
+        <div class="ln" style="color:var(--blue);font-weight:600"><span class="ts">0:42</span><span class="tg c-vision">VISION</span><span>reading page 3 / 5 <span class="caret"></span></span></div>
+      </div>
+    </div>
+    <div class="pfoot">auto-updates while processing
+      <span style="margin-left:auto;display:flex;gap:8px"><button class="bsm">⏹ Cancel</button><button class="bsm del">🗑 Delete</button></span></div>
+  </aside>
+
+<script>
+  function openProc(){document.getElementById('proc').classList.add('open');document.getElementById('scrim').classList.add('open');}
+  function closeProc(){document.getElementById('proc').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
+  openProc();
+</script>
+</body>
+</html>

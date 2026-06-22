@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Sources — full document processing detail (mockup) · Aria</title>
+<style>
+  :root{
+    --cream:#faf9f5;--paper:#fff;--sand:#f0eee6;--ink:#1f1e1d;--muted:#8a857c;--line:#e9e6dd;
+    --coral:#c2683f;--blue:#3f7fb0;--teal:#2f8f83;--violet:#7b6bd6;--amber:#c98a2e;--green:#3f8f5f;--red:#c0492f;--r:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--cream);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+  .top{display:flex;align-items:center;gap:18px;padding:11px 22px;background:#fbfaf7;border-bottom:1px solid var(--line)}
+  .logo{width:28px;height:28px;border-radius:8px;background:radial-gradient(circle at 30% 30%,#e98f6b,var(--coral))}
+  .top nav{display:flex;gap:6px}.top a{padding:7px 13px;border-radius:9px;color:var(--muted);font-weight:500;font-size:13.5px;text-decoration:none}
+  .top a.on{background:#efece6;color:var(--ink);font-weight:600}
+  .jp{margin-left:auto;display:flex;align-items:center;gap:8px;background:#eef4f9;color:var(--blue);font-weight:600;font-size:12.5px;padding:7px 13px;border-radius:999px;border:1px solid #d7e6f1}
+  .spin{width:12px;height:12px;border:2px solid var(--blue);border-top-color:transparent;border-radius:50%;animation:sp .8s linear infinite;flex:none}
+  .spin.sm{width:11px;height:11px;border-width:2px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .wrap{padding:18px 22px;display:grid;grid-template-columns:240px 1fr;gap:16px;max-width:1240px;margin:0 auto}
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:var(--r)}
+  .h{padding:13px 15px 9px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .tree{padding:2px 8px 8px;display:flex;flex-direction:column;gap:2px}
+  .fold{display:flex;align-items:center;gap:8px;padding:8px 9px;border-radius:9px;font-size:13px;cursor:pointer;color:#4a463e}
+  .fold:hover{background:var(--sand)}.fold.on{background:#eaf2f8;color:var(--blue);font-weight:600}
+  .fold .n{margin-left:auto;color:var(--muted);font-size:11px}
+  .bar{display:flex;align-items:center;gap:10px;padding:12px 15px;border-bottom:1px solid var(--line)}
+  .crumb{font-weight:600}.crumb small{color:var(--muted);font-weight:400;margin-left:5px}
+  .up{margin-left:auto;background:var(--ink);color:#fff;border:none;border-radius:9px;padding:8px 13px;font-weight:600;font-size:13px;cursor:pointer}
+  .row{display:flex;align-items:center;gap:12px;padding:12px 15px;border-bottom:1px solid var(--line);cursor:pointer}
+  .row:hover{background:#fcfbf8}.row.sel{background:#f3f8fc}
+  .rn{flex:1;font-weight:500;overflow:hidden}.rn .s{color:var(--muted);font-size:11.5px;margin-top:3px;font-weight:400}
+  .pill{font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px}
+  .p-proc{background:#eaf2f8;color:var(--blue)}.p-ready{background:#e7f3ec;color:var(--green)}.p-fail{background:#f7e7e3;color:var(--red)}
+  .pb{height:5px;background:#edeae3;border-radius:99px;overflow:hidden;width:160px;margin-top:6px}
+  .pb i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),#7cb4da)}
+
+  /* ===== DETAIL PANEL (full processing, like Brain) ===== */
+  .detail{margin:14px 15px 16px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .dhd{display:flex;align-items:center;gap:10px;padding:13px 15px;background:#f7fbfd;border-bottom:1px solid #e6eef5}
+  .dhd h3{margin:0;font-size:14.5px}.dhd .meta{color:var(--muted);font-size:12px}
+  .live{margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--blue);font-weight:600;font-size:12px}
+  /* stage stepper */
+  .stages{display:flex;padding:16px 18px 10px}
+  .stg{flex:1;text-align:center;position:relative;font-size:11px;color:var(--muted)}
+  .stg .d{width:18px;height:18px;border-radius:50%;background:#dfe7ee;border:2px solid #dfe7ee;margin:0 auto 6px;display:grid;place-items:center;color:#fff;font-size:10px}
+  .stg.done .d{background:var(--blue);border-color:var(--blue)}.stg.done{color:var(--ink)}
+  .stg.cur .d{background:#fff;border-color:var(--blue);animation:pl 1.2s infinite}.stg.cur{color:var(--blue);font-weight:700}
+  @keyframes pl{0%,100%{box-shadow:0 0 0 0 rgba(63,127,176,.4)}50%{box-shadow:0 0 0 6px rgba(63,127,176,0)}}
+  .stg::after{content:"";position:absolute;top:8px;left:50%;width:100%;height:2px;background:#dfe7ee;z-index:0}
+  .stg.done::after{background:var(--blue)}.stg:last-child::after{display:none}
+  .stg .t{font-size:10px;color:var(--muted);margin-top:2px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:6px 18px 18px}
+  .panel{border:1px solid var(--line);border-radius:10px;padding:12px 13px}
+  .panel .pt{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;margin-bottom:9px}
+  /* per-page vision grid */
+  .pages{display:flex;flex-wrap:wrap;gap:7px}
+  .pg{width:40px;height:50px;border-radius:7px;border:1px solid var(--line);display:grid;place-items:center;font-size:11px;font-weight:600;color:var(--muted);background:#faf9f6;position:relative}
+  .pg.ok{background:#e7f3ec;border-color:#bfe0cb;color:var(--green)}
+  .pg.cur{border-color:var(--blue);color:var(--blue);background:#eaf2f8}
+  .pg.cur::after{content:"";position:absolute;inset:-3px;border:2px solid var(--blue);border-radius:9px;animation:pl 1.2s infinite}
+  /* enricher checklist */
+  .enr{display:flex;align-items:center;gap:9px;padding:6px 0;font-size:12.5px;border-bottom:1px dashed var(--line)}
+  .enr:last-child{border-bottom:none}
+  .enr .st{width:16px;text-align:center}
+  .enr.ok .st{color:var(--green)}.enr.run{color:var(--blue);font-weight:600}.enr.wait{color:var(--muted)}
+  .enr .x{margin-left:auto;color:var(--muted);font-size:11px}
+  /* live log */
+  .log{font:12px/1.7 ui-monospace,Menlo,monospace;max-height:160px;overflow:auto;background:#fbfaf7;border-radius:8px;padding:8px 10px}
+  .ln{display:flex;gap:9px}.ln .ts{color:#b8b2a6;flex:none}
+  .tg{font-weight:700;flex:none;width:58px}
+  .c-render{color:var(--violet)}.c-vision{color:var(--blue)}.c-compile{color:var(--teal)}.c-enrich{color:var(--amber)}.c-done{color:var(--green)}
+  .cur-l{color:var(--blue);font-weight:600}
+  .caret{display:inline-block;width:7px;height:13px;background:var(--blue);animation:bl 1s steps(1) infinite}
+  @keyframes bl{50%{opacity:0}}
+  /* ready tabs preview */
+  .tabs{display:flex;gap:4px;padding:10px 18px 0;flex-wrap:wrap}
+  .tb{font-size:12px;padding:6px 11px;border-radius:8px;background:var(--sand);color:#5a554c}
+  .tb.on{background:#eaf2f8;color:var(--blue);font-weight:600}
+  .kpis{display:flex;gap:8px;padding:10px 18px 16px}
+  .kpi{flex:1;background:var(--sand);border-radius:9px;padding:9px;text-align:center}.kpi b{display:block;font-size:16px}.kpi small{color:var(--muted);font-size:11px}
+  .foot{display:flex;gap:8px;padding:11px 18px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+  .bsm{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 11px;font-size:12.5px;font-weight:600;cursor:pointer}
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="logo"></div>
+    <nav><a href="#">Chat</a><a href="#">Workspace</a><a href="#" class="on">Sources</a><a href="#">Settings</a></nav>
+    <div class="jp"><span class="spin"></span> Jobs · 1 active · 62%</div>
+  </div>
+
+  <div class="wrap">
+    <div class="card" style="align-self:start">
+      <div class="h">Folders</div>
+      <div class="tree">
+        <div class="fold"><span>▦</span> All documents <span class="n">7</span></div>
+        <div class="fold"><span>○</span> Unfiled <span class="n">6</span></div>
+        <div class="fold"><span>📁</span> HR Policies <span class="n">0</span></div>
+        <div class="fold on"><span>📁</span> IT SOPs <span class="n">1</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="bar"><div class="crumb">IT SOPs <small>1 document</small></div><button class="up">⬆ Upload here</button></div>
+
+      <!-- the processing doc (selected) -->
+      <div class="row sel">
+        <div class="rn">FAQ for Scholarship Program (bilingual)
+          <div class="s">Reading pages 3 / 5 · stage 3 of 7 · 0:42 elapsed</div>
+          <div class="pb"><i style="width:62%"></i></div></div>
+        <span class="pill p-proc">Processing 62%</span>
+      </div>
+
+      <!-- ============ FULL PROCESSING DETAIL ============ -->
+      <div class="detail">
+        <div class="dhd">
+          <h3>Processing — FAQ for Scholarship Program</h3>
+          <div class="live"><span class="spin sm"></span> live · 0:42</div>
+        </div>
+
+        <!-- 7-stage pipeline -->
+        <div class="stages">
+          <div class="stg done"><div class="d">✓</div>Queued<div class="t">0:00</div></div>
+          <div class="stg done"><div class="d">✓</div>Render<div class="t">0:08</div></div>
+          <div class="stg cur"><div class="d"></div>Read (vision)<div class="t">3/5 · 0:42</div></div>
+          <div class="stg"><div class="d"></div>Structure<div class="t">PageIndex</div></div>
+          <div class="stg"><div class="d"></div>Compile<div class="t">wiki md</div></div>
+          <div class="stg"><div class="d"></div>Enrich<div class="t">9 passes</div></div>
+          <div class="stg"><div class="d"></div>Ready<div class="t">—</div></div>
+        </div>
+
+        <div class="cols">
+          <!-- per-page vision -->
+          <div class="panel">
+            <div class="pt">Vision — reading page images (8 workers)</div>
+            <div class="pages">
+              <div class="pg ok">1 ✓</div><div class="pg ok">2 ✓</div>
+              <div class="pg cur">3</div><div class="pg">4</div><div class="pg">5</div>
+            </div>
+            <div style="color:var(--muted);font-size:11.5px;margin-top:10px">Each page → screenshot transcription + VISUAL CUES (which button/field is highlighted). 90s timeout/page · 2 retries.</div>
+          </div>
+
+          <!-- knowledge enrichers -->
+          <div class="panel">
+            <div class="pt">Knowledge enrichers (run after compile)</div>
+            <div class="enr ok"><span class="st">✓</span> Compile wiki (per-page markdown) <span class="x">5 pages</span></div>
+            <div class="enr ok"><span class="st">✓</span> Doc-type classify <span class="x">runbook</span></div>
+            <div class="enr run"><span class="spin sm st"></span> Playbook (goal/steps/verify) <span class="x">running…</span></div>
+            <div class="enr wait"><span class="st">○</span> Entities (cross-doc index) <span class="x">queued</span></div>
+            <div class="enr wait"><span class="st">○</span> Lookup terms <span class="x">queued</span></div>
+            <div class="enr wait"><span class="st">○</span> Dependencies (prerequisites) <span class="x">queued</span></div>
+            <div class="enr wait"><span class="st">○</span> Troubleshoot tree <span class="x">queued</span></div>
+            <div class="enr wait"><span class="st">○</span> Auto-facts <span class="x">queued</span></div>
+            <div class="enr wait"><span class="st">○</span> Q&amp;A mining <span class="x">queued</span></div>
+          </div>
+        </div>
+
+        <!-- live log -->
+        <div style="padding:0 18px 16px">
+          <div class="pt" style="font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:7px">Live activity</div>
+          <div class="log">
+            <div class="ln"><span class="ts">0:01</span><span class="tg c-render">RENDER</span><span>5 pages rasterised @ 220 DPI</span></div>
+            <div class="ln"><span class="ts">0:09</span><span class="tg c-vision">VISION</span><span>page 1 read — 1,240 chars + 3 visual cues</span></div>
+            <div class="ln"><span class="ts">0:24</span><span class="tg c-vision">VISION</span><span>page 2 read — 980 chars (bilingual EN+MY)</span></div>
+            <div class="ln"><span class="ts">0:38</span><span class="tg c-compile">COMPILE</span><span>page 1–2 → clean markdown (tables preserved)</span></div>
+            <div class="ln"><span class="ts">0:40</span><span class="tg c-enrich">ENRICH</span><span>doc-type = runbook · playbook pass started</span></div>
+            <div class="ln cur-l"><span class="ts">0:42</span><span class="tg c-vision">VISION</span><span>reading page 3 / 5 <span class="caret"></span></span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============ READY DOC PREVIEW (what it becomes) ============ -->
+      <div class="detail" style="opacity:.95">
+        <div class="dhd" style="background:#f4faf6;border-color:#dceee2">
+          <h3>User Management <span class="pill p-ready" style="margin-left:6px">● Ready</span></h3>
+          <div class="meta" style="margin-left:auto">6 pages · runbook · processed in 0:58</div>
+        </div>
+        <div class="tabs">
+          <span class="tb on">Pages</span><span class="tb">Text (wiki)</span><span class="tb">Playbook</span>
+          <span class="tb">Entities</span><span class="tb">Lookup</span><span class="tb">Dependencies</span>
+          <span class="tb">Troubleshoot</span><span class="tb">Q&amp;A</span>
+        </div>
+        <div class="kpis">
+          <div class="kpi"><b>6</b><small>pages read</small></div>
+          <div class="kpi"><b style="color:var(--teal)">5</b><small>Q&amp;A mined</small></div>
+          <div class="kpi"><b style="color:var(--violet)">12</b><small>entities</small></div>
+          <div class="kpi"><b style="color:var(--green)">100%</b><small>accuracy</small></div>
+          <div class="kpi"><b>14×</b><small>cited in chat</small></div>
+        </div>
+        <div class="foot">Once ready, every tab is filled — same as the Brain reader.
+          <span style="margin-left:auto;display:flex;gap:8px"><button class="bsm">↻ Re-process</button><button class="bsm">📁 Move</button><button class="bsm" style="color:var(--red);border-color:#e8c9c1">🗑 Delete</button></span></div>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

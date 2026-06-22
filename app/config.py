@@ -43,6 +43,8 @@ IMPORT_DIR    = ROOT / os.getenv("IMPORT_DIR", "./documents").lstrip("./")
 STORAGE       = os.getenv("STORAGE", "local")  # local | s3 (durable object-store backend)
 # Local working cache for files pulled from S3 during processing (pymupdf needs a real path)
 S3_CACHE_DIR  = ROOT / os.getenv("S3_CACHE_DIR", "./data/s3cache").lstrip("./")
+# White-label brand assets (uploaded logo + derived mark/favicon/icons)
+BRAND_DIR     = ROOT / os.getenv("BRAND_DIR", "./data/brand").lstrip("./")
 
 # ---- S3 / MinIO object storage (durable backend + bulk import source) ----
 S3_BUCKET            = os.getenv("S3_BUCKET", "")            # required when STORAGE=s3 or for import
@@ -230,5 +232,5 @@ def check_prod_config() -> None:
 
 
 def ensure_dirs() -> None:
-    for d in (DATA_DIR, PAGES_DIR, UPLOADS_DIR, INBOX_DIR, PROCESSED_DIR, FAILED_DIR, IMPORT_DIR, S3_CACHE_DIR):
+    for d in (DATA_DIR, PAGES_DIR, UPLOADS_DIR, INBOX_DIR, PROCESSED_DIR, FAILED_DIR, IMPORT_DIR, S3_CACHE_DIR, BRAND_DIR):
         Path(d).mkdir(parents=True, exist_ok=True)

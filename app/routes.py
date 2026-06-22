@@ -16,6 +16,9 @@ from .ingest import ingest_file
 from . import storage
 from .retrieve import search_pages, search_brain, agentic_search, AGENTIC_RETRIEVE, DEFAULT_K
 from .agent import answer as brain_answer, stream_reply, parse_pages, map_cited, render_cited, parse_followups
+from .answer_quality import cited_page_ids, resolve_query
+from . import scope
+from . import rbac
 from .memory import (
     add_memory, list_memory, set_status, pending_count, touch_used_facts,
     update_memory,
@@ -452,6 +455,7 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
         conv = convo.create(user["id"])
     conv_id = conv["id"]
     first_turn = convo.message_count(conv_id) == 0
+    _sectors = rbac.allowed_sectors(user)   # row-level access: None = all sectors
 
     # Phase 4: serve a cached bank answer for a near-identical, non-follow-up question.
     # On a first turn there's no history, so a standalone question can't be a
@@ -461,7 +465,8 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
     if AUTO_QA_SERVE_ENABLED and req.mode != "deep" and (first_turn or not _is_followup(req.q)):
         try:
             from . import qa as qa_mod
-            hit = qa_mod.serve_match(req.q, AUTO_QA_SERVE_MIN_SIM, AUTO_QA_SERVE_MIN_LEN)
+            hit = qa_mod.serve_match(req.q, AUTO_QA_SERVE_MIN_SIM, AUTO_QA_SERVE_MIN_LEN,
+                                     sectors=_sectors)
         except Exception:
             hit = None
         if hit:
@@ -484,7 +489,14 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
                     "served_qa_id": hit["id"],
                     "followups": qa_mod.sibling_questions(hit["id"])}
 
-    seed = search_pages(req.q, k=req.k or DEFAULT_K)
+    seed = search_pages(req.q, k=req.k or DEFAULT_K, sectors=_sectors)
+    _ok_scope, _refusal = scope.in_scope(req.q, lambda _q: seed)
+    if not _ok_scope:
+        convo.add_message(conv_id, "user", req.q, [])
+        convo.add_message(conv_id, "bot", _refusal, [])
+        if first_turn:
+            convo.autotitle(conv_id, req.q)
+        return {"answer": _refusal, "pages": [], "conversation_id": conv_id}
     if not seed:
         answer = "No documents uploaded yet. Please upload SOPs/policies first."
         convo.add_message(conv_id, "user", req.q, [])
@@ -524,17 +536,24 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
     conv_id = conv["id"]
     first_turn = convo.message_count(conv_id) == 0
     history = convo.messages(conv_id)   # prior turns (before this one) → context for follow-ups
+    _sectors = rbac.allowed_sectors(user)   # row-level access: None = all sectors
 
     # role-based answer depth (Phase 6): non-admins get the simplified end-user
     # rendering, admins/IT get the full procedure. Default expert when flag off.
     from .config import ROLE_DEPTH
     _audience = "simple" if (ROLE_DEPTH and user.get("role") != "admin") else "expert"
 
+    _trace: dict = {}   # ordered label->detail, persisted with the answer so reopened chats show the trace
     def _step(label, detail="", state="done", reset=False):
+        _trace[label] = detail
         d = {"type": "step", "label": label, "detail": detail, "state": state}
         if reset:
             d["reset"] = True
         return json.dumps(d) + "\n"
+
+    def _trace_meta(t0):
+        return {"steps": [{"label": k, "detail": v} for k, v in _trace.items()],
+                "thought_ms": int((time.monotonic() - t0) * 1000)}
 
     kid = user.get("_embed_key_id")     # set only for embed-widget visitors
 
@@ -556,7 +575,8 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
         if (AUTO_QA_SERVE_ENABLED and req.mode != "deep" and (first_turn or not _is_followup(req.q))):
             try:
                 from . import qa as qa_mod
-                hit = qa_mod.serve_match(req.q, AUTO_QA_SERVE_MIN_SIM, AUTO_QA_SERVE_MIN_LEN)
+                hit = qa_mod.serve_match(req.q, AUTO_QA_SERVE_MIN_SIM, AUTO_QA_SERVE_MIN_LEN,
+                                         sectors=_sectors)
             except Exception as e:
                 hit = None
                 print(f"[qa] serve_match skipped: {e!r}")
@@ -568,7 +588,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
                 for i in range(0, len(ans), 48):   # chunk for a streamed feel
                     yield json.dumps({"type": "token", "v": ans[i:i + 48]}) + "\n"
                 convo.add_message(conv_id, "user", req.q, [])
-                bot_id = convo.add_message(conv_id, "bot", ans, cited)
+                bot_id = convo.add_message(conv_id, "bot", ans, cited, meta=_trace_meta(_t0_req))
                 qa_mod.bump_served(hit["id"])
                 try:
                     analytics_mod.record_metric(
@@ -607,19 +627,45 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
 
         # ---- live "thinking" trace: what the agent is actually doing ----
         yield _step("Understanding your question", req.q[:80], "running")
-        _sq = _search_query(req.q, history)   # follow-up-aware + indexed SQL
+        # fold the prior question + inject history ONLY for a real follow-up
+        # (anaphoric cue) — a bare new topic stands alone so it can't inherit the
+        # previous topic's context (fix: short new Q answered the old topic)
+        _sq, _use_hist = resolve_query(req.q, history, followup_re=_FOLLOWUP_RE)
+        _hist = history if _use_hist else []
         if AGENTIC_RETRIEVE:
-            seed, _subs = agentic_search(_sq, k=req.k or DEFAULT_K)
+            seed, _subs = agentic_search(_sq, k=req.k or DEFAULT_K, sectors=_sectors)
             if _subs:
                 yield _step("Searching deeper", "also tried: " + " · ".join(_subs))
         else:
-            seed = search_pages(_sq, k=req.k or DEFAULT_K)
+            seed = search_pages(_sq, k=req.k or DEFAULT_K, sectors=_sectors)
         # retrieval funnel counts (scanned/pool/reranked) for answer_metrics
         try:
             from .retrieve import last_funnel
             _funnel = last_funnel()
         except Exception:
             _funnel = {}
+
+        # off-topic gate: refuse clearly out-of-scope questions before answering.
+        # Reuse the seed we already fetched (no extra search / query-expansion LLM
+        # call). Conservative — only fires on weak retrieval + junk/zero pages.
+        _ok_scope, _refusal = scope.in_scope(req.q, lambda _q: seed)
+        if not _ok_scope:
+            yield _step("Outside the runbooks", "off-topic — declined", "done")
+            yield json.dumps({"type": "token", "v": _refusal}) + "\n"
+            convo.add_message(conv_id, "user", req.q, [])
+            _bid = convo.add_message(conv_id, "bot", _refusal, [])
+            if first_turn:
+                convo.autotitle(conv_id, req.q)
+            try:
+                notify.emit("audit", "Off-topic question declined", req.q[:90],
+                            "info", dedupe_hours=12)
+            except Exception:
+                pass
+            yield json.dumps({"type": "done", "pages": [], "title": None,
+                              "clean": _refusal, "blind": True, "nearest": None,
+                              "message_id": _bid, "cited_n": 0,
+                              "grounded": False}) + "\n"
+            return
 
         if not seed:
             yield _step("Searched the knowledge base", "no matching runbooks found")
@@ -647,7 +693,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
             """Stream one composition; yields ('tok', delta)* then ('acc', full)."""
             buf = ""
             for tok in stream_reply(req.q, pages, mode=req.mode,
-                                    session_id=str(conv_id), history=history,
+                                    session_id=str(conv_id), history=_hist,
                                     meter=meter, audience=_audience):
                 if kill.chat_stopped():    # master stop mid-answer → abort
                     break
@@ -681,8 +727,8 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
         else:
             # strict groundedness: PAGES:none -> [] (no seed-fallback masking, so a
             # truly unsourced answer is detectable instead of silently "cited")
-            clean, nums = parse_pages(acc, [])
-            page_ids = map_cited(nums, seed)             # source numbers -> real page_ids
+            clean, _nums = parse_pages(acc, [])          # strips PAGES: line for display
+            page_ids = cited_page_ids(acc, seed)         # inline [N] + PAGES: -> page_ids
             clean = render_cited(clean, seed)
             used = seed
 
@@ -690,8 +736,8 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
             # re-compose ONCE (reset clears the first attempt on the client) before
             # we fall back to an honest "not in the runbooks" answer.
             if not page_ids:
-                wide = search_pages(_search_query(req.q, history),
-                                    k=min(20, (req.k or DEFAULT_K) * 2 + 4))
+                wide = search_pages(_sq,
+                                    k=min(20, (req.k or DEFAULT_K) * 2 + 4), sectors=_sectors)
                 # agentic recovery: LLM reformulates the question into new angles and
                 # we search each — finds pages plain widening misses (Vercel idea).
                 reform: list[str] = []
@@ -699,7 +745,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
                     from .retrieve import _reformulate
                     reform = _reformulate(req.q)
                     for s in reform:
-                        wide += search_pages(s, k=req.k or DEFAULT_K)
+                        wide += search_pages(s, k=req.k or DEFAULT_K, sectors=_sectors)
                 seed_ids = {p["page_id"] for p in seed}
                 fresh, fseen = [], set(seed_ids)
                 for p in wide:
@@ -725,8 +771,8 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
                     except Exception as e:
                         yield json.dumps({"type": "error", "detail": f"agent error: {e}"}) + "\n"
                         return
-                    clean, nums = parse_pages(acc2, [])
-                    page_ids = map_cited(nums, merged)   # re-map against the wider set
+                    clean, _nums = parse_pages(acc2, [])
+                    page_ids = cited_page_ids(acc2, merged)   # inline [N] + PAGES:
                     clean = render_cited(clean, merged)
                     used = merged
 
@@ -752,7 +798,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
         clean, fups = parse_followups(clean)
 
         convo.add_message(conv_id, "user", req.q, [])
-        bot_id = convo.add_message(conv_id, "bot", clean, cited)
+        bot_id = convo.add_message(conv_id, "bot", clean, cited, meta=_trace_meta(_t0_req))
 
         # ---- persist answer telemetry (fail-soft; never breaks the stream) ----
         try:
@@ -857,10 +903,23 @@ def delete_conversation(conv_id: int, user: dict = Depends(current_user)):
 
 
 @router.post("/upload")
-def upload(file: UploadFile = File(...), user: dict = Depends(require_admin)):
-    """Accept a SOP/policy (PDF or image) and queue it for async ingest.
-    Returns instantly; the background worker renders + reads the pages and the
-    doc flips queued -> processing -> ready (poll GET /documents for status)."""
+def upload(file: UploadFile = File(...), folder_id: int | None = Form(None),
+           user: dict = Depends(current_user)):
+    """Accept a SOP/policy (PDF or image) and queue it for async ingest, optionally
+    into a Sources folder. Returns instantly; the background worker renders + reads
+    the pages and the doc flips queued -> processing -> ready."""
+    # row-level access: super-admin (global) or sector-admin (own sector) may
+    # upload. With RBAC off this is admin-only (back-compat). A doc lands in the
+    # chosen folder; its sector comes from that folder (else the uploader's sector).
+    _sec = rbac.user_write_sector(user)
+    if folder_id is not None:
+        with get_conn() as conn:
+            fr = conn.execute("SELECT sector_id FROM folders WHERE id=%s", (folder_id,)).fetchone()
+        if fr is None:
+            raise HTTPException(status_code=404, detail="folder not found")
+        _sec = fr["sector_id"]
+    if not rbac.can_write(user, _sec):
+        raise HTTPException(status_code=403, detail="Not allowed to upload documents.")
     name = file.filename or "upload"
     # duplicate guard: refuse a doc whose name already exists and is live
     # (queued/processing/ready). Re-uploading a previously failed/cancelled name
@@ -883,12 +942,140 @@ def upload(file: UploadFile = File(...), user: dict = Depends(require_admin)):
         raise HTTPException(status_code=400, detail=f"save failed: {e}")
     with get_conn() as conn:
         row = conn.execute(
-            "INSERT INTO docs (name, status, progress, storage_key, uploaded_by, updated_at) "
-            "VALUES (%s, 'queued', 0, %s, %s, now()) RETURNING id",
-            (name, key, user.get("email")),
+            "INSERT INTO docs (name, status, progress, storage_key, uploaded_by, sector_id, folder_id, updated_at) "
+            "VALUES (%s, 'queued', 0, %s, %s, %s, %s, now()) RETURNING id",
+            (name, key, user.get("email"), _sec, folder_id),
         ).fetchone()
     notify.emit("ingest", f"Document queued · {name}", "processing…", "info")
     return {"ok": True, "name": name, "doc_id": row["id"], "status": "queued"}
+
+
+# ---- Sources: folders (organize uploads; access-controlled when RBAC on) ----
+class FolderPrincipal(BaseModel):
+    type: str          # 'user' | 'group'
+    id: int
+
+
+class FolderBody(BaseModel):
+    name: str
+    sector_id: int | None = None
+    access_mode: str = "sector"             # sector | specific | org
+    principals: list[FolderPrincipal] = []  # only for access_mode='specific'
+
+
+class AccessBody(BaseModel):               # share/manage access (no name needed)
+    access_mode: str = "sector"
+    principals: list[FolderPrincipal] = []
+
+
+@router.get("/folders")
+def list_folders(user: dict = Depends(current_user)):
+    """Folders the caller may see (scoped by sector when RBAC on), with doc counts."""
+    secs = rbac.allowed_sectors(user)
+    _sec = " AND (%(s)s::bigint[] IS NULL OR f.sector_id = ANY(%(s)s)) "
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT f.id, f.name, f.sector_id, f.access_mode, s.label AS sector_label, "
+            "(SELECT count(*) FROM docs d WHERE d.folder_id = f.id) AS doc_count, "
+            "(SELECT count(*) FROM folder_access fa WHERE fa.folder_id = f.id) AS access_n "
+            "FROM folders f LEFT JOIN sectors s ON s.id = f.sector_id "
+            "WHERE true" + _sec + " ORDER BY f.name",
+            {"s": secs}).fetchall()
+        unfiled = conn.execute(
+            "SELECT count(*) AS n FROM docs d WHERE d.folder_id IS NULL "
+            "AND (%(s)s::bigint[] IS NULL OR d.sector_id = ANY(%(s)s))",
+            {"s": secs}).fetchone()["n"]
+    return {"folders": [dict(r) for r in rows], "unfiled": unfiled}
+
+
+@router.get("/principals")
+def list_principals(user: dict = Depends(require_admin)):
+    """Users + groups to populate the folder access picker (admin only)."""
+    with get_conn() as conn:
+        users = conn.execute(
+            "SELECT id, email, role FROM users WHERE active = true ORDER BY email LIMIT 500"
+        ).fetchall()
+        try:
+            groups = conn.execute("SELECT id, name FROM groups ORDER BY name").fetchall()
+        except Exception:
+            groups = []
+    return {"users": [dict(u) for u in users], "groups": [dict(g) for g in groups]}
+
+
+@router.post("/folders")
+def create_folder(body: FolderBody, user: dict = Depends(current_user)):
+    """Create a folder + its access rule. Super-admin (any sector) or sector-admin
+    (own sector). access_mode: 'sector' (everyone in the sector), 'org' (all
+    sectors), or 'specific' (the chosen users/groups in `principals`)."""
+    sid = body.sector_id if body.sector_id is not None else rbac.user_write_sector(user)
+    if not rbac.can_write(user, sid):
+        raise HTTPException(status_code=403, detail="Not allowed to create folders.")
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Folder name required.")
+    mode = body.access_mode if body.access_mode in ("sector", "specific", "org") else "sector"
+    # only a super-admin may grant org-wide (cross-sector) access
+    if mode == "org" and not rbac.is_superadmin(user):
+        raise HTTPException(status_code=403, detail="Only a super-admin can grant org-wide access.")
+    with get_conn() as conn:
+        row = conn.execute(
+            "INSERT INTO folders (sector_id, name, access_mode) VALUES (%s,%s,%s) "
+            "RETURNING id, name, sector_id, access_mode",
+            (sid, name, mode)).fetchone()
+        if mode == "specific":
+            for p in body.principals:
+                if p.type in ("user", "group"):
+                    conn.execute(
+                        "INSERT INTO folder_access (folder_id, principal_type, principal_id) "
+                        "VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+                        (row["id"], p.type, p.id))
+    return {"ok": True, "folder": dict(row)}
+
+
+def _folder_or_403(fid: int, user: dict):
+    with get_conn() as conn:
+        f = conn.execute("SELECT id, name, sector_id, access_mode FROM folders WHERE id=%s",
+                         (fid,)).fetchone()
+    if not f:
+        raise HTTPException(status_code=404, detail="folder not found")
+    if not rbac.can_write(user, f["sector_id"]):
+        raise HTTPException(status_code=403, detail="Not allowed to manage this folder.")
+    return f
+
+
+@router.get("/folders/{fid}/access")
+def folder_access_get(fid: int, user: dict = Depends(current_user)):
+    """Current sharing of a folder: mode + the users/groups it's shared with."""
+    f = _folder_or_403(fid, user)
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT fa.principal_type AS type, fa.principal_id AS id, "
+            "  CASE fa.principal_type WHEN 'user' THEN u.email ELSE g.name END AS label "
+            "FROM folder_access fa "
+            "LEFT JOIN users u ON fa.principal_type='user' AND u.id=fa.principal_id "
+            "LEFT JOIN groups g ON fa.principal_type='group' AND g.id=fa.principal_id "
+            "WHERE fa.folder_id=%s ORDER BY label", (fid,)).fetchall()
+    return {"folder": dict(f), "access_mode": f["access_mode"],
+            "principals": [dict(r) for r in rows]}
+
+
+@router.put("/folders/{fid}/access")
+def folder_access_set(fid: int, body: AccessBody, user: dict = Depends(current_user)):
+    """Share / re-share a folder: set access_mode + replace the people/groups list."""
+    _folder_or_403(fid, user)
+    mode = body.access_mode if body.access_mode in ("sector", "specific", "org") else "sector"
+    if mode == "org" and not rbac.is_superadmin(user):
+        raise HTTPException(status_code=403, detail="Only a super-admin can grant org-wide access.")
+    with get_conn() as conn:
+        conn.execute("UPDATE folders SET access_mode=%s WHERE id=%s", (mode, fid))
+        conn.execute("DELETE FROM folder_access WHERE folder_id=%s", (fid,))
+        if mode == "specific":
+            for p in body.principals:
+                if p.type in ("user", "group"):
+                    conn.execute(
+                        "INSERT INTO folder_access (folder_id, principal_type, principal_id) "
+                        "VALUES (%s,%s,%s) ON CONFLICT DO NOTHING", (fid, p.type, p.id))
+    return {"ok": True}
 
 
 @router.get("/ingest/scan")
@@ -1143,6 +1330,100 @@ def retry_doc(doc_id: int, user: dict = Depends(require_admin)):
     kill.clear_doc(doc_id)   # drop any stale cancel request so it can re-ingest
     audit_mod.log(user, "doc.retry", "doc", doc_id)
     return {"ok": True, "id": doc_id, "status": "queued"}
+
+
+_STAGES = ["Queued", "Render", "Read", "Structure", "Compile", "Enrich", "Ready"]
+
+
+def _stage_of(status: str, progress: int) -> int:
+    """Map status/progress → pipeline stage index (mirrors the Sources right panel)."""
+    if status == "ready":
+        return 6
+    if status in ("failed", "cancelled"):
+        return 0
+    p = progress or 0
+    if p < 10:
+        return 0          # queued
+    if p < 30:
+        return 1          # render
+    if p < 80:
+        return 2          # read (vision)
+    if p < 86:
+        return 3          # structure (PageIndex)
+    if p < 96:
+        return 4          # compile (wiki)
+    return 5              # enrich
+
+
+@router.get("/documents/{doc_id}/processing", dependencies=[Depends(require_key)])
+def doc_processing(doc_id: int):
+    """Everything the Sources right-side process panel needs: live status + stage,
+    per-page vision state, knowledge-enricher counts, and this doc's recent log."""
+    with get_conn() as conn:
+        d = conn.execute(
+            "SELECT id, name, status, progress, pages_done, page_count, error, "
+            "doc_type, folder_id, sector_id, uploaded_by, lang, ready_at, created_at "
+            "FROM docs WHERE id = %s", (doc_id,)).fetchone()
+        if not d:
+            raise HTTPException(status_code=404, detail="document not found")
+        pages = conn.execute(
+            "SELECT page_no, (coalesce(vision_text,'') <> '') AS read "
+            "FROM pages WHERE doc_id = %s ORDER BY page_no", (doc_id,)).fetchall()
+        enr = conn.execute(
+            "SELECT "
+            "(SELECT count(*) FROM doc_pages_md WHERE doc_id=%(d)s) AS compiled, "
+            "(SELECT count(*) FROM doc_playbook WHERE doc_id=%(d)s) AS playbook, "
+            "(SELECT count(*) FROM doc_lookup WHERE doc_id=%(d)s) AS lookup, "
+            "(SELECT count(*) FROM doc_dependency WHERE from_doc=%(d)s) AS dependencies, "
+            "(SELECT count(*) FROM doc_tree WHERE doc_id=%(d)s) AS tree, "
+            "(SELECT count(*) FROM entity_mention WHERE doc_id=%(d)s) AS entities, "
+            "(SELECT count(*) FROM qa_pairs WHERE doc_id=%(d)s) AS qa",
+            {"d": doc_id}).fetchone()
+        log = conn.execute(
+            "SELECT id, step, msg, level, ts FROM ingest_log WHERE doc_id=%s "
+            "ORDER BY id DESC LIMIT 40", (doc_id,)).fetchall()
+    stage = _stage_of(d["status"], d["progress"])
+    return {
+        "doc": {"id": d["id"], "name": d["name"], "status": d["status"],
+                "progress": d["progress"] or 0, "pages_done": d["pages_done"] or 0,
+                "page_count": d["page_count"] or 0, "error": d["error"],
+                "doc_type": d["doc_type"], "folder_id": d["folder_id"],
+                "uploaded_by": d["uploaded_by"], "lang": d["lang"]},
+        "stage": stage, "stages": _STAGES,
+        "pages": [{"page_no": p["page_no"], "read": bool(p["read"])} for p in pages],
+        "enrichers": dict(enr),
+        "log": [{"id": r["id"], "step": r["step"], "msg": r["msg"],
+                 "level": r["level"] or "info",
+                 "ts": r["ts"].isoformat() if r["ts"] else None}
+                for r in reversed(log)],
+    }
+
+
+class MoveBody(BaseModel):
+    folder_id: int | None = None
+
+
+@router.patch("/documents/{doc_id}", dependencies=[Depends(require_key)])
+def move_document(doc_id: int, body: MoveBody, user: dict = Depends(current_user)):
+    """Move a document into a folder (or out, folder_id=null). Sector follows the
+    target folder. Super-admin or sector-admin of the target sector only."""
+    target_sector = None
+    if body.folder_id is not None:
+        with get_conn() as conn:
+            fr = conn.execute("SELECT sector_id FROM folders WHERE id=%s",
+                              (body.folder_id,)).fetchone()
+        if fr is None:
+            raise HTTPException(status_code=404, detail="folder not found")
+        target_sector = fr["sector_id"]
+    if not rbac.can_write(user, target_sector):
+        raise HTTPException(status_code=403, detail="Not allowed to move into this folder.")
+    with get_conn() as conn:
+        row = conn.execute(
+            "UPDATE docs SET folder_id=%s, sector_id=%s, updated_at=now() "
+            "WHERE id=%s RETURNING id", (body.folder_id, target_sector, doc_id)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="document not found")
+    return {"ok": True, "id": doc_id, "folder_id": body.folder_id}
 
 
 @router.post("/documents/{doc_id}/categorize", dependencies=[Depends(require_admin)])
@@ -1501,12 +1782,21 @@ def ingest_active():
 
 
 @router.get("/documents", dependencies=[Depends(require_key)])
-def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=0)):
+def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=0),
+              folder_id: int | None = Query(None), user: dict = Depends(current_user)):
     # Paginated + bounded. Was an unbounded scan of every doc (+ per-doc
     # subqueries + a full messages-usage GROUP BY) on every poll. Returns `total`
     # so the client can page. Defaults (500/0) keep existing callers working.
+    _sectors = rbac.allowed_sectors(user)   # row-level access: None = all sectors
+    _sec = " AND (%(sectors)s::bigint[] IS NULL OR d.sector_id = ANY(%(sectors)s)) "
+    if folder_id == 0:                      # Sources: "Unfiled" (no folder)
+        _sec += " AND d.folder_id IS NULL "
+    elif folder_id is not None:             # Sources: filter to one folder
+        _sec += " AND d.folder_id = %(folder)s "
     with get_conn() as conn:
-        total = conn.execute("SELECT count(*) AS n FROM docs").fetchone()["n"]
+        total = conn.execute(
+            "SELECT count(*) AS n FROM docs d WHERE true" + _sec,
+            {"sectors": _sectors, "folder": folder_id}).fetchone()["n"]
         rows = conn.execute(
             "SELECT d.id, d.name, d.lang, d.page_count, d.created_at, d.category, "
             "d.status, d.progress, d.pages_done, d.error, d.ready_at, "
@@ -1516,8 +1806,8 @@ def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=
             "(SELECT count(*) FROM pages p WHERE p.doc_id = d.id AND coalesce(p.vision_text,'') <> '') AS vision_pages, "
             "(SELECT count(*) FROM pages p WHERE p.doc_id = d.id AND coalesce(p.text_layer,'') <> '') AS text_pages, "
             "(SELECT p.id FROM pages p WHERE p.doc_id = d.id ORDER BY p.page_no, p.id LIMIT 1) AS cover_page_id "
-            "FROM docs d ORDER BY d.id DESC LIMIT %s OFFSET %s",
-            (limit, offset),
+            "FROM docs d WHERE true" + _sec + " ORDER BY d.id DESC LIMIT %(lim)s OFFSET %(off)s",
+            {"sectors": _sectors, "folder": folder_id, "lim": limit, "off": offset},
         ).fetchall()
         # per-doc usage (how often the doc answered a question), SCOPED to the
         # page of docs we're returning so this doesn't scan all messages per doc.
@@ -1990,6 +2280,53 @@ def analytics_docs(days: int = 30):
     return analytics_mod.doc_performance(days)
 
 
+@router.get("/analytics/doc-eval", dependencies=[Depends(require_admin)])
+def analytics_doc_eval():
+    """Latest per-doc UAT accuracy run (grounded/right-doc/page-hit/faithful per
+    doc) + a `running` flag while a run is in flight. Admin only."""
+    from . import doc_eval
+    return doc_eval.latest()
+
+
+@router.post("/analytics/doc-eval/run", dependencies=[Depends(require_admin)])
+def analytics_doc_eval_run(max_q: int = 6, user: dict = Depends(current_user)):
+    """Kick off a background per-doc accuracy eval over each doc's golden Q&A.
+    Returns immediately; poll GET /analytics/doc-eval for the result."""
+    from . import doc_eval
+    started = doc_eval.start_eval(max_q)
+    try:
+        audit_mod.log(user, "doc_eval.run", "eval", None)
+    except Exception:
+        pass
+    return {"started": started, "running": True}
+
+
+@router.get("/analytics/selfheal", dependencies=[Depends(require_admin)])
+def selfheal_status():
+    """Self-Heal agent status: per-doc queue, accuracy climb, banked + review."""
+    from . import selfheal
+    return selfheal.status()
+
+
+@router.get("/analytics/selfheal/logs", dependencies=[Depends(require_admin)])
+def selfheal_logs(doc_id: int | None = None, after: int = 0):
+    """Live activity log (mine/eval/heal/judge/bank) for the Self-Heal panel."""
+    from . import selfheal
+    return {"lines": selfheal.logs(doc_id, after)}
+
+
+@router.post("/analytics/selfheal/run", dependencies=[Depends(require_admin)])
+def selfheal_run(doc_id: int | None = None, user: dict = Depends(current_user)):
+    """Kick the Self-Heal loop (one doc, or all eligible ready docs if omitted)."""
+    from . import selfheal
+    started = selfheal.start_selfheal(doc_id)
+    try:
+        audit_mod.log(user, "selfheal.run", "doc", doc_id)
+    except Exception:
+        pass
+    return {"started": started}
+
+
 def _dash_version() -> int:
     """Cheap monotonically-growing cursor over the tables a dashboard reflects.
     Changes whenever a new answer / notification / metric lands."""
@@ -2391,6 +2728,121 @@ def get_page_image(page_id: int):
     if not img.is_file():
         raise HTTPException(status_code=404, detail="page image missing on disk")
     return FileResponse(img, media_type="image/png", headers=cache)
+
+
+# ---- one-logo white-labeling ----------------------------------------------
+def _brand_payload() -> dict:
+    """Full public brand JSON: appcfg defaults+overrides, with asset URLs pointing
+    at uploaded files when present (else the static defaults)."""
+    from . import brand as brand_mod
+    b = appcfg.get_brand()
+    out = {
+        "name": b.get("name"), "short_name": b.get("short_name"),
+        "tagline": b.get("tagline"), "footer": b.get("footer"),
+        "assistant_label": b.get("assistant_label"),
+        "accent": b.get("accent"), "accent_dk": b.get("accent_dk"),
+        "logo_url": b.get("logo_url", "/brand-logo.png"),
+        "mark_url": "/favicon.png", "favicon_url": "/favicon.png",
+        "icon192_url": "/icon-192.png", "icon512_url": "/icon-512.png",
+        "custom": bool(b.get("custom")),
+    }
+    # repoint to uploaded assets when they exist on disk
+    if brand_mod.asset_path("logo.png"):
+        out["logo_url"] = "/api/brand/asset/logo.png"
+    if brand_mod.asset_path("mark.png"):
+        out["mark_url"] = "/api/brand/asset/mark.png"
+    if brand_mod.asset_path("favicon.png"):
+        out["favicon_url"] = "/api/brand/asset/favicon.png"
+    if brand_mod.asset_path("icon-192.png"):
+        out["icon192_url"] = "/api/brand/asset/icon-192.png"
+    if brand_mod.asset_path("icon-512.png"):
+        out["icon512_url"] = "/api/brand/asset/icon-512.png"
+    return out
+
+
+@router.get("/brand")
+def get_brand_public():
+    """PUBLIC: current white-label brand. Never raises — falls back to defaults."""
+    try:
+        return _brand_payload()
+    except Exception:
+        return {
+            "name": "City Agent Aria", "short_name": "Aria",
+            "tagline": "Your runbook intelligence — answered with the source page.",
+            "footer": "© 2026 City Agent Aria · Runbooks & IT Assistance",
+            "assistant_label": "ARIA 1.0",
+            "accent": "#c2683f", "accent_dk": "#a8542f",
+            "logo_url": "/brand-logo.png", "mark_url": "/favicon.png",
+            "favicon_url": "/favicon.png", "icon192_url": "/icon-192.png",
+            "icon512_url": "/icon-512.png", "custom": False,
+        }
+
+
+@router.post("/admin/brand")
+async def save_brand_admin(
+    logo: UploadFile | None = File(None),
+    name: str | None = Form(None),
+    short_name: str | None = Form(None),
+    tagline: str | None = Form(None),
+    footer: str | None = Form(None),
+    assistant_label: str | None = Form(None),
+    accent: str | None = Form(None),
+    user: dict = Depends(require_admin),
+):
+    """Admin: save white-label brand. Optional logo (PNG raster derives mark/icons +
+    auto-accent; SVG stored as-is). Text/accent fields merge into the brand config."""
+    from . import brand as brand_mod
+    patch: dict = {
+        "name": name, "short_name": short_name, "tagline": tagline,
+        "footer": footer, "assistant_label": assistant_label,
+    }
+
+    if logo is not None:
+        raw = await logo.read()
+        if not raw:
+            raise HTTPException(status_code=400, detail="empty logo upload")
+        fname = (logo.filename or "").lower()
+        ctype = (logo.content_type or "").lower()
+        is_svg = fname.endswith(".svg") or "svg" in ctype
+        if is_svg:
+            # store SVG as-is; skip Pillow derive, keep prior/auto accent
+            brand_mod._ensure_dir()
+            (Path(brand_mod.BRAND_DIR) / "logo.svg").write_bytes(raw)
+            patch["logo_url"] = "/api/brand/asset/logo.svg"
+        else:
+            try:
+                res = brand_mod.process_logo(raw)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            patch["logo_url"] = "/api/brand/asset/logo.png"
+            if not accent:  # no explicit accent → use the one extracted from the logo
+                accent = res.get("accent")
+
+    if accent:
+        accent = str(accent).strip()
+        patch["accent"] = accent
+        patch["accent_dk"] = brand_mod.darken(accent)
+
+    patch["custom"] = True
+    appcfg.save_brand(patch)
+    return _brand_payload()
+
+
+@router.get("/brand/asset/{name}")
+def get_brand_asset(name: str):
+    """PUBLIC: serve an uploaded brand asset (whitelisted names only)."""
+    from . import brand as brand_mod
+    if name == "logo.svg":
+        p = Path(brand_mod.BRAND_DIR) / "logo.svg"
+        if not p.is_file():
+            raise HTTPException(status_code=404, detail="asset not found")
+        return FileResponse(p, media_type="image/svg+xml",
+                            headers={"Cache-Control": "public, max-age=300"})
+    p = brand_mod.asset_path(name)
+    if p is None:
+        raise HTTPException(status_code=404, detail="asset not found")
+    return FileResponse(p, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=300"})
 
 
 @router.get("/pages/{page_id}/text", dependencies=[Depends(current_principal)])

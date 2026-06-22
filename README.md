@@ -287,6 +287,66 @@ you can flip live** (no redeploy). Knobs: `DREAM_ENABLED`, `DREAM_INTERVAL_H`,
 `DREAM_STALE_DAYS`, `DREAM_PROMOTE_AGE_H`, `DREAM_AUTO_RESOLVE`, `DREAM_GAP_FILL`,
 `DREAM_AUTOLINK`, `SALIENCE_BOOST`.
 
+### Answer accuracy — per-document self-eval (UAT)
+**Workspace → Accuracy.** Aria grades her OWN answers per document against a
+golden Q&A set mined from each doc. Click **Run eval** and she runs each
+question through the real answer pipeline and scores four things per doc:
+**grounded** (cited a page, not a blind answer), **right-doc** (no wrong-document
+bleed), **page-hit** (cited the expected page), and **faithful** (an LLM judge
+confirms the cited page actually backs the answer). You get a per-doc grid (green
+≥80 / amber ≥50 / red) plus an overall score — a repeatable accuracy number that
+doesn't drift with whatever users happen to ask. Also runnable headless:
+`docker exec -w /app docsensei-app sh -c 'PYTHONPATH=/app python scripts/doc_eval.py'`.
+
+### Self-Heal agent — autonomous, no-human accuracy loop
+**Workspace → Self-Heal.** A **separate parallel worker** (not tied to upload)
+that notices when a document finishes storing and, on its own, drives that doc
+toward 100% correct answers — AI only. Per doc it loops: **mine** golden Q&A →
+**evaluate** each → for every miss **re-answer from that doc's own pages** →
+run an **adversarial 3-judge panel** (each judge tries to *refute* that the
+source backs the answer) → **bank** the answer into the Q&A bank *only on
+majority confirm* (banked answers then serve verbatim, zero-LLM, so that question
+is locked at 100%) → **re-evaluate**, repeating until it stops improving. Anything
+the judges can't confirm goes to a short **"needs human check"** list instead of
+being invented — on thin or ungroundable content it defers to a human, it never
+fabricates. The panel shows the document queue, a **live activity log**
+(mine / eval / heal / judge / bank), the accuracy climb per round, what was
+banked, the review list, and a **Run now** button. It also runs nightly with the
+dream cycle and as a background worker for each newly-ready doc. Flags
+`SELFHEAL_ENABLED` (default off), `SELFHEAL_MAX_ROUNDS`, `SELFHEAL_JUDGES`,
+`SELFHEAL_POLL_MIN`.
+
+### Sources — folder-organised document hub
+**Sources** (top nav) is the home for every document — a three-pane workspace:
+a persistent **folder rail** on the left, a **rich document list** in the centre,
+and a **process / detail panel** that slides in on the right when you click a doc.
+Uploading here runs the **same ingest pipeline** as everywhere else, so a document
+added in Sources is immediately read, compiled, enriched and answerable in Chat —
+i.e. uploading **trains the agent**; the panel's "Re-train" re-runs it.
+- **Folders & access** — group docs into folders, upload straight into one, and
+  **share** a folder with specific people, a group, your whole sector, or the
+  organisation (per-folder access). Each folder shows its share/lock state.
+- **Rich list** — category chips (with **Re-tag**), group by date or category,
+  Cards or List view, and columns for language, pages, how often the doc has been
+  **used** in answers, and extraction **accuracy**.
+- **Live process panel** — for a document still processing, watch the **pipeline**
+  (Queued → Render → Read → Structure → Compile → Enrich → Ready) with per-page
+  vision progress, the knowledge enrichers (playbook / entities / lookup /
+  dependencies / tree / Q&A) ticking off, and a live activity log.
+- **Rich inspector** — for a finished document: page-by-page **preview**, the
+  extracted **outline**, extraction coverage, usage stats, and tabs for the
+  compiled text, playbook, entities, lookup, dependencies and troubleshooting
+  tree — plus Re-process, Move and Delete.
+
+### Multi-tenant access (sectors & roles, optional)
+Aria can run **multi-tenant** with row-level access (flag `RBAC_ENABLED`, off by
+default = single-tenant). Each **sector** is a company/domain (set from a user's
+email at sign-up). A **super-admin** creates sectors, assigns **sector-admins**
+(who upload/manage their own sector) and manages an **All-Access group** (read
+everything, e.g. execs/audit); ordinary **users** only ever see — and only ever
+get answers and citations from — their own sector's documents. The folder access
+controls above layer on top for finer sharing.
+
 ### Mobile & tablet
 Aria is **responsive** down to phone width. On small screens the side rails
 (chat history, Workspace, Brain, Settings) slide in from a single **menu button
