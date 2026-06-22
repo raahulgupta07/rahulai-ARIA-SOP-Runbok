@@ -592,6 +592,23 @@ CREATE TABLE IF NOT EXISTS entity_community (
     cluster_id  INT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_entity_community_cl ON entity_community(cluster_id);
+-- per-embedded-image detailed explanation (SOP screenshots → which screen / element /
+-- action). Hybrid extraction: text+tables from the layer, vision spent per screenshot.
+CREATE TABLE IF NOT EXISTS doc_image (
+    id          BIGSERIAL PRIMARY KEY,
+    doc_id      BIGINT REFERENCES docs(id) ON DELETE CASCADE,
+    page_no     INT,
+    idx         INT,                 -- image index within the page
+    image_path  TEXT,                -- storage key / path to the extracted PNG
+    screen      TEXT,                -- which screen/window
+    shows       TEXT,                -- what is shown (form/list/dialog/...)
+    element     TEXT,                -- highlighted/circled element + its label
+    action      TEXT,                -- what to do ("click Search", "enter End Date")
+    caption     TEXT,                -- nearby caption text if any
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_doc_image_doc ON doc_image(doc_id, page_no);
+
 CREATE TABLE IF NOT EXISTS community_summary (
     cluster_id  INT PRIMARY KEY,
     label       TEXT,

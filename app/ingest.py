@@ -265,6 +265,19 @@ def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=No
                 (doc_id, nd["page_no"], nd["title"], nd["summary"]),
             )
 
+    # per-embedded-image detailed explanation (SOP screenshots → which screen /
+    # element / action). Runs BEFORE compile so the screenshot notes fold into the
+    # wiki + retrieval. Pages are now in the DB so _merge_into_pages can update them.
+    _ck()
+    try:
+        from . import doc_images
+        if doc_images.DOC_IMAGES_ENABLED:
+            ni = doc_images.extract_and_describe(doc_id, pdf_path, doc_slug)
+            log_ingest(doc_id, "images", f"🖼 explained {ni} screenshots")
+            _log_event(doc_id, "images", f"explained {ni} embedded images")
+    except Exception as e:
+        print(f"[ingest] doc_images skipped: {e!r}")
+
     # compiled wiki layer (vision-once -> clean markdown). One-time, fail-soft:
     # if it errors, chat still falls back to raw page text.
     _ck()

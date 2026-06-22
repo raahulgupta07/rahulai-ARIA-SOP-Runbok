@@ -1831,6 +1831,44 @@ def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=
     return {"docs": rows, "total": total, "limit": limit, "offset": offset}
 
 
+@router.get("/documents/{doc_id}/images", dependencies=[Depends(require_key)])
+def doc_images_list(doc_id: int):
+    """Per-embedded-image detailed explanations (screen/shows/element/action)."""
+    from . import doc_images
+    return {"images": doc_images.images_for(doc_id)}
+
+
+@router.post("/documents/images/backfill", dependencies=[Depends(require_admin)])
+def doc_images_backfill(user: dict = Depends(current_user)):
+    """Explain embedded screenshots for all ready docs from their stored PDF
+    (no re-ingest). Runs in the background (vision per image is slow); poll
+    GET /documents/{id}/images for results."""
+    import threading
+    from . import doc_images
+    threading.Thread(target=doc_images.backfill_all, daemon=True).start()
+    try:
+        audit_mod.log(user, "doc_images.backfill", "doc", None, {})
+    except Exception:
+        pass
+    return {"started": True}
+
+
+@router.get("/doc-images/{image_id}")
+def doc_image_serve(image_id: int):
+    """Serve one extracted screenshot PNG (public, like page images)."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT image_path FROM doc_image WHERE id = %s",
+                           (image_id,)).fetchone()
+    if not row or not row["image_path"]:
+        raise HTTPException(status_code=404, detail="image not found")
+    path = row["image_path"]
+    import os as _os
+    if not _os.path.exists(path):
+        raise HTTPException(status_code=404, detail="image file missing")
+    return FileResponse(path, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
 @router.get("/documents/{doc_id}/playbook", dependencies=[Depends(require_key)])
 def doc_playbook(doc_id: int):
     """User-facing playbook for a doc (goal/who/prereqs/steps/verify/if-fails/escalate).

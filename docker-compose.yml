@@ -127,6 +127,8 @@ services:
       RBAC_ENABLED: ${RBAC_ENABLED:-0}
       # ---- GraphRAG-A: typed entity relationships + multi-hop walk (default OFF — +1 LLM/doc at ingest) ----
       GRAPHRAG_ENABLED: ${GRAPHRAG_ENABLED:-0}
+      # ---- per-image detailed screenshot explanation (default OFF — vision per image) ----
+      DOC_IMAGES_ENABLED: ${DOC_IMAGES_ENABLED:-0}
       GRAPHWALK_HOPS: ${GRAPHWALK_HOPS:-2}
       GRAPHRAG_MAX_DOCS: ${GRAPHRAG_MAX_DOCS:-4}
       # ---- Self-Heal agent: parallel per-doc eval-gated self-improvement (default OFF — costs LLM) ----
