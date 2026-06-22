@@ -508,6 +508,27 @@ export const api = {
     const qs = docId != null ? `?doc_id=${docId}` : '';
     return jsonOrThrow(await fetch(`${BASE}/analytics/selfheal/run${qs}`, { method: 'POST', headers: headers(false) }));
   },
+  // ---- GraphRAG explorer (entity graph + path + global community queries) ----
+  async graphragGraph(limit = 300) {
+    return jsonOrThrow(await fetch(`${BASE}/graphrag/graph?limit=${limit}`, { headers: headers(false) }));
+  },
+  async graphragEntity(id?: number | null, name?: string | null) {
+    const qs = id != null ? `id=${id}` : `name=${encodeURIComponent(name || '')}`;
+    return jsonOrThrow(await fetch(`${BASE}/graphrag/entity?${qs}`, { headers: headers(false) }));
+  },
+  async graphragPath(a: string, b: string) {
+    const qs = `a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`;
+    return jsonOrThrow(await fetch(`${BASE}/graphrag/path?${qs}`, { headers: headers(false) }));
+  },
+  async graphragGlobal(q: string) {
+    return jsonOrThrow(await fetch(`${BASE}/graphrag/global?q=${encodeURIComponent(q)}`, { headers: headers(false) }));
+  },
+  async graphragStats() {
+    return jsonOrThrow(await fetch(`${BASE}/graphrag/stats`, { headers: headers(false) }));
+  },
+  async graphragBuildCommunities() {
+    return jsonOrThrow(await fetch(`${BASE}/graphrag/communities/build`, { method: 'POST', headers: headers(false) }));
+  },
   async analyticsVerify(days = 30) {
     return jsonOrThrow(await fetch(`${BASE}/analytics/verify?days=${days}`, { headers: headers(false) }));
   },

@@ -33,6 +33,7 @@ export const MC_TABS: McTab[] = [
   { id: 'perf',      label: 'Performance', roles: ['admin'] },
   { id: 'accuracy',  label: 'Accuracy',    roles: ['admin'] },
   { id: 'selfheal',  label: 'Self-Heal',   roles: ['admin'] },
+  { id: 'graphrag',  label: 'Knowledge Graph', roles: ['admin'] },
   { id: 'knowledge', label: 'Knowledge',   roles: ['admin'] },
   { id: 'review',    label: 'Review',      roles: ['admin'] },
   { id: 'system',    label: 'System',      roles: ['admin'] }
@@ -78,6 +79,7 @@ export const WS_ITEMS: WsItem[] = [
   { id: 'review',    label: 'Review',      group: 'Insights', kind: 'insight', roles: ['admin'] },
   { id: 'accuracy',  label: 'Accuracy',    group: 'Insights', kind: 'insight', roles: ['admin'] },
   { id: 'selfheal',  label: 'Self-Heal',   group: 'Insights', kind: 'insight', roles: ['admin'] },
+  { id: 'graphrag',  label: 'Knowledge Graph', group: 'Insights', kind: 'insight', roles: ['admin'] },
   { id: 'system',    label: 'System',      group: 'Insights', kind: 'insight', roles: ['admin'] }
 ];
 const WKEY = 'aria_ws_item';

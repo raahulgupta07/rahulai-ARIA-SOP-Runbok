@@ -16,6 +16,7 @@
   import Dream from '$lib/dashboard/sections/Dream.svelte';
   import Accuracy from '$lib/dashboard/sections/Accuracy.svelte';
   import SelfHeal from '$lib/dashboard/sections/SelfHeal.svelte';
+  import GraphRAG from '$lib/dashboard/sections/GraphRAG.svelte';
   import Cockpit from '$lib/dash/Cockpit.svelte';
   import Brain from '../brain/+page.svelte';
 
@@ -26,7 +27,7 @@
   const COMP: Record<string, any> = {
     overview: Overview, live: Cockpit, exec: Exec, users: Users, perf: Perf,
     knowledge: KnowledgeSec, review: Review, system: System, learning: Learning,
-    dream: Dream, accuracy: Accuracy, selfheal: SelfHeal
+    dream: Dream, accuracy: Accuracy, selfheal: SelfHeal, graphrag: GraphRAG
   };
 
   // live ticker (admin)
