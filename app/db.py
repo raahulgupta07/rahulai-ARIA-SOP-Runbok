@@ -585,6 +585,21 @@ CREATE TABLE IF NOT EXISTS entity_edge (
 );
 CREATE INDEX IF NOT EXISTS idx_entity_edge_src ON entity_edge(src_entity);
 CREATE INDEX IF NOT EXISTS idx_entity_edge_dst ON entity_edge(dst_entity);
+-- GraphRAG-B: communities (connected clusters) + per-cluster LLM summary for
+-- whole-corpus / "global" questions.
+CREATE TABLE IF NOT EXISTS entity_community (
+    entity_id   BIGINT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    cluster_id  INT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_entity_community_cl ON entity_community(cluster_id);
+CREATE TABLE IF NOT EXISTS community_summary (
+    cluster_id  INT PRIMARY KEY,
+    label       TEXT,
+    summary     TEXT,
+    entity_ids  JSONB NOT NULL DEFAULT '[]'::jsonb,
+    doc_ids     JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
 
 -- ---- knowledge-base conflicts (Phase 4): same term, divergent value across docs ----
 CREATE TABLE IF NOT EXISTS kb_conflict (

@@ -3102,8 +3102,52 @@ def graphrag_stats():
         r = conn.execute(
             "SELECT (SELECT count(*) FROM entity_edge) AS edges, "
             "(SELECT count(*) FROM entities) AS entities, "
-            "(SELECT count(DISTINCT rel) FROM entity_edge) AS rel_types").fetchone()
+            "(SELECT count(DISTINCT rel) FROM entity_edge) AS rel_types, "
+            "(SELECT count(*) FROM community_summary) AS communities").fetchone()
     return dict(r)
+
+
+@router.get("/graphrag/graph", dependencies=[Depends(require_key)])
+def graphrag_graph(limit: int = 300):
+    """Nodes + typed edges for the Knowledge Graph view (#5)."""
+    from . import graphrag
+    return graphrag.graph_data(limit)
+
+
+@router.get("/graphrag/entity", dependencies=[Depends(require_key)])
+def graphrag_entity(id: int | None = None, name: str | None = None):
+    """Entity profile: relationships + docs (#3). Resolve by id or name."""
+    from . import graphrag
+    eid = id if id is not None else graphrag.resolve_entity(name or "")
+    if not eid:
+        raise HTTPException(status_code=404, detail="entity not found")
+    return graphrag.entity_profile(eid)
+
+
+@router.get("/graphrag/path", dependencies=[Depends(require_key)])
+def graphrag_path(a: str, b: str):
+    """Shortest relationship path + plain-English explanation between two things (#2)."""
+    from . import graphrag
+    return graphrag.path_between(a, b)
+
+
+@router.post("/graphrag/communities/build", dependencies=[Depends(require_admin)])
+def graphrag_communities_build(user: dict = Depends(current_user)):
+    """Cluster the graph + summarise each community (for global queries, #1)."""
+    from . import graphrag
+    res = graphrag.build_communities()
+    try:
+        audit_mod.log(user, "graphrag.communities", "graph", None, res)
+    except Exception:
+        pass
+    return res
+
+
+@router.get("/graphrag/global", dependencies=[Depends(require_key)])
+def graphrag_global(q: str):
+    """Whole-corpus / 'summarize everything about Z' answer from community summaries (#1)."""
+    from . import graphrag
+    return graphrag.global_answer(q)
 
 
 @router.get("/brain/graph", dependencies=[Depends(require_key)])
