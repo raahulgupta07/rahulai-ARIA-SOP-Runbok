@@ -667,6 +667,35 @@ export const api = {
     return jsonOrThrow(await fetch(`${BASE}/admin/auth-config/test-ldap`, { method: 'POST', headers: headers(), body: JSON.stringify(cfg) }));
   },
 
+  // ---- sector RBAC: sectors / user roles / groups (super-admin) ----
+  async adminSectors() {
+    return jsonOrThrow(await fetch(`${BASE}/admin/sectors`, { headers: headers(false) }));
+  },
+  async adminCreateSector(name: string, label?: string) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/sectors`, { method: 'POST', headers: headers(), body: JSON.stringify({ name, label }) }));
+  },
+  async adminDeleteSector(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/sectors/${id}`, { method: 'DELETE', headers: headers(false) }));
+  },
+  async adminSetUser(id: number, body: { role?: string; sector_id?: number | null }) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/users/${id}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) }));
+  },
+  async adminGroups() {
+    return jsonOrThrow(await fetch(`${BASE}/admin/groups`, { headers: headers(false) }));
+  },
+  async adminCreateGroup(name: string, allSectors = false) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/groups`, { method: 'POST', headers: headers(), body: JSON.stringify({ name, all_sectors: allSectors }) }));
+  },
+  async adminDeleteGroup(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/groups/${id}`, { method: 'DELETE', headers: headers(false) }));
+  },
+  async adminAddMember(gid: number, uid: number) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/groups/${gid}/members/${uid}`, { method: 'POST', headers: headers(false) }));
+  },
+  async adminRemoveMember(gid: number, uid: number) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/groups/${gid}/members/${uid}`, { method: 'DELETE', headers: headers(false) }));
+  },
+
   // ---- embeddable widget keys (admin) ----
   async embedKeys() {
     return jsonOrThrow(await fetch(`${BASE}/embed/keys`, { headers: headers(false) }));

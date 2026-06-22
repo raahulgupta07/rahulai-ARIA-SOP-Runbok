@@ -161,6 +161,19 @@ def allowed_folders(user: dict | None) -> list[int] | None:
         return []
 
 
+def scope_filter(user: dict | None) -> tuple[list[int] | None, list[int] | None]:
+    """The row-level READ filter for a user: (sectors, folders).
+
+    (None, None) => no filter (RBAC off / super-admin / All-Access) => see all.
+    Otherwise a doc is visible iff its folder is in `folders` (the user's
+    sector/org/specific-grant folders) OR it has no folder but sits in one of the
+    user's `sectors` (unfiled docs in their own sector). Used by every read path."""
+    secs = allowed_sectors(user)
+    if secs is None:                     # super-admin / All-Access / RBAC off
+        return None, None
+    return secs, (allowed_folders(user) or [])
+
+
 def can_create_sector(user: dict | None) -> bool:
     """Only super-admin creates sectors / sector-admins / groups."""
     return is_superadmin(user)

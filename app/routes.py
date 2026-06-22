@@ -455,7 +455,7 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
         conv = convo.create(user["id"])
     conv_id = conv["id"]
     first_turn = convo.message_count(conv_id) == 0
-    _sectors = rbac.allowed_sectors(user)   # row-level access: None = all sectors
+    _sectors, _folders = rbac.scope_filter(user)   # row-level: (None,None)=all
 
     # Phase 4: serve a cached bank answer for a near-identical, non-follow-up question.
     # On a first turn there's no history, so a standalone question can't be a
@@ -466,7 +466,7 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
         try:
             from . import qa as qa_mod
             hit = qa_mod.serve_match(req.q, AUTO_QA_SERVE_MIN_SIM, AUTO_QA_SERVE_MIN_LEN,
-                                     sectors=_sectors)
+                                     sectors=_sectors, folders=_folders)
         except Exception:
             hit = None
         if hit:
@@ -489,7 +489,7 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
                     "served_qa_id": hit["id"],
                     "followups": qa_mod.sibling_questions(hit["id"])}
 
-    seed = search_pages(req.q, k=req.k or DEFAULT_K, sectors=_sectors)
+    seed = search_pages(req.q, k=req.k or DEFAULT_K, sectors=_sectors, folders=_folders)
     _ok_scope, _refusal = scope.in_scope(req.q, lambda _q: seed)
     if not _ok_scope:
         convo.add_message(conv_id, "user", req.q, [])
@@ -536,7 +536,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
     conv_id = conv["id"]
     first_turn = convo.message_count(conv_id) == 0
     history = convo.messages(conv_id)   # prior turns (before this one) → context for follow-ups
-    _sectors = rbac.allowed_sectors(user)   # row-level access: None = all sectors
+    _sectors, _folders = rbac.scope_filter(user)   # row-level: (None,None)=all
 
     # role-based answer depth (Phase 6): non-admins get the simplified end-user
     # rendering, admins/IT get the full procedure. Default expert when flag off.
@@ -576,7 +576,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
             try:
                 from . import qa as qa_mod
                 hit = qa_mod.serve_match(req.q, AUTO_QA_SERVE_MIN_SIM, AUTO_QA_SERVE_MIN_LEN,
-                                         sectors=_sectors)
+                                         sectors=_sectors, folders=_folders)
             except Exception as e:
                 hit = None
                 print(f"[qa] serve_match skipped: {e!r}")
@@ -633,11 +633,11 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
         _sq, _use_hist = resolve_query(req.q, history, followup_re=_FOLLOWUP_RE)
         _hist = history if _use_hist else []
         if AGENTIC_RETRIEVE:
-            seed, _subs = agentic_search(_sq, k=req.k or DEFAULT_K, sectors=_sectors)
+            seed, _subs = agentic_search(_sq, k=req.k or DEFAULT_K, sectors=_sectors, folders=_folders)
             if _subs:
                 yield _step("Searching deeper", "also tried: " + " · ".join(_subs))
         else:
-            seed = search_pages(_sq, k=req.k or DEFAULT_K, sectors=_sectors)
+            seed = search_pages(_sq, k=req.k or DEFAULT_K, sectors=_sectors, folders=_folders)
         # retrieval funnel counts (scanned/pool/reranked) for answer_metrics
         try:
             from .retrieve import last_funnel
@@ -737,7 +737,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
             # we fall back to an honest "not in the runbooks" answer.
             if not page_ids:
                 wide = search_pages(_sq,
-                                    k=min(20, (req.k or DEFAULT_K) * 2 + 4), sectors=_sectors)
+                                    k=min(20, (req.k or DEFAULT_K) * 2 + 4), sectors=_sectors, folders=_folders)
                 # agentic recovery: LLM reformulates the question into new angles and
                 # we search each — finds pages plain widening misses (Vercel idea).
                 reform: list[str] = []
@@ -745,7 +745,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
                     from .retrieve import _reformulate
                     reform = _reformulate(req.q)
                     for s in reform:
-                        wide += search_pages(s, k=req.k or DEFAULT_K, sectors=_sectors)
+                        wide += search_pages(s, k=req.k or DEFAULT_K, sectors=_sectors, folders=_folders)
                 seed_ids = {p["page_id"] for p in seed}
                 fresh, fseen = [], set(seed_ids)
                 for p in wide:
@@ -1787,8 +1787,9 @@ def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=
     # Paginated + bounded. Was an unbounded scan of every doc (+ per-doc
     # subqueries + a full messages-usage GROUP BY) on every poll. Returns `total`
     # so the client can page. Defaults (500/0) keep existing callers working.
-    _sectors = rbac.allowed_sectors(user)   # row-level access: None = all sectors
-    _sec = " AND (%(sectors)s::bigint[] IS NULL OR d.sector_id = ANY(%(sectors)s)) "
+    _sectors, _folders = rbac.scope_filter(user)   # row-level: (None,None)=all
+    _sec = (" AND (%(folders)s::bigint[] IS NULL OR d.folder_id = ANY(%(folders)s) "
+            "      OR (d.folder_id IS NULL AND d.sector_id = ANY(%(sectors)s))) ")
     if folder_id == 0:                      # Sources: "Unfiled" (no folder)
         _sec += " AND d.folder_id IS NULL "
     elif folder_id is not None:             # Sources: filter to one folder
@@ -1796,7 +1797,7 @@ def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=
     with get_conn() as conn:
         total = conn.execute(
             "SELECT count(*) AS n FROM docs d WHERE true" + _sec,
-            {"sectors": _sectors, "folder": folder_id}).fetchone()["n"]
+            {"sectors": _sectors, "folders": _folders, "folder": folder_id}).fetchone()["n"]
         rows = conn.execute(
             "SELECT d.id, d.name, d.lang, d.page_count, d.created_at, d.category, "
             "d.status, d.progress, d.pages_done, d.error, d.ready_at, "
@@ -1807,7 +1808,7 @@ def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=
             "(SELECT count(*) FROM pages p WHERE p.doc_id = d.id AND coalesce(p.text_layer,'') <> '') AS text_pages, "
             "(SELECT p.id FROM pages p WHERE p.doc_id = d.id ORDER BY p.page_no, p.id LIMIT 1) AS cover_page_id "
             "FROM docs d WHERE true" + _sec + " ORDER BY d.id DESC LIMIT %(lim)s OFFSET %(off)s",
-            {"sectors": _sectors, "folder": folder_id, "lim": limit, "off": offset},
+            {"sectors": _sectors, "folders": _folders, "folder": folder_id, "lim": limit, "off": offset},
         ).fetchall()
         # per-doc usage (how often the doc answered a question), SCOPED to the
         # page of docs we're returning so this doesn't scan all messages per doc.
@@ -3118,6 +3119,84 @@ def brain_search(q: str = "", type: str = "all"):
             "score": round(float(it.get("score") or 0.0), 4),
         })
     return {"items": items}
+
+
+def _require_superadmin(user: dict) -> None:
+    if not rbac.is_superadmin(user):
+        raise HTTPException(status_code=403, detail="Super-admin only.")
+
+
+@router.get("/admin/sectors", dependencies=[Depends(require_admin)])
+def admin_sectors_list():
+    from . import admin_rbac
+    return {"sectors": admin_rbac.list_sectors()}
+
+
+@router.post("/admin/sectors", dependencies=[Depends(require_admin)])
+def admin_sectors_create(body: dict = Body(...), user: dict = Depends(current_user)):
+    _require_superadmin(user)
+    from . import admin_rbac
+    return admin_rbac.create_sector(body.get("name", ""), body.get("label"))
+
+
+@router.delete("/admin/sectors/{sid}", dependencies=[Depends(require_admin)])
+def admin_sectors_delete(sid: int, user: dict = Depends(current_user)):
+    _require_superadmin(user)
+    from . import admin_rbac
+    try:
+        return {"ok": admin_rbac.delete_sector(sid)}
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@router.get("/admin/users", dependencies=[Depends(require_admin)])
+def admin_users_list(limit: int = 500):
+    from . import admin_rbac
+    return {"users": admin_rbac.list_users(limit)}
+
+
+@router.patch("/admin/users/{uid}", dependencies=[Depends(require_admin)])
+def admin_users_set(uid: int, body: dict = Body(...), user: dict = Depends(current_user)):
+    _require_superadmin(user)
+    from . import admin_rbac
+    try:
+        return admin_rbac.set_user(uid, body.get("role"), body.get("sector_id"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/admin/groups", dependencies=[Depends(require_admin)])
+def admin_groups_list():
+    from . import admin_rbac
+    return {"groups": admin_rbac.list_groups()}
+
+
+@router.post("/admin/groups", dependencies=[Depends(require_admin)])
+def admin_groups_create(body: dict = Body(...), user: dict = Depends(current_user)):
+    _require_superadmin(user)
+    from . import admin_rbac
+    return admin_rbac.create_group(body.get("name", ""), bool(body.get("all_sectors")))
+
+
+@router.delete("/admin/groups/{gid}", dependencies=[Depends(require_admin)])
+def admin_groups_delete(gid: int, user: dict = Depends(current_user)):
+    _require_superadmin(user)
+    from . import admin_rbac
+    return {"ok": admin_rbac.delete_group(gid)}
+
+
+@router.post("/admin/groups/{gid}/members/{uid}", dependencies=[Depends(require_admin)])
+def admin_group_add(gid: int, uid: int, user: dict = Depends(current_user)):
+    _require_superadmin(user)
+    from . import admin_rbac
+    return {"ok": admin_rbac.add_group_member(gid, uid)}
+
+
+@router.delete("/admin/groups/{gid}/members/{uid}", dependencies=[Depends(require_admin)])
+def admin_group_remove(gid: int, uid: int, user: dict = Depends(current_user)):
+    _require_superadmin(user)
+    from . import admin_rbac
+    return {"ok": admin_rbac.remove_group_member(gid, uid)}
 
 
 @router.post("/graphrag/build", dependencies=[Depends(require_admin)])

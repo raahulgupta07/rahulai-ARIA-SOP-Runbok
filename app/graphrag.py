@@ -107,7 +107,8 @@ def extract_relationships(doc_id: int) -> int:
 
 def graph_neighbor_docs(seed_doc_ids: list[int], hops: int | None = None,
                         limit: int | None = None,
-                        sectors: list[int] | None = None) -> list[int]:
+                        sectors: list[int] | None = None,
+                        folders: list[int] | None = None) -> list[int]:
     """Walk the entity graph up to `hops` from the seed docs' entities and return
     related doc_ids (excluding the seeds), nearest-first. Recursive CTE over
     entity_edge (typed) UNION the entity_mention bridge. RBAC-scoped. Fail-soft."""
@@ -131,15 +132,17 @@ def graph_neighbor_docs(seed_doc_ids: list[int], hops: int | None = None,
     JOIN entity_mention m ON m.entity_id = w.entity_id
     JOIN docs d ON d.id = m.doc_id
     WHERE m.doc_id <> ALL(%(docs)s) AND d.status = 'ready'
-      AND (%(sectors)s::bigint[] IS NULL OR d.sector_id = ANY(%(sectors)s))
+      AND (%(folders)s::bigint[] IS NULL
+           OR d.folder_id = ANY(%(folders)s)
+           OR (d.folder_id IS NULL AND d.sector_id = ANY(%(sectors)s)))
     GROUP BY m.doc_id
     ORDER BY dist ASC, m.doc_id
     LIMIT %(limit)s
     """
     try:
         with get_conn() as c:
-            rows = c.execute(sql, {"docs": seed_doc_ids, "hops": hops,
-                                   "limit": limit, "sectors": sectors}).fetchall()
+            rows = c.execute(sql, {"docs": seed_doc_ids, "hops": hops, "limit": limit,
+                                   "sectors": sectors, "folders": folders}).fetchall()
         return [r["doc_id"] for r in rows]
     except Exception as e:
         print(f"[graphrag] neighbor walk failed (non-fatal): {e!r}")

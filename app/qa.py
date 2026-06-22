@@ -73,7 +73,8 @@ def add_qa(question: str, answer: str, source: str = "qa",
 
 
 def serve_match(question: str, min_sim: float = 0.72,
-                min_len: int = 0, sectors: list[int] | None = None) -> dict | None:
+                min_len: int = 0, sectors: list[int] | None = None,
+                folders: list[int] | None = None) -> dict | None:
     """Best ACTIVE pair whose question is near-identical to `question` (trigram).
     Used to serve a cached answer with zero agent. Conservative by threshold —
     only approved pairs, only very close phrasing, only answers with enough
@@ -98,9 +99,11 @@ def serve_match(question: str, min_sim: float = 0.72,
             "WHERE qp.status = 'active' AND similarity(qp.question, %(q)s) >= %(t)s "
             "AND length(btrim(qp.answer)) >= %(ml)s "
             "AND NOT (qp.answer ~* %(df)s AND length(btrim(qp.answer)) < 200) "
-            "AND (%(sectors)s::bigint[] IS NULL OR d.sector_id = ANY(%(sectors)s)) "
+            "AND (%(folders)s::bigint[] IS NULL OR d.folder_id = ANY(%(folders)s) "
+            "     OR (d.folder_id IS NULL AND d.sector_id = ANY(%(sectors)s))) "
             "ORDER BY sim DESC LIMIT 1",
-            {"q": q, "t": min_sim, "ml": int(min_len), "df": deflect, "sectors": sectors},
+            {"q": q, "t": min_sim, "ml": int(min_len), "df": deflect,
+             "sectors": sectors, "folders": folders},
         ).fetchone()
     return row
 
