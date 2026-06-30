@@ -78,7 +78,8 @@
 </div>
 
 <style>
-  .wn { --clay:#1a1a18; --ink:#211F1C; --muted:#73706A; --border:#E7E3D8;
+  /* --clay inherits the runtime-injected brand accent (no local override) */
+  .wn { --ink:#211F1C; --muted:#73706A; --border:#E7E3D8;
     font-size:13px; color:var(--ink); }
   .wn-loading { color:var(--muted); font-size:13px; padding:8px 2px; }
 

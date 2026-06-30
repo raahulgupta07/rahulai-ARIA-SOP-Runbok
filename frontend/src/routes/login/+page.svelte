@@ -4,9 +4,24 @@
   import { auth } from '$lib/auth';
   import { api } from '$lib/api';
   import WhatsNew from '$lib/WhatsNew.svelte';
+  import { brand, loadBrand } from '$lib/brand';
 
   let ver = $state<any>(null);
   let verOpen = $state(false);
+
+  // runtime white-label — login has its OWN local --clay token, so feed it the
+  // brand accent + brand strings/logo, falling back to today's defaults.
+  let accent = $derived($brand?.accent || '#1a1a18');
+  let accentSoft = $derived($brand ? `color-mix(in srgb, ${$brand.accent} 12%, #fff)` : '#f3f3f1');
+  let brandName = $derived($brand?.name || 'CityAgent Aria');
+  let brandLogo = $derived($brand?.logo_url || '/brand-logo.png');
+  let brandTagline = $derived(
+    $brand?.tagline ||
+    'Your runbook intelligence — SOPs, provisioning & user admin, answered with the source page.'
+  );
+  let brandFooter = $derived(
+    $brand?.footer || '© 2026 CityAgent Aria · Runbooks & IT Assistance · EN · မြန်မာ'
+  );
 
   let cfg = $state<any>({ enable_local: true, enable_signup: true, enable_ldap: false, enable_oidc: false });
   let mode = $state<'login' | 'signup'>('login');
@@ -91,6 +106,7 @@
   function focusEmail() { emailEl?.focus(); }
 
   onMount(() => {
+    loadBrand();
     // OIDC redirect drops the token in the URL fragment
     if (location.hash.startsWith('#token=')) {
       auth.setToken(decodeURIComponent(location.hash.slice(7)));
@@ -118,8 +134,8 @@
   });
 </script>
 
-<div class="page">
-  <div class="topbar"><img src="/brand-logo.png" alt="CityAgent Aria" class="brandlogo" /></div>
+<div class="page" style="--clay:{accent}; --peach:{accentSoft};">
+  <div class="topbar"><img src={brandLogo} alt={brandName} class="brandlogo" /></div>
 
   {#if ver}
     <div class="verwrap">
@@ -139,8 +155,8 @@
   <div class="stage">
     <!-- LEFT -->
     <div class="left">
-      <h1>Good {greet},<br />sign in to CityAgent Aria</h1>
-      <p class="sub">Your runbook intelligence — SOPs, provisioning &amp; user admin, answered with the source page.</p>
+      <h1>Good {greet},<br />sign in to {brandName}</h1>
+      <p class="sub">{brandTagline}</p>
 
       {#if stats}
         <div class="stat">
@@ -252,14 +268,14 @@
     </div>
   </div>
 
-  <div class="foot">© 2026 CityAgent Aria · Runbooks &amp; IT Assistance · EN · မြန်မာ</div>
+  <div class="foot">{brandFooter}</div>
 </div>
 
 <style>
   .page{
     --clay:#1a1a18; --clay-soft:#dcdcd8; --ink:#211F1C; --muted:#8a857c;
     --border:#ececea; --line:#ececea; --paper:#fff; --cream:#ffffff; --peach:#f3f3f1;
-    --serif:'Tiempos Headline','Tiempos Text',Georgia,'Times New Roman',serif;
+    --serif:var(--font);
     background:#fff; color:var(--ink); min-height:100vh; display:flex; flex-direction:column;
     overflow-x:hidden;   /* kill any right-panel / horizontal bleed on small screens */
   }

@@ -39,6 +39,22 @@ def _write(data: dict) -> None:
         conn.execute("UPDATE app_config SET data = %s::jsonb WHERE id=1", (_json.dumps(data),))
 
 
+# ---- multi-tenant RBAC switch (DB over env; super-admin flips it live, no restart) ----
+def get_rbac_enabled() -> bool:
+    """Effective multi-tenant RBAC switch: DB value over the RBAC_ENABLED env default."""
+    v = _raw().get("rbac_enabled")
+    if v is not None:
+        return bool(v)
+    return os.getenv("RBAC_ENABLED", "0") == "1"
+
+
+def set_rbac_enabled(on: bool) -> bool:
+    data = _raw()
+    data["rbac_enabled"] = bool(on)
+    _write(data)
+    return get_rbac_enabled()
+
+
 # ---- Microsoft Teams integration config (under app_config.data.teams) ----
 _TEAMS_KEYS = {"enabled", "app_id", "app_password", "public_url", "skip_auth"}
 
@@ -178,6 +194,244 @@ def save_dream(patch: dict) -> dict:
     data["dream"] = cur
     _write(data)
     return get_dream()
+
+
+# ---- one-logo white-label brand (under app_config.data.brand) ----
+# Dedicated save_brand merges into app_config.data.brand WITHOUT going through
+# the allowlisted save_config (which would strip these keys). GET /api/brand is
+# public and must never raise — get_brand() returns the merged defaults+saved.
+_BRAND_TEXT_KEYS = {"name", "short_name", "tagline", "footer", "assistant_label",
+                    "accent", "accent_dk", "logo_url"}
+
+_BRAND_DEFAULTS = {
+    "name": "City Agent Aria",
+    "short_name": "Aria",
+    "tagline": "Your runbook intelligence — answered with the source page.",
+    "footer": "© 2026 City Agent Aria · Runbooks & IT Assistance",
+    "assistant_label": "ARIA 1.0",
+    "accent": "#c2683f",
+    "accent_dk": "#a8542f",
+    "logo_url": "/brand-logo.png",
+    "mark_url": "/favicon.png",
+    "favicon_url": "/favicon.png",
+    "icon192_url": "/icon-192.png",
+    "icon512_url": "/icon-512.png",
+    "custom": False,
+}
+
+
+def get_brand() -> dict:
+    """Public brand payload = defaults merged with any saved override. Never raises."""
+    out = dict(_BRAND_DEFAULTS)
+    try:
+        saved = _raw().get("brand") or {}
+    except Exception:
+        saved = {}
+    for k, v in saved.items():
+        if v is not None:
+            out[k] = v
+    out["custom"] = bool(saved.get("custom"))
+    return out
+
+
+def save_brand(patch: dict) -> dict:
+    """Merge text/accent fields into app_config.data.brand (preserve other keys).
+    Bypasses the save_config allowlist. Returns the full public brand payload."""
+    data = _raw()
+    cur = data.get("brand") or {}
+    for k, v in (patch or {}).items():
+        if k in _BRAND_TEXT_KEYS and v is not None:
+            cur[k] = str(v)
+        elif k == "custom" and v is not None:
+            cur[k] = bool(v)
+    data["brand"] = cur
+    _write(data)
+    return get_brand()
+
+
+# ---- runtime feature toggles (under app_config.data.features) ----
+# Per-deployment switches so ONE codebase serves different projects with NO
+# redeploy. DB value overrides the env default. Keys are boolean + small.
+import os as _os
+
+_FEATURE_DEFAULTS = {
+    "citations": _os.getenv("CITATIONS_ENABLED", "1") == "1",
+}
+
+
+def get_features() -> dict:
+    """Effective feature toggles = env defaults merged with any saved DB override."""
+    out = dict(_FEATURE_DEFAULTS)
+    try:
+        saved = _raw().get("features") or {}
+    except Exception:
+        saved = {}
+    for k, v in saved.items():
+        if isinstance(v, bool):
+            out[k] = v
+    return out
+
+
+def save_features(patch: dict) -> dict:
+    """Merge boolean toggles into app_config.data.features (preserve other keys)."""
+    data = _raw()
+    cur = data.get("features") or {}
+    for k, v in (patch or {}).items():
+        if k in _FEATURE_DEFAULTS and v is not None:
+            cur[k] = bool(v)
+    data["features"] = cur
+    _write(data)
+    return get_features()
+
+
+def citations_enabled() -> bool:
+    """True when answers should carry inline [N] citations + source pages."""
+    try:
+        return bool(get_features().get("citations", True))
+    except Exception:
+        return True
+
+
+# ---- wiki / knowledge schema (under app_config.data.wiki_schema) ----
+# Karpathy "LLM wiki" Layer 3: a per-project config that defines the conventions
+# the LLM maintains the knowledge base to. Read by the compiler, the contradiction
+# pass (Phase 1), the temporal layer (Phase 2) and the browsable wiki (Phase 3).
+# DB value overrides these defaults. Keep it a small, human-auditable JSON blob.
+_WIKI_SCHEMA_DEFAULTS = {
+    "wiki_title": "Knowledge Base",
+    # what counts as a linkable entity/concept (drives entity hub pages + wikilinks)
+    "entity_types": ["system", "screen", "menu", "field", "code", "role",
+                     "transaction", "report"],
+    # how an entity is rendered as a link in compiled markdown
+    "link_style": "[[entity]]",
+    # contradiction detection (Phase 1): which claim attributes to compare across
+    # docs, and whether a conflict auto-resolves to the newer doc or waits for review
+    "contradiction": {
+        "compare_attributes": ["value", "threshold", "setting", "code", "path"],
+        "auto_resolve_newer": False,   # False = route every conflict to review
+        "min_severity": "value_mismatch",
+    },
+    # a claim/page is "stale" past this many days with no newer corroboration
+    "freshness_days": 180,
+    # orphan health-check (Phase 4): flag pages with fewer than N inbound links
+    "orphan_min_inbound": 1,
+}
+
+
+def _merge_schema(base: dict, saved: dict) -> dict:
+    """One-level-deep merge so a saved {contradiction:{auto_resolve_newer:true}}
+    doesn't wipe the other contradiction defaults."""
+    out = {}
+    for k, v in base.items():
+        sv = saved.get(k)
+        if isinstance(v, dict) and isinstance(sv, dict):
+            out[k] = {**v, **sv}
+        elif sv is not None:
+            out[k] = sv
+        else:
+            out[k] = v
+    return out
+
+
+def get_wiki_schema() -> dict:
+    """Effective wiki schema = defaults merged with any saved DB override."""
+    try:
+        saved = _raw().get("wiki_schema") or {}
+    except Exception:
+        saved = {}
+    return _merge_schema(_WIKI_SCHEMA_DEFAULTS, saved)
+
+
+def save_wiki_schema(patch: dict) -> dict:
+    """Merge a patch into app_config.data.wiki_schema (preserve unknown keys).
+    Validates types defensively; bad values are dropped, never raised."""
+    data = _raw()
+    cur = data.get("wiki_schema") or {}
+    for k, v in (patch or {}).items():
+        if k not in _WIKI_SCHEMA_DEFAULTS:
+            continue
+        default = _WIKI_SCHEMA_DEFAULTS[k]
+        if isinstance(default, dict) and isinstance(v, dict):
+            cur[k] = {**(cur.get(k) or {}), **v}
+        elif isinstance(default, list) and isinstance(v, list):
+            cur[k] = [str(x) for x in v if str(x).strip()]
+        elif isinstance(default, bool):
+            cur[k] = bool(v)
+        elif isinstance(default, int) and not isinstance(default, bool):
+            try:
+                cur[k] = int(v)
+            except (TypeError, ValueError):
+                continue
+        elif isinstance(default, str):
+            cur[k] = str(v)
+    data["wiki_schema"] = cur
+    _write(data)
+    return get_wiki_schema()
+
+
+# ---- agent persona (under app_config.data.persona) ----
+# Identity/voice layer, generated from the corpus, applied on top of the grounding
+# rules. Changes HOW the agent talks, never WHAT it knows (still docs-only + cited).
+# Live, per-project. Versioned with a small rollback history.
+_PERSONA_DEFAULTS = {
+    "enabled": False,
+    "name": "Aria",
+    "role": "company runbook & IT assistant",
+    "covers": [],                 # topic chips, auto-filled from the corpus
+    "tone": "warm",               # formal | warm | casual
+    "length": "full",             # brief | full | exhaustive
+    "audience": "mixed",          # end-user | it | mixed
+    "rules": [],                  # behaviour bullet list
+    "greeting": "",
+    "version": 1,
+    "generated_from": "",         # e.g. "2 documents"
+}
+_PERSONA_STR = {"name", "role", "tone", "length", "audience", "greeting", "generated_from"}
+_PERSONA_LIST = {"covers", "rules"}
+
+
+def get_persona() -> dict:
+    """Effective persona = defaults merged with the saved override."""
+    out = dict(_PERSONA_DEFAULTS)
+    try:
+        saved = _raw().get("persona") or {}
+    except Exception:
+        saved = {}
+    for k, v in saved.items():
+        if k in _PERSONA_DEFAULTS and v is not None:
+            out[k] = v
+    return out
+
+
+def save_persona(patch: dict) -> dict:
+    """Merge a persona patch, bump version, push the prior version to history
+    (cap 10) for rollback. Validates types defensively; never raises into a route."""
+    data = _raw()
+    cur = data.get("persona") or {}
+    prior = dict(get_persona())
+    for k, v in (patch or {}).items():
+        if k not in _PERSONA_DEFAULTS or v is None:
+            continue
+        if k in _PERSONA_STR:
+            cur[k] = str(v)
+        elif k in _PERSONA_LIST and isinstance(v, list):
+            cur[k] = [str(x) for x in v if str(x).strip()]
+        elif k == "enabled":
+            cur[k] = bool(v)
+    cur["version"] = int(prior.get("version", 1)) + 1
+    hist = data.get("persona_history") or []
+    hist.insert(0, {k: prior.get(k) for k in _PERSONA_DEFAULTS})
+    data["persona"] = cur
+    data["persona_history"] = hist[:10]
+    _write(data)
+    return get_persona()
+
+
+def persona_history() -> list:
+    try:
+        return (_raw().get("persona_history") or [])[:10]
+    except Exception:
+        return []
 
 
 def save_config(patch: dict) -> dict:

@@ -10,7 +10,36 @@
   import IngestRobot from '$lib/IngestRobot.svelte';
   import { convs, activeConvId, reloadConvs, openConvId, triggerNewChat } from '$lib/chatstore';
   import { mobileNav } from '$lib/dashstore';
+  import { brand, loadBrand } from '$lib/brand';
   import { onMount } from 'svelte';
+
+  // ===== runtime white-label theming =====
+  // fetch the public brand config once; the reactive blocks below inject the
+  // accent CSS vars + swap the favicon when it arrives (null = baked defaults).
+  onMount(() => { loadBrand(); });
+
+  // accent vars injected into <svelte:head> as a :root <style> — comes after
+  // app.css so it overrides --clay / --clay-dk (both are plain custom props).
+  let accentStyle = $derived(
+    $brand ? `:root{--clay:${$brand.accent};--clay-dk:${$brand.accent_dk};}` : ''
+  );
+
+  // swap the favicon + apple-touch-icon to the brand assets when present
+  $effect(() => {
+    if (typeof document === 'undefined' || !$brand) return;
+    const set = (rel: string, href?: string) => {
+      if (!href) return;
+      let link = document.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
+      if (!link) { link = document.createElement('link'); link.rel = rel; document.head.appendChild(link); }
+      link.href = href;
+    };
+    set('icon', $brand.favicon_url);
+    set('apple-touch-icon', $brand.icon192_url);
+  });
+
+  // header brand strings + logo with sensible fallbacks to today's defaults
+  let brandName = $derived($brand?.name || 'City Agent Aria');
+  let brandLogo = $derived($brand?.logo_url || '/brand-logo.png');
 
   // PWA: register the service worker so the app is installable on phones
   onMount(() => {
@@ -125,7 +154,7 @@
   // chat-only users can't reach admin areas even by typing the URL
   $effect(() => {
     if (isLogin || isEmbed || isShare || !me) return;
-    if (!isAdmin && (/^\/(workspace|settings|brain)/.test($page.url.pathname))) goto('/');
+    if (!isAdmin && (/^\/(workspace|settings|brain|sources|eval)/.test($page.url.pathname))) goto('/');
   });
 
   // primary nav — Chat is implicit (New chat + history), so only sections here
@@ -137,8 +166,13 @@
   const topnav = [
     { href: '/', label: 'Chat', section: '/', d: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z' },
     { href: '/workspace', label: 'Workspace', section: '/workspace', d: 'M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z' },
+    { href: '/sources', label: 'Sources', section: '/sources', d: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' },
     { href: '/settings', label: 'Settings', section: '/settings', d: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 13a7.5 7.5 0 0 0 0-2l2-1.5-2-3.5-2.4 1a7.5 7.5 0 0 0-1.7-1L15 3h-4l-.3 2.5a7.5 7.5 0 0 0-1.7 1l-2.4-1-2 3.5L4.6 11a7.5 7.5 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7.5 7.5 0 0 0 1.7 1L11 21h4l.3-2.5a7.5 7.5 0 0 0 1.7-1l2.4 1 2-3.5z' }
   ];
+  // Wiki — browsable knowledge base, shown for ANY logged-in user (like Chat)
+  const wikiNav = { href: '/wiki', label: 'Wiki', section: '/wiki', d: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15zM8 7h8M8 11h6' };
+  // Eval — offline answer-quality scoring dashboard (admin only)
+  const evalNav = { href: '/eval', label: 'Eval', section: '/eval', d: 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' };
 
   // mobile bottom tab bar — Chat · Workspace · Brain · Settings
   const bottomnav = [
@@ -167,6 +201,13 @@
   function logout() { auth.logout(); me = null; menuOpen = false; goto('/login'); }
 </script>
 
+<!-- runtime white-label: inject accent vars on :root (after app.css → overrides defaults) -->
+<svelte:head>
+  {#if accentStyle}
+    {@html `<style>${accentStyle}</style>`}
+  {/if}
+</svelte:head>
+
 {#if isLogin || isEmbed || isShare}
   {@render children()}
 {:else}
@@ -188,12 +229,12 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
     {/if}
-    <a href="/" class="flex items-center shrink-0 pl-1 pr-1" title="City Agent Aria">
-      <img src="/brand-logo.png" alt="City Agent Aria" class="h-9 w-auto" />
+    <a href="/" class="flex items-center shrink-0 pl-1 pr-1" title={brandName}>
+      <img src={brandLogo} alt={brandName} class="h-12 w-auto" />
     </a>
     <div class="w-2"></div>
     <nav class="topnav-row flex items-center gap-1">
-    {#each (isAdmin ? topnav : []) as t}
+    {#each (isAdmin ? [...topnav, evalNav, wikiNav] : (me ? [wikiNav] : [])) as t}
       {@const on = sectionActive(t.section)}
       <a href={t.href} class="flex items-center gap-2 rounded-[9px] h-9 px-3 text-[14px] transition"
          style={on ? 'background:#f0efed; color:var(--ink); font-weight:600;' : 'color:#46443f;'}

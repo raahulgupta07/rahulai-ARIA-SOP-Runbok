@@ -15,7 +15,22 @@ from .db import get_conn
 from .ingest import ingest_file
 from . import storage
 from .retrieve import search_pages, search_brain, agentic_search, AGENTIC_RETRIEVE, DEFAULT_K
-from .agent import answer as brain_answer, stream_reply, parse_pages, map_cited, render_cited, parse_followups
+from .agent import answer as brain_answer, stream_reply, parse_pages, map_cited, render_cited, parse_followups, strip_citations
+
+
+def _cite_policy(clean: str, cited: list) -> tuple[str, list]:
+    """Honour the per-deployment citation toggle (appcfg.features.citations).
+    When OFF: strip any [N]/PAGES artefacts from the answer + drop the source
+    pages so the UI shows no citation coins. When ON: pass through unchanged."""
+    try:
+        if not appcfg.citations_enabled():
+            return strip_citations(clean), []
+    except Exception:
+        pass
+    return clean, cited
+from .answer_quality import cited_page_ids, resolve_query
+from . import scope
+from . import rbac
 from .memory import (
     add_memory, list_memory, set_status, pending_count, touch_used_facts,
     update_memory,
@@ -452,6 +467,24 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
         conv = convo.create(user["id"])
     conv_id = conv["id"]
     first_turn = convo.message_count(conv_id) == 0
+    _sectors, _folders = rbac.scope_filter(user)   # row-level: (None,None)=all
+
+    # GLOBAL / meta intent ("summarize all docs", "what do you cover", "list SOPs"):
+    # answer from the doc list + per-doc summaries (deterministic, grounded), BEFORE
+    # per-page retrieval + the scope gate — those refuse corpus-level questions.
+    try:
+        from . import global_answer
+        if global_answer.is_global_query(req.q):
+            ov = global_answer.build_overview(sectors=_sectors, folders=_folders)
+            ans = ov.get("answer") or "No documents are loaded yet."
+            cited = ov.get("pages") or []
+            convo.add_message(conv_id, "user", req.q, [])
+            convo.add_message(conv_id, "bot", ans, cited)
+            title = convo.autotitle(conv_id, req.q) if first_turn else None
+            return {"answer": ans, "pages": cited, "conversation_id": conv_id,
+                    "title": title, "global": True}
+    except Exception as e:
+        print(f"[global] ask overview skipped: {e!r}")
 
     # Phase 4: serve a cached bank answer for a near-identical, non-follow-up question.
     # On a first turn there's no history, so a standalone question can't be a
@@ -461,13 +494,15 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
     if AUTO_QA_SERVE_ENABLED and req.mode != "deep" and (first_turn or not _is_followup(req.q)):
         try:
             from . import qa as qa_mod
-            hit = qa_mod.serve_match(req.q, AUTO_QA_SERVE_MIN_SIM, AUTO_QA_SERVE_MIN_LEN)
+            hit = qa_mod.serve_match(req.q, AUTO_QA_SERVE_MIN_SIM, AUTO_QA_SERVE_MIN_LEN,
+                                     sectors=_sectors, folders=_folders)
         except Exception:
             hit = None
         if hit:
             _t0 = time.monotonic()
             ans = (hit.get("answer") or "").strip()
             cited = _pages_by_ids(hit.get("page_ids") or [])
+            ans, cited = _cite_policy(ans, cited)
             convo.add_message(conv_id, "user", req.q, [])
             bot_id = convo.add_message(conv_id, "bot", ans, cited)
             qa_mod.bump_served(hit["id"])
@@ -484,7 +519,14 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
                     "served_qa_id": hit["id"],
                     "followups": qa_mod.sibling_questions(hit["id"])}
 
-    seed = search_pages(req.q, k=req.k or DEFAULT_K)
+    seed = search_pages(req.q, k=req.k or DEFAULT_K, sectors=_sectors, folders=_folders)
+    _ok_scope, _refusal = scope.in_scope(req.q, lambda _q: seed)
+    if not _ok_scope:
+        convo.add_message(conv_id, "user", req.q, [])
+        convo.add_message(conv_id, "bot", _refusal, [])
+        if first_turn:
+            convo.autotitle(conv_id, req.q)
+        return {"answer": _refusal, "pages": [], "conversation_id": conv_id}
     if not seed:
         answer = "No documents uploaded yet. Please upload SOPs/policies first."
         convo.add_message(conv_id, "user", req.q, [])
@@ -501,13 +543,14 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
     cited = _pages_by_ids(result["page_ids"]) or _pages_by_ids(
         [p["page_id"] for p in seed]
     )
+    _text, cited = _cite_policy(result["text"], cited)
     convo.add_message(conv_id, "user", req.q, [])
-    convo.add_message(conv_id, "bot", result["text"], cited)
+    convo.add_message(conv_id, "bot", _text, cited)
     title = None
     if first_turn:
         title = convo.autotitle(conv_id, req.q)
     return {
-        "answer": result["text"], "pages": cited,
+        "answer": _text, "pages": cited,
         "conversation_id": conv_id, "title": title,
     }
 
@@ -524,6 +567,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
     conv_id = conv["id"]
     first_turn = convo.message_count(conv_id) == 0
     history = convo.messages(conv_id)   # prior turns (before this one) → context for follow-ups
+    _sectors, _folders = rbac.scope_filter(user)   # row-level: (None,None)=all
 
     # role-based answer depth (Phase 6): non-admins get the simplified end-user
     # rendering, admins/IT get the full procedure. Default expert when flag off.
@@ -555,6 +599,33 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
         if kid:
             embed_mod.bump_message(kid)  # counts toward this key's daily cap
 
+        # ---- GLOBAL / meta intent: corpus overview from doc summaries (grounded) ----
+        # "summarize all docs", "what do you cover", "list SOPs" — answered from the
+        # doc list, BEFORE per-page retrieval + the scope gate (which refuse them).
+        try:
+            from . import global_answer
+            if global_answer.is_global_query(req.q):
+                yield _step("Reading the knowledge base", "building a corpus overview")
+                ov = global_answer.build_overview(sectors=_sectors, folders=_folders)
+                ans = ov.get("answer") or "No documents are loaded yet."
+                cited = ov.get("pages") or []
+                ans, cited = _cite_policy(ans, cited)
+                for i in range(0, len(ans), 48):
+                    yield json.dumps({"type": "token", "v": ans[i:i + 48]}) + "\n"
+                convo.add_message(conv_id, "user", req.q, [])
+                bot_id = convo.add_message(conv_id, "bot", ans, cited, meta=_trace_meta(_t0_req))
+                title = convo.autotitle(conv_id, req.q) if first_turn else None
+                yield json.dumps({"type": "done", "pages": cited, "title": title,
+                                  "clean": ans, "blind": False, "nearest": None,
+                                  "message_id": bot_id, "global": True,
+                                  "tokens": {"in": 0, "out": 0, "total": 0},
+                                  "cost": 0, "cited_n": len(cited),
+                                  "citations": appcfg.citations_enabled(),
+                                  "grounded": True, "followups": []}) + "\n"
+                return
+        except Exception as e:
+            print(f"[global] stream overview skipped: {e!r}")
+
         # ---- Phase 4: serve a cached answer from the Q&A bank (instant, zero-agent) ----
         # Only when an APPROVED pair near-matches this exact question, it isn't a
         # context-dependent follow-up, and the user didn't ask for deep mode.
@@ -562,13 +633,15 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
         if (AUTO_QA_SERVE_ENABLED and req.mode != "deep" and (first_turn or not _is_followup(req.q))):
             try:
                 from . import qa as qa_mod
-                hit = qa_mod.serve_match(req.q, AUTO_QA_SERVE_MIN_SIM, AUTO_QA_SERVE_MIN_LEN)
+                hit = qa_mod.serve_match(req.q, AUTO_QA_SERVE_MIN_SIM, AUTO_QA_SERVE_MIN_LEN,
+                                         sectors=_sectors, folders=_folders)
             except Exception as e:
                 hit = None
                 print(f"[qa] serve_match skipped: {e!r}")
             if hit:
                 ans = (hit.get("answer") or "").strip()
                 cited = _pages_by_ids(hit.get("page_ids") or [])
+                ans, cited = _cite_policy(ans, cited)
                 yield _step("Answered from the Q&A bank",
                             f"matched a saved answer ({int((hit.get('sim') or 0) * 100)}% match)")
                 for i in range(0, len(ans), 48):   # chunk for a streamed feel
@@ -613,19 +686,47 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
 
         # ---- live "thinking" trace: what the agent is actually doing ----
         yield _step("Understanding your question", req.q[:80], "running")
-        _sq = _search_query(req.q, history)   # follow-up-aware + indexed SQL
+        # fold the prior question + inject history ONLY for a real follow-up
+        # (anaphoric cue) — a bare new topic stands alone so it can't inherit the
+        # previous topic's context (fix: short new Q answered the old topic)
+        _sq, _use_hist = resolve_query(req.q, history, followup_re=_FOLLOWUP_RE)
+        _hist = history if _use_hist else []
         if AGENTIC_RETRIEVE:
-            seed, _subs = agentic_search(_sq, k=req.k or DEFAULT_K)
+            seed, _subs = agentic_search(_sq, k=req.k or DEFAULT_K, sectors=_sectors, folders=_folders)
             if _subs:
                 yield _step("Searching deeper", "also tried: " + " · ".join(_subs))
         else:
-            seed = search_pages(_sq, k=req.k or DEFAULT_K)
+            seed = search_pages(_sq, k=req.k or DEFAULT_K, sectors=_sectors, folders=_folders)
         # retrieval funnel counts (scanned/pool/reranked) for answer_metrics
         try:
             from .retrieve import last_funnel
             _funnel = last_funnel()
         except Exception:
             _funnel = {}
+
+        # off-topic gate: refuse clearly out-of-scope questions before answering.
+        # Reuse the seed we already fetched (no extra search / query-expansion LLM
+        # call). Conservative — only fires on weak retrieval + junk/zero pages.
+        # Use the follow-up-folded query (_sq) so a short follow-up keeps its topic
+        # and isn't wrongly refused for having no standalone keywords.
+        _ok_scope, _refusal = scope.in_scope(_sq, lambda _q: seed)
+        if not _ok_scope:
+            yield _step("Outside the runbooks", "off-topic — declined", "done")
+            yield json.dumps({"type": "token", "v": _refusal}) + "\n"
+            convo.add_message(conv_id, "user", req.q, [])
+            _bid = convo.add_message(conv_id, "bot", _refusal, [])
+            if first_turn:
+                convo.autotitle(conv_id, req.q)
+            try:
+                notify.emit("audit", "Off-topic question declined", req.q[:90],
+                            "info", dedupe_hours=12)
+            except Exception:
+                pass
+            yield json.dumps({"type": "done", "pages": [], "title": None,
+                              "clean": _refusal, "blind": True, "nearest": None,
+                              "message_id": _bid, "cited_n": 0,
+                              "grounded": False}) + "\n"
+            return
 
         if not seed:
             yield _step("Searched the knowledge base", "no matching runbooks found")
@@ -653,7 +754,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
             """Stream one composition; yields ('tok', delta)* then ('acc', full)."""
             buf = ""
             for tok in stream_reply(req.q, pages, mode=req.mode,
-                                    session_id=str(conv_id), history=history,
+                                    session_id=str(conv_id), history=_hist,
                                     meter=meter, audience=_audience):
                 if kill.chat_stopped():    # master stop mid-answer → abort
                     break
@@ -687,8 +788,8 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
         else:
             # strict groundedness: PAGES:none -> [] (no seed-fallback masking, so a
             # truly unsourced answer is detectable instead of silently "cited")
-            clean, nums = parse_pages(acc, [])
-            page_ids = map_cited(nums, seed)             # source numbers -> real page_ids
+            clean, _nums = parse_pages(acc, [])          # strips PAGES: line for display
+            page_ids = cited_page_ids(acc, seed)         # inline [N] + PAGES: -> page_ids
             clean = render_cited(clean, seed)
             used = seed
 
@@ -696,8 +797,8 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
             # re-compose ONCE (reset clears the first attempt on the client) before
             # we fall back to an honest "not in the runbooks" answer.
             if not page_ids:
-                wide = search_pages(_search_query(req.q, history),
-                                    k=min(20, (req.k or DEFAULT_K) * 2 + 4))
+                wide = search_pages(_sq,
+                                    k=min(20, (req.k or DEFAULT_K) * 2 + 4), sectors=_sectors, folders=_folders)
                 # agentic recovery: LLM reformulates the question into new angles and
                 # we search each — finds pages plain widening misses (Vercel idea).
                 reform: list[str] = []
@@ -705,7 +806,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
                     from .retrieve import _reformulate
                     reform = _reformulate(req.q)
                     for s in reform:
-                        wide += search_pages(s, k=req.k or DEFAULT_K)
+                        wide += search_pages(s, k=req.k or DEFAULT_K, sectors=_sectors, folders=_folders)
                 seed_ids = {p["page_id"] for p in seed}
                 fresh, fseen = [], set(seed_ids)
                 for p in wide:
@@ -731,8 +832,8 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
                     except Exception as e:
                         yield json.dumps({"type": "error", "detail": f"agent error: {e}"}) + "\n"
                         return
-                    clean, nums = parse_pages(acc2, [])
-                    page_ids = map_cited(nums, merged)   # re-map against the wider set
+                    clean, _nums = parse_pages(acc2, [])
+                    page_ids = cited_page_ids(acc2, merged)   # inline [N] + PAGES:
                     clean = render_cited(clean, merged)
                     used = merged
 
@@ -756,6 +857,9 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
         # followups are folded into the answer stream (FOLLOWUPS: line) — strip + extract,
         # so no second LLM call is needed for the suggestion chips
         clean, fups = parse_followups(clean)
+
+        # per-deployment citation toggle: drop [N]/PAGES + source coins when OFF
+        clean, cited = _cite_policy(clean, cited)
 
         convo.add_message(conv_id, "user", req.q, [])
         bot_id = convo.add_message(conv_id, "bot", clean, cited, meta=_trace_meta(_t0_req))
@@ -818,6 +922,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
                           "tokens": {"in": tok_in, "out": tok_out, "total": tok_in + tok_out},
                           "cost": cost, "cited_n": len(cited),
                           "followups": fups,
+                          "citations": appcfg.citations_enabled(),
                           "grounded": (len(cited) > 0 and not blind)}) + "\n"
 
     return StreamingResponse(gen(), media_type="application/x-ndjson")
@@ -863,10 +968,23 @@ def delete_conversation(conv_id: int, user: dict = Depends(current_user)):
 
 
 @router.post("/upload")
-def upload(file: UploadFile = File(...), user: dict = Depends(require_admin)):
-    """Accept a SOP/policy (PDF or image) and queue it for async ingest.
-    Returns instantly; the background worker renders + reads the pages and the
-    doc flips queued -> processing -> ready (poll GET /documents for status)."""
+def upload(file: UploadFile = File(...), folder_id: int | None = Form(None),
+           user: dict = Depends(current_user)):
+    """Accept a SOP/policy (PDF or image) and queue it for async ingest, optionally
+    into a Sources folder. Returns instantly; the background worker renders + reads
+    the pages and the doc flips queued -> processing -> ready."""
+    # row-level access: super-admin (global) or sector-admin (own sector) may
+    # upload. With RBAC off this is admin-only (back-compat). A doc lands in the
+    # chosen folder; its sector comes from that folder (else the uploader's sector).
+    _sec = rbac.user_write_sector(user)
+    if folder_id is not None:
+        with get_conn() as conn:
+            fr = conn.execute("SELECT sector_id FROM folders WHERE id=%s", (folder_id,)).fetchone()
+        if fr is None:
+            raise HTTPException(status_code=404, detail="folder not found")
+        _sec = fr["sector_id"]
+    if not rbac.can_write(user, _sec):
+        raise HTTPException(status_code=403, detail="Not allowed to upload documents.")
     name = file.filename or "upload"
     # duplicate guard: refuse a doc whose name already exists and is live
     # (queued/processing/ready). Re-uploading a previously failed/cancelled name
@@ -889,12 +1007,156 @@ def upload(file: UploadFile = File(...), user: dict = Depends(require_admin)):
         raise HTTPException(status_code=400, detail=f"save failed: {e}")
     with get_conn() as conn:
         row = conn.execute(
-            "INSERT INTO docs (name, status, progress, storage_key, uploaded_by, updated_at) "
-            "VALUES (%s, 'queued', 0, %s, %s, now()) RETURNING id",
-            (name, key, user.get("email")),
+            "INSERT INTO docs (name, status, progress, storage_key, uploaded_by, sector_id, folder_id, updated_at) "
+            "VALUES (%s, 'queued', 0, %s, %s, %s, %s, now()) RETURNING id",
+            (name, key, user.get("email"), _sec, folder_id),
         ).fetchone()
     notify.emit("ingest", f"Document queued · {name}", "processing…", "info")
     return {"ok": True, "name": name, "doc_id": row["id"], "status": "queued"}
+
+
+# ---- Sources: folders (organize uploads; access-controlled when RBAC on) ----
+class FolderPrincipal(BaseModel):
+    type: str          # 'user' | 'group'
+    id: int
+
+
+class FolderBody(BaseModel):
+    name: str
+    sector_id: int | None = None
+    access_mode: str = "sector"             # sector | specific | org
+    principals: list[FolderPrincipal] = []  # only for access_mode='specific'
+
+
+class AccessBody(BaseModel):               # share/manage access (no name needed)
+    access_mode: str = "sector"
+    principals: list[FolderPrincipal] = []
+
+
+@router.get("/folders")
+def list_folders(user: dict = Depends(current_user)):
+    """Folders the caller may see (scoped by sector when RBAC on), with doc counts."""
+    secs = rbac.allowed_sectors(user)
+    _sec = " AND (%(s)s::bigint[] IS NULL OR f.sector_id = ANY(%(s)s)) "
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT f.id, f.name, f.sector_id, f.access_mode, s.label AS sector_label, "
+            "(SELECT count(*) FROM docs d WHERE d.folder_id = f.id) AS doc_count, "
+            "(SELECT count(*) FROM folder_access fa WHERE fa.folder_id = f.id) AS access_n "
+            "FROM folders f LEFT JOIN sectors s ON s.id = f.sector_id "
+            "WHERE true" + _sec + " ORDER BY f.name",
+            {"s": secs}).fetchall()
+        unfiled = conn.execute(
+            "SELECT count(*) AS n FROM docs d WHERE d.folder_id IS NULL "
+            "AND (%(s)s::bigint[] IS NULL OR d.sector_id = ANY(%(s)s))",
+            {"s": secs}).fetchone()["n"]
+    return {"folders": [dict(r) for r in rows], "unfiled": unfiled}
+
+
+@router.get("/principals")
+def list_principals(user: dict = Depends(require_admin)):
+    """Users + groups to populate the folder access picker (admin only)."""
+    with get_conn() as conn:
+        users = conn.execute(
+            "SELECT id, email, role FROM users WHERE active = true ORDER BY email LIMIT 500"
+        ).fetchall()
+        try:
+            groups = conn.execute("SELECT id, name FROM groups ORDER BY name").fetchall()
+        except Exception:
+            groups = []
+    return {"users": [dict(u) for u in users], "groups": [dict(g) for g in groups]}
+
+
+@router.post("/folders")
+def create_folder(body: FolderBody, user: dict = Depends(current_user)):
+    """Create a folder + its access rule. Super-admin (any sector) or sector-admin
+    (own sector). access_mode: 'sector' (everyone in the sector), 'org' (all
+    sectors), or 'specific' (the chosen users/groups in `principals`)."""
+    sid = body.sector_id if body.sector_id is not None else rbac.user_write_sector(user)
+    if not rbac.can_write(user, sid):
+        raise HTTPException(status_code=403, detail="Not allowed to create folders.")
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Folder name required.")
+    mode = body.access_mode if body.access_mode in ("sector", "specific", "org") else "sector"
+    # only a super-admin may grant org-wide (cross-sector) access
+    if mode == "org" and not rbac.is_superadmin(user):
+        raise HTTPException(status_code=403, detail="Only a super-admin can grant org-wide access.")
+    with get_conn() as conn:
+        row = conn.execute(
+            "INSERT INTO folders (sector_id, name, access_mode) VALUES (%s,%s,%s) "
+            "RETURNING id, name, sector_id, access_mode",
+            (sid, name, mode)).fetchone()
+        if mode == "specific":
+            for p in body.principals:
+                if p.type in ("user", "group"):
+                    conn.execute(
+                        "INSERT INTO folder_access (folder_id, principal_type, principal_id) "
+                        "VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+                        (row["id"], p.type, p.id))
+    return {"ok": True, "folder": dict(row)}
+
+
+def _folder_or_403(fid: int, user: dict):
+    with get_conn() as conn:
+        f = conn.execute("SELECT id, name, sector_id, access_mode FROM folders WHERE id=%s",
+                         (fid,)).fetchone()
+    if not f:
+        raise HTTPException(status_code=404, detail="folder not found")
+    if not rbac.can_write(user, f["sector_id"]):
+        raise HTTPException(status_code=403, detail="Not allowed to manage this folder.")
+    return f
+
+
+@router.get("/folders/{fid}/access")
+def folder_access_get(fid: int, user: dict = Depends(current_user)):
+    """Current sharing of a folder: mode + the users/groups it's shared with."""
+    f = _folder_or_403(fid, user)
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT fa.principal_type AS type, fa.principal_id AS id, "
+            "  CASE fa.principal_type WHEN 'user' THEN u.email ELSE g.name END AS label "
+            "FROM folder_access fa "
+            "LEFT JOIN users u ON fa.principal_type='user' AND u.id=fa.principal_id "
+            "LEFT JOIN groups g ON fa.principal_type='group' AND g.id=fa.principal_id "
+            "WHERE fa.folder_id=%s ORDER BY label", (fid,)).fetchall()
+    return {"folder": dict(f), "access_mode": f["access_mode"],
+            "principals": [dict(r) for r in rows]}
+
+
+@router.put("/folders/{fid}/access")
+def folder_access_set(fid: int, body: AccessBody, user: dict = Depends(current_user)):
+    """Share / re-share a folder: set access_mode + replace the people/groups list."""
+    _folder_or_403(fid, user)
+    mode = body.access_mode if body.access_mode in ("sector", "specific", "org") else "sector"
+    if mode == "org" and not rbac.is_superadmin(user):
+        raise HTTPException(status_code=403, detail="Only a super-admin can grant org-wide access.")
+    with get_conn() as conn:
+        conn.execute("UPDATE folders SET access_mode=%s WHERE id=%s", (mode, fid))
+        conn.execute("DELETE FROM folder_access WHERE folder_id=%s", (fid,))
+        if mode == "specific":
+            for p in body.principals:
+                if p.type in ("user", "group"):
+                    conn.execute(
+                        "INSERT INTO folder_access (folder_id, principal_type, principal_id) "
+                        "VALUES (%s,%s,%s) ON CONFLICT DO NOTHING", (fid, p.type, p.id))
+    return {"ok": True}
+
+
+@router.delete("/folders/{fid}")
+def delete_folder(fid: int, user: dict = Depends(current_user)):
+    """Delete a folder (admin / sector-admin via RBAC). Its DOCUMENTS are un-filed
+    (folder_id → NULL, moved to All documents) — never deleted; access rules drop."""
+    f = _folder_or_403(fid, user)        # 404 if missing, 403 if not allowed to manage
+    with get_conn() as conn:
+        moved = conn.execute(
+            "UPDATE docs SET folder_id = NULL WHERE folder_id = %s", (fid,)
+        ).rowcount
+        conn.execute("DELETE FROM folder_access WHERE folder_id = %s", (fid,))
+        conn.execute("DELETE FROM folders WHERE id = %s", (fid,))
+    audit_mod.log(user, "folder.delete", "folder", fid,
+                  {"name": f.get("name"), "unfiled_docs": moved})
+    return {"ok": True, "deleted": fid, "unfiled_docs": moved or 0}
 
 
 @router.get("/ingest/scan")
@@ -1063,6 +1325,113 @@ def graph_import(kind: str, user: dict = Depends(require_admin)):
     return res
 
 
+# ==== Unified SharePoint connector (push / device-code / app) ================
+# ONE config + schedule + status, three methods. See app/sp_connector.py.
+@router.get("/connector/sp")
+def sp_get(user: dict = Depends(require_admin)):
+    from . import sp_connector
+    return sp_connector.config()
+
+
+@router.post("/connector/sp")
+def sp_save(body: dict, user: dict = Depends(require_admin)):
+    from . import sp_connector
+    body = body or {}
+    if "site_url" in body and not sp_connector.valid_site_url(body.get("site_url")):
+        raise HTTPException(status_code=400,
+                            detail="site URL must be an https *.sharepoint.com address")
+    cfg = sp_connector.save_config(body)
+    audit_mod.log(user, "connector.sp.config", "config", 0,
+                  {"method": cfg.get("method"), "site": cfg.get("site_url")})
+    return cfg
+
+
+@router.get("/connector/sp/status")
+def sp_status(user: dict = Depends(require_admin)):
+    from . import sp_connector
+    return sp_connector.status()
+
+
+@router.post("/connector/sp/sync-now")
+def sp_sync_now(user: dict = Depends(require_admin)):
+    from . import sp_connector
+    res = sp_connector.sync_now()
+    audit_mod.log(user, "connector.sp.sync_now", "connector", 0,
+                  {"queued": res.get("queued"), "ok": res.get("ok")})
+    return res
+
+
+@router.post("/connector/sp/token/rotate")
+def sp_rotate_token(user: dict = Depends(require_admin)):
+    from . import sp_connector
+    audit_mod.log(user, "connector.sp.token_rotate", "connector", 0, {})
+    return sp_connector.rotate_token()
+
+
+@router.get("/connector/sp/agent-script")
+def sp_agent_script(request: Request, os: str = "mac", user: dict = Depends(require_admin)):
+    """Generate the Desktop-Sync folder-watch script (carries the push token)."""
+    from . import sp_connector
+    from .config import PUBLIC_URL
+    cfg = sp_connector._raw()
+    tok = cfg.get("push_token")
+    if not tok:
+        tok = sp_connector.rotate_token()["token"]
+    base = PUBLIC_URL or str(request.base_url).rstrip("/")
+    out = sp_connector.agent_script(os, base, tok)
+    audit_mod.log(user, "connector.sp.agent_script", "connector", 0, {"os": os})
+    return out
+
+
+@router.post("/connector/sp/device/start")
+def sp_device_start(user: dict = Depends(require_admin)):
+    from . import sp_graph
+    return sp_graph.device_start()
+
+
+@router.post("/connector/sp/device/poll")
+def sp_device_poll(body: dict = Body(default=None), user: dict = Depends(require_admin)):
+    from . import sp_graph
+    dc = (body or {}).get("device_code", "")
+    res = sp_graph.device_poll(dc)
+    res["connected"] = sp_graph.connected()
+    return res
+
+
+@router.post("/connector/sp/device/disconnect")
+def sp_device_disconnect(user: dict = Depends(require_admin)):
+    from . import sp_graph
+    audit_mod.log(user, "connector.sp.device_disconnect", "connector", 0, {})
+    return sp_graph.disconnect()
+
+
+@router.post("/connector/sp/app/test")
+def sp_app_test(user: dict = Depends(require_admin)):
+    from . import sharepoint
+    return sharepoint.test_connection("sharepoint")
+
+
+# Desktop agent push lane — TOKEN auth (NOT a logged-in admin). The connector
+# token is carried in X-Connector-Token (or ?token=). Files land in the inbox.
+@router.post("/connector/push")
+async def sp_connector_push(
+    request: Request,
+    file: UploadFile = File(...),
+    x_connector_token: str = Header(default=""),
+    token: str = Query(default=""),
+):
+    from . import sp_connector
+    tok = x_connector_token or token
+    if not sp_connector.verify_push_token(tok):
+        raise HTTPException(status_code=401, detail="invalid connector token")
+    if not sp_connector.push_rate_ok():
+        raise HTTPException(status_code=429, detail="push rate limit exceeded")
+    res = sp_connector.accept_push(file.file, file.filename or "upload.pdf")
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("detail", "push failed"))
+    return res
+
+
 # ---- back-compat aliases (old SharePoint-only endpoints) ----
 @router.get("/ingest/sharepoint/config")
 def sharepoint_config(user: dict = Depends(require_admin)):
@@ -1149,6 +1518,192 @@ def retry_doc(doc_id: int, user: dict = Depends(require_admin)):
     kill.clear_doc(doc_id)   # drop any stale cancel request so it can re-ingest
     audit_mod.log(user, "doc.retry", "doc", doc_id)
     return {"ok": True, "id": doc_id, "status": "queued"}
+
+
+# ── Enrichment Agent (deferred PHASE-2 lane) ────────────────────────────────────
+@router.get("/enrich/status")
+def enrich_status(user: dict = Depends(current_user)):
+    from . import enrich_agent
+    return enrich_agent.status()
+
+
+@router.post("/enrich/pause")
+def enrich_pause(user: dict = Depends(require_admin)):
+    from . import enrich_agent
+    enrich_agent.pause()
+    return {"ok": True, "paused": True}
+
+
+@router.post("/enrich/resume")
+def enrich_resume(user: dict = Depends(require_admin)):
+    from . import enrich_agent
+    enrich_agent.resume()
+    return {"ok": True, "paused": False}
+
+
+@router.post("/enrich/concurrency")
+def enrich_concurrency(body: dict, user: dict = Depends(require_admin)):
+    from . import enrich_agent
+    n = enrich_agent.set_concurrency((body or {}).get("concurrency", 2))
+    return {"ok": True, "concurrency": n}
+
+
+@router.post("/enrich/doc/{doc_id}/skip")
+def enrich_skip(doc_id: int, user: dict = Depends(require_admin)):
+    """Accept the doc as-is (answerable) and stop its background enrichment."""
+    from . import ingest_control as kill
+    kill.cancel_doc(doc_id)          # halt if mid-enrich
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE docs SET status='ready', updated_at=now() WHERE id=%s AND status='ready_lite'",
+            (doc_id,),
+        )
+    audit_mod.log(user, "enrich.skip", "doc", doc_id)
+    return {"ok": True, "id": doc_id}
+
+
+# ── Eval Agent (offline answer-quality scoring) ─────────────────────────────────
+@router.get("/eval/status")
+def eval_status(user: dict = Depends(current_user)):
+    from . import eval_agent
+    return eval_agent.status()
+
+
+@router.get("/eval/docs")
+def eval_docs(user: dict = Depends(current_user)):
+    from . import eval_agent
+    return {"docs": eval_agent.doc_list()}
+
+
+@router.get("/eval/doc/{doc_id}")
+def eval_doc(doc_id: int, user: dict = Depends(current_user)):
+    from . import eval_agent
+    return eval_agent.doc_detail(doc_id)
+
+
+@router.post("/eval/run")
+def eval_run(user: dict = Depends(require_admin)):
+    """Force a manual eval pass now (scores ALL ready docs)."""
+    from . import eval_agent
+    started = eval_agent.force_run()
+    audit_mod.log(user, "eval.run", "eval", 0)
+    return {"ok": True, "started": started,
+            "detail": "queued" if started else "a run is already in progress"}
+
+
+@router.post("/eval/pause")
+def eval_pause(user: dict = Depends(require_admin)):
+    from . import eval_agent
+    eval_agent.pause()
+    return {"ok": True, "paused": True}
+
+
+@router.post("/eval/resume")
+def eval_resume(user: dict = Depends(require_admin)):
+    from . import eval_agent
+    eval_agent.resume()
+    return {"ok": True, "paused": False}
+
+
+@router.post("/eval/concurrency")
+def eval_concurrency(body: dict, user: dict = Depends(require_admin)):
+    from . import eval_agent
+    n = eval_agent.set_concurrency((body or {}).get("concurrency", 2))
+    return {"ok": True, "concurrency": n}
+
+
+_STAGES = ["Queued", "Render", "Read", "Structure", "Compile", "Enrich", "Ready"]
+
+
+def _stage_of(status: str, progress: int) -> int:
+    """Map status/progress → pipeline stage index (mirrors the Sources right panel)."""
+    if status == "ready":
+        return 6
+    if status in ("failed", "cancelled"):
+        return 0
+    p = progress or 0
+    if p < 10:
+        return 0          # queued
+    if p < 30:
+        return 1          # render
+    if p < 80:
+        return 2          # read (vision)
+    if p < 86:
+        return 3          # structure (PageIndex)
+    if p < 96:
+        return 4          # compile (wiki)
+    return 5              # enrich
+
+
+@router.get("/documents/{doc_id}/processing", dependencies=[Depends(require_key)])
+def doc_processing(doc_id: int):
+    """Everything the Sources right-side process panel needs: live status + stage,
+    per-page vision state, knowledge-enricher counts, and this doc's recent log."""
+    with get_conn() as conn:
+        d = conn.execute(
+            "SELECT id, name, status, progress, pages_done, page_count, error, "
+            "doc_type, folder_id, sector_id, uploaded_by, lang, ready_at, created_at "
+            "FROM docs WHERE id = %s", (doc_id,)).fetchone()
+        if not d:
+            raise HTTPException(status_code=404, detail="document not found")
+        pages = conn.execute(
+            "SELECT page_no, (coalesce(vision_text,'') <> '') AS read "
+            "FROM pages WHERE doc_id = %s ORDER BY page_no", (doc_id,)).fetchall()
+        enr = conn.execute(
+            "SELECT "
+            "(SELECT count(*) FROM doc_pages_md WHERE doc_id=%(d)s) AS compiled, "
+            "(SELECT count(*) FROM doc_playbook WHERE doc_id=%(d)s) AS playbook, "
+            "(SELECT count(*) FROM doc_lookup WHERE doc_id=%(d)s) AS lookup, "
+            "(SELECT count(*) FROM doc_dependency WHERE from_doc=%(d)s) AS dependencies, "
+            "(SELECT count(*) FROM doc_tree WHERE doc_id=%(d)s) AS tree, "
+            "(SELECT count(*) FROM entity_mention WHERE doc_id=%(d)s) AS entities, "
+            "(SELECT count(*) FROM qa_pairs WHERE doc_id=%(d)s) AS qa",
+            {"d": doc_id}).fetchone()
+        log = conn.execute(
+            "SELECT id, step, msg, level, ts FROM ingest_log WHERE doc_id=%s "
+            "ORDER BY id DESC LIMIT 40", (doc_id,)).fetchall()
+    stage = _stage_of(d["status"], d["progress"])
+    return {
+        "doc": {"id": d["id"], "name": d["name"], "status": d["status"],
+                "progress": d["progress"] or 0, "pages_done": d["pages_done"] or 0,
+                "page_count": d["page_count"] or 0, "error": d["error"],
+                "doc_type": d["doc_type"], "folder_id": d["folder_id"],
+                "uploaded_by": d["uploaded_by"], "lang": d["lang"]},
+        "stage": stage, "stages": _STAGES,
+        "pages": [{"page_no": p["page_no"], "read": bool(p["read"])} for p in pages],
+        "enrichers": dict(enr),
+        "log": [{"id": r["id"], "step": r["step"], "msg": r["msg"],
+                 "level": r["level"] or "info",
+                 "ts": r["ts"].isoformat() if r["ts"] else None}
+                for r in reversed(log)],
+    }
+
+
+class MoveBody(BaseModel):
+    folder_id: int | None = None
+
+
+@router.patch("/documents/{doc_id}", dependencies=[Depends(require_key)])
+def move_document(doc_id: int, body: MoveBody, user: dict = Depends(current_user)):
+    """Move a document into a folder (or out, folder_id=null). Sector follows the
+    target folder. Super-admin or sector-admin of the target sector only."""
+    target_sector = None
+    if body.folder_id is not None:
+        with get_conn() as conn:
+            fr = conn.execute("SELECT sector_id FROM folders WHERE id=%s",
+                              (body.folder_id,)).fetchone()
+        if fr is None:
+            raise HTTPException(status_code=404, detail="folder not found")
+        target_sector = fr["sector_id"]
+    if not rbac.can_write(user, target_sector):
+        raise HTTPException(status_code=403, detail="Not allowed to move into this folder.")
+    with get_conn() as conn:
+        row = conn.execute(
+            "UPDATE docs SET folder_id=%s, sector_id=%s, updated_at=now() "
+            "WHERE id=%s RETURNING id", (body.folder_id, target_sector, doc_id)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="document not found")
+    return {"ok": True, "id": doc_id, "folder_id": body.folder_id}
 
 
 @router.post("/documents/{doc_id}/categorize", dependencies=[Depends(require_admin)])
@@ -1251,6 +1806,204 @@ def save_governance(req: dict, user: dict = Depends(require_admin)):
     pol = governance.save_policy(req or {})
     audit_mod.log(user, "governance.update", "config", 0, req)
     return {"ok": True, "policy": pol}
+
+
+@router.get("/settings/features", dependencies=[Depends(require_key)])
+def get_features():
+    """Per-deployment feature toggles (e.g. citations on/off) — admin-editable so
+    one codebase serves different projects with no redeploy."""
+    return {"features": appcfg.get_features()}
+
+
+@router.post("/settings/features")
+def save_features(req: dict, user: dict = Depends(require_admin)):
+    """Update feature toggles (admin). Body: {citations: bool, ...}."""
+    feats = appcfg.save_features(req or {})
+    audit_mod.log(user, "features.update", "config", 0, req)
+    return {"ok": True, "features": feats}
+
+
+@router.get("/settings/wiki-schema", dependencies=[Depends(require_key)])
+def get_wiki_schema():
+    """Wiki / knowledge schema (Karpathy LLM-wiki Layer 3) — the per-project
+    conventions the knowledge base is maintained to. Read by compiler +
+    contradiction + temporal + browse phases."""
+    return {"schema": appcfg.get_wiki_schema(), "defaults": appcfg._WIKI_SCHEMA_DEFAULTS}
+
+
+@router.post("/settings/wiki-schema")
+def save_wiki_schema(req: dict, user: dict = Depends(require_admin)):
+    """Update the wiki schema (admin). Body = a partial schema patch."""
+    schema = appcfg.save_wiki_schema(req or {})
+    audit_mod.log(user, "wiki_schema.update", "config", 0, req)
+    return {"ok": True, "schema": schema}
+
+
+@router.get("/settings/persona", dependencies=[Depends(require_key)])
+def get_persona():
+    """The agent persona (identity/voice) — generated from the corpus, applied on
+    top of grounding (tone only, never changes the facts)."""
+    return {"persona": appcfg.get_persona()}
+
+
+@router.post("/settings/persona")
+def save_persona(req: dict, user: dict = Depends(require_admin)):
+    """Save the persona (admin). Body = a partial persona patch. Bumps version."""
+    p = appcfg.save_persona(req or {})
+    audit_mod.log(user, "persona.update", "config", 0, {"version": p.get("version")})
+    return {"ok": True, "persona": p}
+
+
+@router.post("/settings/persona/generate")
+def generate_persona(user: dict = Depends(require_admin)):
+    """Full knowledge scan → propose a persona draft (NOT saved; admin reviews + saves)."""
+    from . import persona as persona_mod
+    return {"persona": persona_mod.generate_from_knowledge()}
+
+
+@router.get("/settings/persona/history", dependencies=[Depends(require_key)])
+def persona_history():
+    """Prior persona versions (for display / future rollback)."""
+    return {"history": appcfg.persona_history()}
+
+
+@router.get("/contradictions", dependencies=[Depends(require_key)])
+def list_contradictions(status: str = "pending"):
+    """Semantic contradictions between docs (Karpathy-wiki Phase 1). status =
+    pending | resolved | all. doc_a = the NEWER doc, doc_b = the existing one."""
+    where = ""
+    if status == "pending":
+        where = "WHERE c.status = 'pending'"
+    elif status == "resolved":
+        where = "WHERE c.status <> 'pending'"
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT c.id, c.entity, c.attribute, c.severity, c.detail, c.status, c.created_at, "
+            "c.doc_a, c.page_a, c.value_a, c.doc_b, c.page_b, c.value_b, "
+            "da.name AS doc_a_name, db.name AS doc_b_name "
+            "FROM claim_conflict c "
+            "LEFT JOIN docs da ON da.id = c.doc_a "
+            "LEFT JOIN docs db ON db.id = c.doc_b "
+            f"{where} ORDER BY c.created_at DESC LIMIT 500",
+        ).fetchall()
+        counts = conn.execute(
+            "SELECT count(*) FILTER (WHERE status = 'pending') AS pending, "
+            "count(*) FILTER (WHERE status <> 'pending') AS resolved FROM claim_conflict"
+        ).fetchone()
+    return {"conflicts": rows, "counts": counts}
+
+
+@router.get("/wiki/index", dependencies=[Depends(require_key)])
+def wiki_index():
+    """Browsable wiki landing (Karpathy Phase 3): top entities + doc catalog."""
+    from . import wiki
+    return wiki.wiki_index()
+
+
+@router.get("/wiki/resolve", dependencies=[Depends(require_key)])
+def wiki_resolve(name: str = ""):
+    """Resolve an entity name (from an auto-link click) to its hub id."""
+    from . import wiki
+    eid = wiki.resolve_entity(name)
+    if not eid:
+        raise HTTPException(status_code=404, detail="entity not found")
+    return {"id": eid}
+
+
+@router.get("/wiki/entity/{entity_id}", dependencies=[Depends(require_key)])
+def wiki_entity(entity_id: int):
+    """Entity hub: appears-in, asserted values (claims), conflicts, related."""
+    from . import wiki
+    hub = wiki.entity_hub(entity_id)
+    if hub is None:
+        raise HTTPException(status_code=404, detail="entity not found")
+    return hub
+
+
+@router.get("/wiki/doc/{doc_id}", dependencies=[Depends(require_key)])
+def wiki_doc(doc_id: int):
+    """A document as a wiki page: auto-linked markdown + backlinks + prerequisites."""
+    from . import wiki
+    view = wiki.doc_view(doc_id)
+    if view is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    return view
+
+
+@router.get("/claims/superseded", dependencies=[Depends(require_key)])
+def superseded_claims():
+    """Temporal history — claims invalidated by a resolved contradiction (kept for
+    'what was the rule before the change'). Proves invalidate-don't-delete."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT dc.id, dc.entity, dc.attribute, dc.value, dc.valid_from, "
+            "dc.superseded_at, dc.supersede_reason, dc.doc_id, d.name AS doc_name, "
+            "dc.superseded_by_doc, w.name AS superseded_by_name "
+            "FROM doc_claims dc "
+            "LEFT JOIN docs d ON d.id = dc.doc_id "
+            "LEFT JOIN docs w ON w.id = dc.superseded_by_doc "
+            "WHERE dc.superseded_at IS NOT NULL ORDER BY dc.superseded_at DESC LIMIT 200"
+        ).fetchall()
+    return {"superseded": rows}
+
+
+@router.post("/contradictions/{cid}/resolve")
+def resolve_contradiction(cid: int, req: dict, user: dict = Depends(require_admin)):
+    """Resolve a contradiction. choice = new | old | both | dismiss.
+
+    Phase 2 (BITEMPORAL): on new/old, the LOSING claim is superseded
+    (invalidate-don't-delete — superseded_at stamped, history stays queryable) and
+    the WINNING value is promoted to an active fact, which overrides the docs in
+    answers so the resolution actually takes effect."""
+    from .config import BITEMPORAL
+    choice = (req or {}).get("choice", "")
+    status = {"new": "kept_new", "old": "kept_old", "both": "both",
+              "dismiss": "dismissed"}.get(choice)
+    if not status:
+        raise HTTPException(status_code=400, detail="choice must be new|old|both|dismiss")
+    with get_conn() as conn:
+        c = conn.execute(
+            "SELECT entity, attribute, claim_a, claim_b, doc_a, doc_b, value_a, value_b "
+            "FROM claim_conflict WHERE id = %s", (cid,),
+        ).fetchone()
+        if not c:
+            raise HTTPException(status_code=404, detail="contradiction not found")
+        conn.execute(
+            "UPDATE claim_conflict SET status = %s, resolved_by = %s, resolved_at = now() "
+            "WHERE id = %s", (status, user.get("email"), cid),
+        )
+
+    superseded = None
+    promoted_fact = None
+    if BITEMPORAL and choice in ("new", "old"):
+        if choice == "new":
+            loser, win_val, win_doc = c["claim_b"], c["value_a"], c["doc_a"]
+        else:
+            loser, win_val, win_doc = c["claim_a"], c["value_b"], c["doc_b"]
+        # invalidate-don't-delete: stamp the losing claim as superseded
+        if loser:
+            with get_conn() as conn:
+                conn.execute(
+                    "UPDATE doc_claims SET superseded_at = now(), superseded_by_doc = %s, "
+                    "supersede_reason = %s WHERE id = %s AND superseded_at IS NULL",
+                    (win_doc, f"contradiction #{cid} resolved ({status})", loser),
+                )
+            superseded = loser
+        # promote the winning value to an ACTIVE fact → overrides docs in answers
+        try:
+            from . import memory as _mem
+            fact = f"{c['entity']} {c['attribute']} = {win_val}".strip()
+            promoted_fact = _mem.add_memory(
+                fact, source="contradiction", created_by=user.get("email"),
+                status="active")
+        except Exception as e:
+            print(f"[contradiction] promote-fact skipped: {e!r}")
+
+    audit_mod.log(user, "contradiction.resolve", "conflict", cid,
+                  {"choice": choice, "superseded_claim": superseded,
+                   "promoted_fact": promoted_fact})
+    return {"ok": True, "status": status, "superseded_claim": superseded,
+            "promoted_fact": promoted_fact}
 
 
 @router.post("/memory/approve-bulk")
@@ -1507,12 +2260,22 @@ def ingest_active():
 
 
 @router.get("/documents", dependencies=[Depends(require_key)])
-def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=0)):
+def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=0),
+              folder_id: int | None = Query(None), user: dict = Depends(current_user)):
     # Paginated + bounded. Was an unbounded scan of every doc (+ per-doc
     # subqueries + a full messages-usage GROUP BY) on every poll. Returns `total`
     # so the client can page. Defaults (500/0) keep existing callers working.
+    _sectors, _folders = rbac.scope_filter(user)   # row-level: (None,None)=all
+    _sec = (" AND (%(folders)s::bigint[] IS NULL OR d.folder_id = ANY(%(folders)s) "
+            "      OR (d.folder_id IS NULL AND d.sector_id = ANY(%(sectors)s))) ")
+    if folder_id == 0:                      # Sources: "Unfiled" (no folder)
+        _sec += " AND d.folder_id IS NULL "
+    elif folder_id is not None:             # Sources: filter to one folder
+        _sec += " AND d.folder_id = %(folder)s "
     with get_conn() as conn:
-        total = conn.execute("SELECT count(*) AS n FROM docs").fetchone()["n"]
+        total = conn.execute(
+            "SELECT count(*) AS n FROM docs d WHERE true" + _sec,
+            {"sectors": _sectors, "folders": _folders, "folder": folder_id}).fetchone()["n"]
         rows = conn.execute(
             "SELECT d.id, d.name, d.lang, d.page_count, d.created_at, d.category, "
             "d.status, d.progress, d.pages_done, d.error, d.ready_at, "
@@ -1522,8 +2285,8 @@ def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=
             "(SELECT count(*) FROM pages p WHERE p.doc_id = d.id AND coalesce(p.vision_text,'') <> '') AS vision_pages, "
             "(SELECT count(*) FROM pages p WHERE p.doc_id = d.id AND coalesce(p.text_layer,'') <> '') AS text_pages, "
             "(SELECT p.id FROM pages p WHERE p.doc_id = d.id ORDER BY p.page_no, p.id LIMIT 1) AS cover_page_id "
-            "FROM docs d ORDER BY d.id DESC LIMIT %s OFFSET %s",
-            (limit, offset),
+            "FROM docs d WHERE true" + _sec + " ORDER BY d.id DESC LIMIT %(lim)s OFFSET %(off)s",
+            {"sectors": _sectors, "folders": _folders, "folder": folder_id, "lim": limit, "off": offset},
         ).fetchall()
         # per-doc usage (how often the doc answered a question), SCOPED to the
         # page of docs we're returning so this doesn't scan all messages per doc.
@@ -1545,6 +2308,44 @@ def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=
         r["used_count"] = u["used_count"] if u else 0
         r["last_used_at"] = u["last_used_at"] if u else None
     return {"docs": rows, "total": total, "limit": limit, "offset": offset}
+
+
+@router.get("/documents/{doc_id}/images", dependencies=[Depends(require_key)])
+def doc_images_list(doc_id: int):
+    """Per-embedded-image detailed explanations (screen/shows/element/action)."""
+    from . import doc_images
+    return {"images": doc_images.images_for(doc_id)}
+
+
+@router.post("/documents/images/backfill", dependencies=[Depends(require_admin)])
+def doc_images_backfill(user: dict = Depends(current_user)):
+    """Explain embedded screenshots for all ready docs from their stored PDF
+    (no re-ingest). Runs in the background (vision per image is slow); poll
+    GET /documents/{id}/images for results."""
+    import threading
+    from . import doc_images
+    threading.Thread(target=doc_images.backfill_all, daemon=True).start()
+    try:
+        audit_mod.log(user, "doc_images.backfill", "doc", None, {})
+    except Exception:
+        pass
+    return {"started": True}
+
+
+@router.get("/doc-images/{image_id}")
+def doc_image_serve(image_id: int):
+    """Serve one extracted screenshot PNG (public, like page images)."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT image_path FROM doc_image WHERE id = %s",
+                           (image_id,)).fetchone()
+    if not row or not row["image_path"]:
+        raise HTTPException(status_code=404, detail="image not found")
+    path = row["image_path"]
+    import os as _os
+    if not _os.path.exists(path):
+        raise HTTPException(status_code=404, detail="image file missing")
+    return FileResponse(path, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400"})
 
 
 @router.get("/documents/{doc_id}/playbook", dependencies=[Depends(require_key)])
@@ -1768,13 +2569,29 @@ def doc_pages(doc_id: int):
 
 
 @router.delete("/documents/{doc_id}", dependencies=[Depends(require_key)])
-def delete_doc(doc_id: int, user: dict = Depends(require_admin)):
-    """Delete a document + its pages + nodes (cascade) + page images."""
+def delete_doc(doc_id: int, user: dict = Depends(current_user)):
+    """Delete a document + its pages + nodes (cascade) + page images.
+
+    Ownership: super-admin (any doc), the uploader (own doc), or a sector/folder
+    admin of the doc's sector — see rbac.can_delete_doc. Others get 403."""
     with get_conn() as conn:
-        name = conn.execute("SELECT name FROM docs WHERE id = %s", (doc_id,)).fetchone()
+        name = conn.execute(
+            "SELECT name, uploaded_by, sector_id FROM docs WHERE id = %s", (doc_id,)
+        ).fetchone()
+        if not name:
+            raise HTTPException(status_code=404, detail="document not found")
+        if not rbac.can_delete_doc(user, name):
+            raise HTTPException(
+                status_code=403,
+                detail="only the uploader or an admin can delete this document")
         imgs = conn.execute(
             "SELECT image_path FROM pages WHERE doc_id = %s", (doc_id,)
         ).fetchall()
+        # qa_pairs has NO FK cascade → orphaned pairs would survive deletion and get
+        # served as stale/unsourced cache answers (dangling page_ids). Purge them +
+        # any claim_conflict rows referencing this doc (also FK-less).
+        conn.execute("DELETE FROM qa_pairs WHERE doc_id = %s", (doc_id,))
+        conn.execute("DELETE FROM claim_conflict WHERE doc_a = %s OR doc_b = %s", (doc_id, doc_id))
         row = conn.execute(
             "DELETE FROM docs WHERE id = %s RETURNING id", (doc_id,)
         ).fetchone()
@@ -1994,6 +2811,53 @@ def analytics_docs(days: int = 30):
     """Per-document scorecard — cites, helpful%, votes, age, indexed%, plus
     orphan (never cited) and cold (going stale) detection. Admin only."""
     return analytics_mod.doc_performance(days)
+
+
+@router.get("/analytics/doc-eval", dependencies=[Depends(require_admin)])
+def analytics_doc_eval():
+    """Latest per-doc UAT accuracy run (grounded/right-doc/page-hit/faithful per
+    doc) + a `running` flag while a run is in flight. Admin only."""
+    from . import doc_eval
+    return doc_eval.latest()
+
+
+@router.post("/analytics/doc-eval/run", dependencies=[Depends(require_admin)])
+def analytics_doc_eval_run(max_q: int = 6, user: dict = Depends(current_user)):
+    """Kick off a background per-doc accuracy eval over each doc's golden Q&A.
+    Returns immediately; poll GET /analytics/doc-eval for the result."""
+    from . import doc_eval
+    started = doc_eval.start_eval(max_q)
+    try:
+        audit_mod.log(user, "doc_eval.run", "eval", None)
+    except Exception:
+        pass
+    return {"started": started, "running": True}
+
+
+@router.get("/analytics/selfheal", dependencies=[Depends(require_admin)])
+def selfheal_status():
+    """Self-Heal agent status: per-doc queue, accuracy climb, banked + review."""
+    from . import selfheal
+    return selfheal.status()
+
+
+@router.get("/analytics/selfheal/logs", dependencies=[Depends(require_admin)])
+def selfheal_logs(doc_id: int | None = None, after: int = 0):
+    """Live activity log (mine/eval/heal/judge/bank) for the Self-Heal panel."""
+    from . import selfheal
+    return {"lines": selfheal.logs(doc_id, after)}
+
+
+@router.post("/analytics/selfheal/run", dependencies=[Depends(require_admin)])
+def selfheal_run(doc_id: int | None = None, user: dict = Depends(current_user)):
+    """Kick the Self-Heal loop (one doc, or all eligible ready docs if omitted)."""
+    from . import selfheal
+    started = selfheal.start_selfheal(doc_id)
+    try:
+        audit_mod.log(user, "selfheal.run", "doc", doc_id)
+    except Exception:
+        pass
+    return {"started": started}
 
 
 def _dash_version() -> int:
@@ -2399,6 +3263,121 @@ def get_page_image(page_id: int):
     return FileResponse(img, media_type="image/png", headers=cache)
 
 
+# ---- one-logo white-labeling ----------------------------------------------
+def _brand_payload() -> dict:
+    """Full public brand JSON: appcfg defaults+overrides, with asset URLs pointing
+    at uploaded files when present (else the static defaults)."""
+    from . import brand as brand_mod
+    b = appcfg.get_brand()
+    out = {
+        "name": b.get("name"), "short_name": b.get("short_name"),
+        "tagline": b.get("tagline"), "footer": b.get("footer"),
+        "assistant_label": b.get("assistant_label"),
+        "accent": b.get("accent"), "accent_dk": b.get("accent_dk"),
+        "logo_url": b.get("logo_url", "/brand-logo.png"),
+        "mark_url": "/favicon.png", "favicon_url": "/favicon.png",
+        "icon192_url": "/icon-192.png", "icon512_url": "/icon-512.png",
+        "custom": bool(b.get("custom")),
+    }
+    # repoint to uploaded assets when they exist on disk
+    if brand_mod.asset_path("logo.png"):
+        out["logo_url"] = "/api/brand/asset/logo.png"
+    if brand_mod.asset_path("mark.png"):
+        out["mark_url"] = "/api/brand/asset/mark.png"
+    if brand_mod.asset_path("favicon.png"):
+        out["favicon_url"] = "/api/brand/asset/favicon.png"
+    if brand_mod.asset_path("icon-192.png"):
+        out["icon192_url"] = "/api/brand/asset/icon-192.png"
+    if brand_mod.asset_path("icon-512.png"):
+        out["icon512_url"] = "/api/brand/asset/icon-512.png"
+    return out
+
+
+@router.get("/brand")
+def get_brand_public():
+    """PUBLIC: current white-label brand. Never raises — falls back to defaults."""
+    try:
+        return _brand_payload()
+    except Exception:
+        return {
+            "name": "City Agent Aria", "short_name": "Aria",
+            "tagline": "Your runbook intelligence — answered with the source page.",
+            "footer": "© 2026 City Agent Aria · Runbooks & IT Assistance",
+            "assistant_label": "ARIA 1.0",
+            "accent": "#c2683f", "accent_dk": "#a8542f",
+            "logo_url": "/brand-logo.png", "mark_url": "/favicon.png",
+            "favicon_url": "/favicon.png", "icon192_url": "/icon-192.png",
+            "icon512_url": "/icon-512.png", "custom": False,
+        }
+
+
+@router.post("/admin/brand")
+async def save_brand_admin(
+    logo: UploadFile | None = File(None),
+    name: str | None = Form(None),
+    short_name: str | None = Form(None),
+    tagline: str | None = Form(None),
+    footer: str | None = Form(None),
+    assistant_label: str | None = Form(None),
+    accent: str | None = Form(None),
+    user: dict = Depends(require_admin),
+):
+    """Admin: save white-label brand. Optional logo (PNG raster derives mark/icons +
+    auto-accent; SVG stored as-is). Text/accent fields merge into the brand config."""
+    from . import brand as brand_mod
+    patch: dict = {
+        "name": name, "short_name": short_name, "tagline": tagline,
+        "footer": footer, "assistant_label": assistant_label,
+    }
+
+    if logo is not None:
+        raw = await logo.read()
+        if not raw:
+            raise HTTPException(status_code=400, detail="empty logo upload")
+        fname = (logo.filename or "").lower()
+        ctype = (logo.content_type or "").lower()
+        is_svg = fname.endswith(".svg") or "svg" in ctype
+        if is_svg:
+            # store SVG as-is; skip Pillow derive, keep prior/auto accent
+            brand_mod._ensure_dir()
+            (Path(brand_mod.BRAND_DIR) / "logo.svg").write_bytes(raw)
+            patch["logo_url"] = "/api/brand/asset/logo.svg"
+        else:
+            try:
+                res = brand_mod.process_logo(raw)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            patch["logo_url"] = "/api/brand/asset/logo.png"
+            if not accent:  # no explicit accent → use the one extracted from the logo
+                accent = res.get("accent")
+
+    if accent:
+        accent = str(accent).strip()
+        patch["accent"] = accent
+        patch["accent_dk"] = brand_mod.darken(accent)
+
+    patch["custom"] = True
+    appcfg.save_brand(patch)
+    return _brand_payload()
+
+
+@router.get("/brand/asset/{name}")
+def get_brand_asset(name: str):
+    """PUBLIC: serve an uploaded brand asset (whitelisted names only)."""
+    from . import brand as brand_mod
+    if name == "logo.svg":
+        p = Path(brand_mod.BRAND_DIR) / "logo.svg"
+        if not p.is_file():
+            raise HTTPException(status_code=404, detail="asset not found")
+        return FileResponse(p, media_type="image/svg+xml",
+                            headers={"Cache-Control": "public, max-age=300"})
+    p = brand_mod.asset_path(name)
+    if p is None:
+        raise HTTPException(status_code=404, detail="asset not found")
+    return FileResponse(p, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=300"})
+
+
 @router.get("/pages/{page_id}/text", dependencies=[Depends(current_principal)])
 def get_page_text(page_id: int):
     """Inspect what was extracted/vision-read for a page (verify vision quality)."""
@@ -2634,6 +3613,177 @@ def brain_search(q: str = "", type: str = "all"):
             "score": round(float(it.get("score") or 0.0), 4),
         })
     return {"items": items}
+
+
+def _require_superadmin(user: dict) -> None:
+    if not rbac.is_superadmin(user):
+        raise HTTPException(status_code=403, detail="Super-admin only.")
+
+
+@router.get("/admin/rbac", dependencies=[Depends(require_admin)])
+def admin_rbac_get():
+    """Current multi-tenant RBAC switch (DB runtime config over the env default)."""
+    return {"enabled": appcfg.get_rbac_enabled()}
+
+
+@router.post("/admin/rbac", dependencies=[Depends(require_admin)])
+def admin_rbac_set(body: dict = Body(...), user: dict = Depends(current_user)):
+    """Turn multi-tenant access (sectors + folders) on/off live — no restart.
+    Super-admin only. When OFF the app is single-tenant (everyone sees all)."""
+    _require_superadmin(user)
+    on = bool(body.get("enabled"))
+    appcfg.set_rbac_enabled(on)
+    audit_mod.log(user, "rbac.toggle", "config", None, {"enabled": on})
+    return {"enabled": on}
+
+
+@router.get("/admin/sectors", dependencies=[Depends(require_admin)])
+def admin_sectors_list():
+    from . import admin_rbac
+    return {"sectors": admin_rbac.list_sectors()}
+
+
+@router.post("/admin/sectors", dependencies=[Depends(require_admin)])
+def admin_sectors_create(body: dict = Body(...), user: dict = Depends(current_user)):
+    _require_superadmin(user)
+    from . import admin_rbac
+    return admin_rbac.create_sector(body.get("name", ""), body.get("label"))
+
+
+@router.delete("/admin/sectors/{sid}", dependencies=[Depends(require_admin)])
+def admin_sectors_delete(sid: int, user: dict = Depends(current_user)):
+    _require_superadmin(user)
+    from . import admin_rbac
+    try:
+        return {"ok": admin_rbac.delete_sector(sid)}
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@router.get("/admin/users", dependencies=[Depends(require_admin)])
+def admin_users_list(limit: int = 500):
+    from . import admin_rbac
+    return {"users": admin_rbac.list_users(limit)}
+
+
+@router.patch("/admin/users/{uid}", dependencies=[Depends(require_admin)])
+def admin_users_set(uid: int, body: dict = Body(...), user: dict = Depends(current_user)):
+    _require_superadmin(user)
+    from . import admin_rbac
+    try:
+        return admin_rbac.set_user(uid, body.get("role"), body.get("sector_id"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/admin/groups", dependencies=[Depends(require_admin)])
+def admin_groups_list():
+    from . import admin_rbac
+    return {"groups": admin_rbac.list_groups()}
+
+
+@router.post("/admin/groups", dependencies=[Depends(require_admin)])
+def admin_groups_create(body: dict = Body(...), user: dict = Depends(current_user)):
+    _require_superadmin(user)
+    from . import admin_rbac
+    return admin_rbac.create_group(body.get("name", ""), bool(body.get("all_sectors")))
+
+
+@router.delete("/admin/groups/{gid}", dependencies=[Depends(require_admin)])
+def admin_groups_delete(gid: int, user: dict = Depends(current_user)):
+    _require_superadmin(user)
+    from . import admin_rbac
+    return {"ok": admin_rbac.delete_group(gid)}
+
+
+@router.post("/admin/groups/{gid}/members/{uid}", dependencies=[Depends(require_admin)])
+def admin_group_add(gid: int, uid: int, user: dict = Depends(current_user)):
+    _require_superadmin(user)
+    from . import admin_rbac
+    return {"ok": admin_rbac.add_group_member(gid, uid)}
+
+
+@router.delete("/admin/groups/{gid}/members/{uid}", dependencies=[Depends(require_admin)])
+def admin_group_remove(gid: int, uid: int, user: dict = Depends(current_user)):
+    _require_superadmin(user)
+    from . import admin_rbac
+    return {"ok": admin_rbac.remove_group_member(gid, uid)}
+
+
+@router.post("/graphrag/build", dependencies=[Depends(require_admin)])
+def graphrag_build(user: dict = Depends(current_user)):
+    """Backfill GraphRAG entity relationships across all ready docs (run once
+    after enabling GRAPHRAG_ENABLED). 1 LLM pass/doc. Admin only."""
+    from . import graphrag
+    res = graphrag.link_all()
+    try:
+        audit_mod.log(user, "graphrag.build", "graph", None, res)
+    except Exception:
+        pass
+    return res
+
+
+@router.get("/graphrag/stats", dependencies=[Depends(require_key)])
+def graphrag_stats():
+    """Edge + entity counts for the relationship graph."""
+    with get_conn() as conn:
+        r = conn.execute(
+            "SELECT (SELECT count(*) FROM entity_edge) AS edges, "
+            "(SELECT count(*) FROM entities) AS entities, "
+            "(SELECT count(DISTINCT rel) FROM entity_edge) AS rel_types, "
+            "(SELECT count(*) FROM community_summary) AS communities").fetchone()
+    return dict(r)
+
+
+@router.get("/answer/kg", dependencies=[Depends(require_key)])
+def answer_kg(ids: str = ""):
+    """Answer-scoped REAL knowledge subgraph for the Sources drawer (#5 style):
+    entities mentioned in the cited pages' docs + 1-hop typed neighbours."""
+    from . import graphrag
+    return graphrag.graph_for_pages(_ids_param(ids), hops=1, limit=60)
+
+
+@router.get("/graphrag/graph", dependencies=[Depends(require_key)])
+def graphrag_graph(limit: int = 300):
+    """Nodes + typed edges for the Knowledge Graph view (#5)."""
+    from . import graphrag
+    return graphrag.graph_data(limit)
+
+
+@router.get("/graphrag/entity", dependencies=[Depends(require_key)])
+def graphrag_entity(id: int | None = None, name: str | None = None):
+    """Entity profile: relationships + docs (#3). Resolve by id or name."""
+    from . import graphrag
+    eid = id if id is not None else graphrag.resolve_entity(name or "")
+    if not eid:
+        raise HTTPException(status_code=404, detail="entity not found")
+    return graphrag.entity_profile(eid)
+
+
+@router.get("/graphrag/path", dependencies=[Depends(require_key)])
+def graphrag_path(a: str, b: str):
+    """Shortest relationship path + plain-English explanation between two things (#2)."""
+    from . import graphrag
+    return graphrag.path_between(a, b)
+
+
+@router.post("/graphrag/communities/build", dependencies=[Depends(require_admin)])
+def graphrag_communities_build(user: dict = Depends(current_user)):
+    """Cluster the graph + summarise each community (for global queries, #1)."""
+    from . import graphrag
+    res = graphrag.build_communities()
+    try:
+        audit_mod.log(user, "graphrag.communities", "graph", None, res)
+    except Exception:
+        pass
+    return res
+
+
+@router.get("/graphrag/global", dependencies=[Depends(require_key)])
+def graphrag_global(q: str):
+    """Whole-corpus / 'summarize everything about Z' answer from community summaries (#1)."""
+    from . import graphrag
+    return graphrag.global_answer(q)
 
 
 @router.get("/brain/graph", dependencies=[Depends(require_key)])

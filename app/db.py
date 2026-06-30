@@ -256,6 +256,50 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(lower(email));
 
+-- ---- sector-based row-level access (multi-tenant, flag RBAC_ENABLED) ----
+-- a sector = one company/domain (e.g. cityholdings.com). Only super-admin creates.
+CREATE TABLE IF NOT EXISTS sectors (
+    id          BIGSERIAL PRIMARY KEY,
+    name        TEXT UNIQUE NOT NULL,            -- email domain key, e.g. cityholdings.com
+    label       TEXT,                            -- display name
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+-- folders live inside a sector; docs live inside a folder.
+CREATE TABLE IF NOT EXISTS folders (
+    id          BIGSERIAL PRIMARY KEY,
+    sector_id   BIGINT REFERENCES sectors(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    access_mode TEXT NOT NULL DEFAULT 'sector',  -- sector | specific | org
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_folders_sector ON folders(sector_id);
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS access_mode TEXT NOT NULL DEFAULT 'sector';
+-- for access_mode='specific': who (a user or a group) may access this folder.
+CREATE TABLE IF NOT EXISTS folder_access (
+    folder_id      BIGINT REFERENCES folders(id) ON DELETE CASCADE,
+    principal_type TEXT NOT NULL,                -- 'user' | 'group'
+    principal_id   BIGINT NOT NULL,
+    PRIMARY KEY (folder_id, principal_type, principal_id)
+);
+-- the All-Access group: members read every sector (read-only).
+CREATE TABLE IF NOT EXISTS groups (
+    id          BIGSERIAL PRIMARY KEY,
+    name        TEXT UNIQUE NOT NULL,
+    all_sectors BOOLEAN NOT NULL DEFAULT FALSE,  -- true = read every sector
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS user_groups (
+    user_id     BIGINT REFERENCES users(id) ON DELETE CASCADE,
+    group_id    BIGINT REFERENCES groups(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, group_id)
+);
+-- a user's home sector (set from email domain at signup); role gains 'sector_admin'.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS sector_id BIGINT REFERENCES sectors(id);
+-- every doc is tagged with the sector (+ folder) it belongs to.
+ALTER TABLE docs  ADD COLUMN IF NOT EXISTS sector_id BIGINT REFERENCES sectors(id);
+ALTER TABLE docs  ADD COLUMN IF NOT EXISTS folder_id BIGINT REFERENCES folders(id);
+CREATE INDEX IF NOT EXISTS idx_docs_sector ON docs(sector_id);
+
 -- single-row config blob, editable from the admin Authentication page
 CREATE TABLE IF NOT EXISTS auth_config (
     id     INT PRIMARY KEY DEFAULT 1,
@@ -422,6 +466,44 @@ CREATE TABLE IF NOT EXISTS dream_runs (
 CREATE INDEX IF NOT EXISTS idx_dream_runs_at ON dream_runs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_notif_created ON notifications(created_at DESC);
 
+-- ---- per-doc answer-accuracy self-eval (UAT) runs — powers the Accuracy page ----
+CREATE TABLE IF NOT EXISTS doc_eval_runs (
+    id          BIGSERIAL PRIMARY KEY,
+    overall     JSONB NOT NULL DEFAULT '{}'::jsonb,
+    docs        JSONB NOT NULL DEFAULT '[]'::jsonb,
+    gaps        JSONB NOT NULL DEFAULT '[]'::jsonb,
+    questions   INT DEFAULT 0,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_doc_eval_at ON doc_eval_runs(created_at DESC);
+
+-- ---- Self-Heal agent: per-doc eval-gated self-improvement (parallel worker) ----
+-- one row per doc per heal run; discovery = ready docs with no status='done' row.
+CREATE TABLE IF NOT EXISTS selfheal_runs (
+    id          BIGSERIAL PRIMARY KEY,
+    doc_id      BIGINT REFERENCES docs(id) ON DELETE CASCADE,
+    status      TEXT NOT NULL DEFAULT 'pending',   -- pending|running|done|failed
+    rounds      INT DEFAULT 0,
+    before_acc  INT DEFAULT 0,                      -- grounded% before
+    after_acc   INT DEFAULT 0,                      -- grounded% after
+    banked      INT DEFAULT 0,                      -- Q&A pairs locked into the bank
+    review      JSONB NOT NULL DEFAULT '[]'::jsonb, -- couldn't-self-verify questions
+    started_at  TIMESTAMPTZ DEFAULT now(),
+    finished_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_selfheal_doc ON selfheal_runs(doc_id, status);
+CREATE INDEX IF NOT EXISTS idx_selfheal_at ON selfheal_runs(started_at DESC);
+-- streamed activity log (mine/eval/heal/judge/bank) powering the live UI panel.
+CREATE TABLE IF NOT EXISTS selfheal_log (
+    id          BIGSERIAL PRIMARY KEY,
+    doc_id      BIGINT,
+    run_id      BIGINT,
+    tag         TEXT,                               -- mine|eval|heal|judge|bank|warn|info
+    msg         TEXT,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_selfheal_log ON selfheal_log(id DESC);
+
 -- ---- compiled "wiki" layer (Karpathy second-brain): vision-once -> clean markdown ----
 -- per-page compiled markdown (tables/steps/codes preserved, nothing omitted).
 -- chat reads this instead of raw page text, so a small model still answers in full.
@@ -488,6 +570,54 @@ CREATE TABLE IF NOT EXISTS entity_mention (
 CREATE INDEX IF NOT EXISTS idx_entity_mention_ent ON entity_mention(entity_id);
 CREATE INDEX IF NOT EXISTS idx_entity_mention_doc ON entity_mention(doc_id);
 
+-- ---- GraphRAG-A: typed entity->entity relationships (LLM-extracted per doc) ----
+-- e.g. "CAR Mass Input —depends_on→ Night Batch Job". Powers multi-hop graph-walk
+-- retrieval (recursive CTE over this + doc_dependency + doc_links + entity_mention).
+CREATE TABLE IF NOT EXISTS entity_edge (
+    id          BIGSERIAL PRIMARY KEY,
+    src_entity  BIGINT REFERENCES entities(id) ON DELETE CASCADE,
+    dst_entity  BIGINT REFERENCES entities(id) ON DELETE CASCADE,
+    rel         TEXT NOT NULL,            -- depends_on|part_of|accessed_via|relates_to|...
+    doc_id      BIGINT REFERENCES docs(id) ON DELETE CASCADE,
+    weight      REAL DEFAULT 1.0,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (src_entity, dst_entity, rel, doc_id)
+);
+CREATE INDEX IF NOT EXISTS idx_entity_edge_src ON entity_edge(src_entity);
+CREATE INDEX IF NOT EXISTS idx_entity_edge_dst ON entity_edge(dst_entity);
+-- GraphRAG-B: communities (connected clusters) + per-cluster LLM summary for
+-- whole-corpus / "global" questions.
+CREATE TABLE IF NOT EXISTS entity_community (
+    entity_id   BIGINT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    cluster_id  INT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_entity_community_cl ON entity_community(cluster_id);
+-- per-embedded-image detailed explanation (SOP screenshots → which screen / element /
+-- action). Hybrid extraction: text+tables from the layer, vision spent per screenshot.
+CREATE TABLE IF NOT EXISTS doc_image (
+    id          BIGSERIAL PRIMARY KEY,
+    doc_id      BIGINT REFERENCES docs(id) ON DELETE CASCADE,
+    page_no     INT,
+    idx         INT,                 -- image index within the page
+    image_path  TEXT,                -- storage key / path to the extracted PNG
+    screen      TEXT,                -- which screen/window
+    shows       TEXT,                -- what is shown (form/list/dialog/...)
+    element     TEXT,                -- highlighted/circled element + its label
+    action      TEXT,                -- what to do ("click Search", "enter End Date")
+    caption     TEXT,                -- nearby caption text if any
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_doc_image_doc ON doc_image(doc_id, page_no);
+
+CREATE TABLE IF NOT EXISTS community_summary (
+    cluster_id  INT PRIMARY KEY,
+    label       TEXT,
+    summary     TEXT,
+    entity_ids  JSONB NOT NULL DEFAULT '[]'::jsonb,
+    doc_ids     JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+
 -- ---- knowledge-base conflicts (Phase 4): same term, divergent value across docs ----
 CREATE TABLE IF NOT EXISTS kb_conflict (
     id          BIGSERIAL PRIMARY KEY,
@@ -502,6 +632,56 @@ CREATE TABLE IF NOT EXISTS kb_conflict (
     created_at  TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_kb_conflict_status ON kb_conflict(status);
+
+-- ---- Phase 1 (Karpathy wiki): atomic claims extracted per doc ----
+-- One row per asserted fact: <entity> <attribute> = <value> at a page. The
+-- contradiction pass matches new claims against existing ones on (entity_key,
+-- attribute) and LLM-confirms real value conflicts.
+CREATE TABLE IF NOT EXISTS doc_claims (
+    id          BIGSERIAL PRIMARY KEY,
+    doc_id      BIGINT REFERENCES docs(id) ON DELETE CASCADE,
+    page_no     INT,
+    page_id     BIGINT,
+    entity      TEXT NOT NULL,        -- display form, e.g. "Access"
+    entity_key  TEXT NOT NULL,        -- normalized (lower, ws-collapsed) for matching
+    attribute   TEXT NOT NULL,        -- value | threshold | setting | code | path | ...
+    value       TEXT NOT NULL,        -- the asserted value, e.g. "2"
+    raw         TEXT,                 -- source sentence/snippet for provenance
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_doc_claims_match ON doc_claims(entity_key, attribute);
+CREATE INDEX IF NOT EXISTS idx_doc_claims_doc ON doc_claims(doc_id);
+
+-- Phase 2 (temporal): bi-temporal supersession. A claim is "live" until a conflict
+-- is resolved against it — then superseded_at is stamped (invalidate, don't delete),
+-- so history stays queryable ("what was the rule before the change").
+ALTER TABLE doc_claims ADD COLUMN IF NOT EXISTS valid_from TIMESTAMPTZ DEFAULT now();
+ALTER TABLE doc_claims ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMPTZ;
+ALTER TABLE doc_claims ADD COLUMN IF NOT EXISTS superseded_by_doc BIGINT;
+ALTER TABLE doc_claims ADD COLUMN IF NOT EXISTS supersede_reason TEXT;
+
+-- ---- Phase 1: semantic contradictions between a NEW doc and EXISTING docs ----
+CREATE TABLE IF NOT EXISTS claim_conflict (
+    id          BIGSERIAL PRIMARY KEY,
+    entity      TEXT NOT NULL,
+    entity_key  TEXT NOT NULL,
+    attribute   TEXT NOT NULL,
+    doc_a       BIGINT,               -- the NEW doc
+    page_a      INT,
+    value_a     TEXT,
+    claim_a     BIGINT,               -- doc_claims id (new)
+    doc_b       BIGINT,               -- the EXISTING doc
+    page_b      INT,
+    value_b     TEXT,
+    claim_b     BIGINT,               -- doc_claims id (existing)
+    severity    TEXT,                 -- value_mismatch | ...
+    detail      TEXT,                 -- LLM one-line explanation
+    status      TEXT NOT NULL DEFAULT 'pending',  -- pending|kept_new|kept_old|both|dismissed
+    resolved_by TEXT,
+    resolved_at TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_claim_conflict_status ON claim_conflict(status);
 
 -- ---- procedure chaining (Phase 5): doc A must be done before doc B ----
 CREATE TABLE IF NOT EXISTS doc_dependency (
@@ -555,6 +735,81 @@ CREATE TABLE IF NOT EXISTS ingest_log (
     step   TEXT,
     msg    TEXT,
     level  TEXT DEFAULT 'info'
+);
+
+-- ============================================================================
+-- Eval Agent (app/eval_agent.py) — offline answer-quality scoring.
+-- Golden questions per doc, LLM-judged, rolled up into per-doc health.
+-- ============================================================================
+
+-- golden questions for a doc. kind: positive (answer is in doc) | negative
+-- (NOT in doc → agent must refuse) | adversarial (false premise → must correct).
+-- source: auto (LLM-generated at first eval) | human (curated).
+CREATE TABLE IF NOT EXISTS eval_question (
+    id           BIGSERIAL PRIMARY KEY,
+    doc_id       BIGINT REFERENCES docs(id) ON DELETE CASCADE,
+    question     TEXT NOT NULL,
+    expected     TEXT,                       -- expected answer (positive) / expected behaviour (neg/adv)
+    kind         TEXT NOT NULL DEFAULT 'positive',
+    source       TEXT NOT NULL DEFAULT 'auto',
+    active       BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at   TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_evalq_doc ON eval_question(doc_id) WHERE active;
+
+-- one row per eval pass (nightly or forced). Scopes a run's results together.
+CREATE TABLE IF NOT EXISTS eval_run (
+    id           BIGSERIAL PRIMARY KEY,
+    trigger      TEXT NOT NULL DEFAULT 'nightly',   -- nightly | manual
+    judge_model  TEXT,
+    status       TEXT NOT NULL DEFAULT 'running',   -- running | done | failed
+    n_docs       INT DEFAULT 0,
+    n_total      INT DEFAULT 0,
+    n_pass       INT DEFAULT 0,
+    n_fail       INT DEFAULT 0,
+    n_partial    INT DEFAULT 0,
+    score_pct    REAL,
+    started_at   TIMESTAMPTZ DEFAULT now(),
+    finished_at  TIMESTAMPTZ
+);
+
+-- one row per (run, question): what the agent answered + how the judge scored it.
+CREATE TABLE IF NOT EXISTS eval_result (
+    id            BIGSERIAL PRIMARY KEY,
+    run_id        BIGINT REFERENCES eval_run(id) ON DELETE CASCADE,
+    doc_id        BIGINT,
+    question_id   BIGINT,
+    question      TEXT,
+    kind          TEXT,
+    expected      TEXT,
+    got           TEXT,                       -- agent's actual answer
+    verdict       TEXT,                       -- pass | partial | fail
+    judge_score   REAL,                       -- 0..1
+    judge_reason  TEXT,
+    grounded      BOOLEAN,                    -- answer claims found in retrieved pages
+    refused       BOOLEAN,                    -- agent said "not in doc"
+    retrieved_n   INT,                        -- # pages retrieved for this Q
+    created_at    TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_evalr_run ON eval_result(run_id);
+CREATE INDEX IF NOT EXISTS idx_evalr_doc ON eval_result(doc_id);
+
+-- rolling per-doc health, upserted after each doc is scored. Dashboard reads THIS.
+CREATE TABLE IF NOT EXISTS doc_health (
+    doc_id        BIGINT PRIMARY KEY REFERENCES docs(id) ON DELETE CASCADE,
+    last_run_id   BIGINT,
+    score_pct     REAL,
+    prev_score    REAL,                       -- previous run's score (for delta)
+    n_total       INT DEFAULT 0,
+    n_pass        INT DEFAULT 0,
+    n_fail        INT DEFAULT 0,
+    n_partial     INT DEFAULT 0,
+    grounded_pct  REAL,
+    halluc_count  INT DEFAULT 0,              -- negatives the agent answered (should've refused)
+    neg_total     INT DEFAULT 0,
+    neg_caught    INT DEFAULT 0,
+    needs_review  BOOLEAN DEFAULT FALSE,
+    evaluated_at  TIMESTAMPTZ
 );
 
 -- ---- usage analytics rollup (per user, per day) — scale to 10k+ users ----

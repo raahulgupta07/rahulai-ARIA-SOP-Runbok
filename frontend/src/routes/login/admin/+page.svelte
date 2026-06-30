@@ -72,7 +72,7 @@
 <style>
   .apage { min-height: 100vh; background: #fff; color: #211f1c; display: flex; flex-direction: column;
     --clay:#c2683f; --border:#ececea; --muted:#8a857c;
-    --serif:'Tiempos Headline','Tiempos Text',Georgia,'Times New Roman',serif; }
+    --serif:var(--font); }
   .topbar { padding: 22px 28px; }
   .brandlogo { height: 68px; width: auto; display: block; }
   .stage { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 48px; max-width: 1180px;

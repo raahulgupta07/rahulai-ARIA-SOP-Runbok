@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval Agent — nightly logs + per-doc scoring mockup</title>
+<style>
+  :root{
+    --cream:#fff;--paper:#fff;--sand:#f9f9f8;--ink:#1a1a18;--muted:#8b8b85;
+    --line:#e7e3d9;--coral:#d97757;--green:#3f8f5f;--amber:#c98a2e;--blue:#3f7fb0;
+    --red:#c0492f;--hover:#f1f0ec;--navpill:#efeae1;--violet:#7a6cc4;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .top{height:52px;display:flex;align-items:center;gap:22px;padding:0 18px;border-bottom:1px solid var(--line);background:#fff}
+  .top .logo{font-weight:700}
+  .top .nav{color:var(--muted);font-size:13px;cursor:pointer}
+  .top .nav.on{color:var(--ink);font-weight:600}
+  .shell{display:flex;height:calc(100vh - 52px)}
+  .rail{width:220px;background:var(--sand);border-right:1px solid var(--line);padding:16px 11px}
+  .grp{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;padding:6px 8px}
+  .fitem{display:flex;align-items:center;gap:9px;padding:8px 12px;border-radius:9px;font-size:13.5px;font-weight:500;color:#46443f;cursor:pointer}
+  .fitem.on{background:var(--navpill);color:var(--ink);font-weight:600}
+  .fitem .n{margin-left:auto;font-size:11px;font-weight:700;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:6px;padding:0 6px}
+  .center{flex:1;background:#fff;padding:18px 24px;overflow:auto}
+  h1{font-size:19px;margin:0;font-family:Georgia,"Times New Roman",serif}
+  .chead{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .sub{color:var(--muted);font-size:12.5px;margin-bottom:18px}
+  .runbtn{margin-left:auto;background:var(--coral);color:#fff;border:none;border-radius:9px;padding:8px 15px;font-weight:600;font-size:13px;cursor:pointer}
+  .ghost{background:#fff;border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:8px 14px;font-weight:600;font-size:13px;cursor:pointer}
+  /* schedule banner */
+  .sched{display:flex;align-items:center;gap:10px;background:#fdf6f1;border:1px solid #eccdbd;border-radius:11px;padding:11px 15px;margin-bottom:20px;font-size:13px}
+  .sched .dot{width:8px;height:8px;border-radius:50%;background:var(--green)}
+  .sched b{color:var(--ink)}
+  .sched .when{margin-left:auto;color:var(--muted);font-size:12px}
+  /* kpi cards */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+  .kpi{border:1px solid var(--line);border-radius:13px;padding:14px 15px;background:#fff}
+  .kpi .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+  .kpi .v{font-size:26px;font-weight:700;margin-top:5px}
+  .kpi .d{font-size:11.5px;margin-top:3px}
+  .up{color:var(--green)}.down{color:var(--red)}
+  .sectitle{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:6px 0 12px}
+  /* run history table */
+  .runs{border:1px solid var(--line);border-radius:13px;overflow:hidden;margin-bottom:26px}
+  .runrow{display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid var(--line);cursor:pointer}
+  .runrow:last-child{border-bottom:none}
+  .runrow:hover{background:var(--hover)}
+  .runrow .cal{width:34px;height:34px;border-radius:8px;background:#eef2f6;border:1px solid #dde6ee;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--blue);flex:none}
+  .runrow .rt{font-weight:600}
+  .runrow .rm{font-size:11.5px;color:var(--muted);margin-top:1px}
+  .scorepill{font-size:13px;font-weight:800;padding:3px 11px;border-radius:999px}
+  .s-hi{background:#e6f3ec;color:var(--green)}
+  .s-mid{background:#fbf3e3;color:var(--amber)}
+  .s-lo{background:#f8e9e6;color:var(--red)}
+  .deltawrap{font-size:11.5px;font-weight:700;min-width:54px;text-align:right}
+  /* doc health grid */
+  .docgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:26px}
+  .dh{border:1px solid var(--line);border-radius:13px;padding:14px 15px;cursor:pointer}
+  .dh:hover{border-color:var(--coral)}
+  .dh.flag{border-color:#eccdbd;background:#fdf8f5}
+  .dh .top2{display:flex;align-items:center;gap:10px}
+  .dh .thumb{width:28px;height:34px;border-radius:6px;background:#eef2f6;border:1px solid #dde6ee;flex:none}
+  .dh .dn{font-weight:650;font-size:13.5px}
+  .dh .dm{font-size:11px;color:var(--muted)}
+  .dh .ring{margin-left:auto;font-size:15px;font-weight:800}
+  .metrics{display:flex;gap:16px;margin-top:11px;font-size:11.5px}
+  .metrics .m b{display:block;font-size:15px;font-weight:700}
+  .metrics .m span{color:var(--muted)}
+  .needs{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:var(--red);margin-top:9px}
+  /* drilldown / right panel */
+  .panel{position:fixed;top:0;right:0;width:560px;height:100vh;background:#fff;border-left:1px solid var(--line);box-shadow:-14px 0 44px rgba(0,0,0,.10);display:flex;flex-direction:column;z-index:30}
+  .ph{padding:16px 20px;border-bottom:1px solid var(--line)}
+  .ph .x{float:right;border:none;background:none;color:var(--muted);font-size:16px;cursor:pointer}
+  .ph .t{font-size:17px;font-weight:700}
+  .ph .s{font-size:12px;color:var(--muted);margin-top:3px}
+  .pbody{flex:1;overflow:auto;padding:14px 18px}
+  .tabs{display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+  .tab{padding:7px 13px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
+  .tab.on{color:var(--ink);border-bottom-color:var(--coral)}
+  /* question result rows */
+  .q{border:1px solid var(--line);border-radius:11px;padding:12px 13px;margin-bottom:10px}
+  .q .qh{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .kind{font-size:9.5px;font-weight:800;padding:2px 7px;border-radius:5px;text-transform:uppercase;letter-spacing:.04em}
+  .k-pos{background:#e6f3ec;color:var(--green)}
+  .k-neg{background:#ede9f7;color:var(--violet)}
+  .k-adv{background:#fbf3e3;color:var(--amber)}
+  .verdict{margin-left:auto;font-size:11px;font-weight:800;padding:2px 9px;border-radius:999px}
+  .v-pass{background:#e6f3ec;color:var(--green)}
+  .v-fail{background:#f8e9e6;color:var(--red)}
+  .v-part{background:#fbf3e3;color:var(--amber)}
+  .q .qq{font-weight:600;font-size:13px}
+  .q .exp,.q .got,.q .why{font-size:12px;margin-top:7px;padding:8px 10px;border-radius:8px;background:var(--sand)}
+  .q .lbl{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);display:block;margin-bottom:2px}
+  .q .got.bad{background:#f8e9e6}
+  .q .why{background:#fbfaf7;border:1px dashed var(--line);color:#55534d}
+  .q .why .judge{font-weight:700;color:var(--violet)}
+  .scoremini{font-size:11px;color:var(--muted);margin-left:6px}
+  /* raw log trace */
+  .trace{font:12px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;background:#1a1a18;color:#d6d3cb;border-radius:11px;padding:14px 15px;white-space:pre-wrap}
+  .trace .t-g{color:#7fc9a8}.trace .t-a{color:#e0b770}.trace .t-r{color:#e89b8b}.trace .t-m{color:#8b8b85}.trace .t-v{color:#b3a8e6}
+  .legend{font-size:11.5px;color:var(--muted);margin-top:8px}
+</style>
+</head>
+<body>
+  <div class="top">
+    <span class="logo">City Agent · Aria</span>
+    <span class="nav">Sources</span>
+    <span class="nav">Chat</span>
+    <span class="nav">Wiki</span>
+    <span class="nav on">Eval</span>
+    <span class="nav">Settings</span>
+  </div>
+
+  <div class="shell">
+    <!-- left rail -->
+    <div class="rail">
+      <div class="grp">Eval</div>
+      <div class="fitem on">📊 Overview <span class="n">40</span></div>
+      <div class="fitem">🌙 Nightly runs <span class="n">14</span></div>
+      <div class="fitem">⚠️ Needs review <span class="n">6</span></div>
+      <div class="fitem">❓ Golden questions <span class="n">312</span></div>
+      <div class="fitem">🟣 Negative caught <span class="n">11</span></div>
+      <div class="grp" style="margin-top:14px">Filter docs</div>
+      <div class="fitem">All docs</div>
+      <div class="fitem">Score &lt; 70%</div>
+      <div class="fitem">Hallucinated</div>
+      <div class="fitem">Never evaluated</div>
+    </div>
+
+    <!-- center -->
+    <div class="center">
+      <div class="chead">
+        <h1>Eval Agent</h1>
+        <button class="ghost">View logs</button>
+        <button class="runbtn">▶ Run eval now</button>
+      </div>
+      <div class="sub">Automatic offline scoring — runs nightly, no upload/answer-time cost, no user thumbs needed.</div>
+
+      <div class="sched">
+        <span class="dot"></span>
+        <span><b>Nightly eval ON</b> · next run tonight 02:00 · only re-scores docs changed since last run (watermark)</span>
+        <span class="when">last run 6h ago · 40 docs · 11m 22s</span>
+      </div>
+
+      <!-- KPIs -->
+      <div class="kpis">
+        <div class="kpi"><div class="k">Corpus score</div><div class="v">78%</div><div class="d up">▲ 4% vs last night</div></div>
+        <div class="kpi"><div class="k">Grounded answers</div><div class="v">91%</div><div class="d up">▲ 2%</div></div>
+        <div class="kpi"><div class="k">Hallucination rate</div><div class="v">3.1%</div><div class="d down">▲ 0.4%</div></div>
+        <div class="kpi"><div class="k">Negative Qs caught</div><div class="v">11/14</div><div class="d down">▼ refuses 79%</div></div>
+      </div>
+
+      <!-- nightly run history -->
+      <div class="sectitle">Nightly run history</div>
+      <div class="runs">
+        <div class="runrow">
+          <div class="cal">23<br>JUN</div>
+          <div><div class="rt">Tonight 02:00 — scheduled</div><div class="rm">queued · re-scores 4 changed docs</div></div>
+          <div style="flex:1"></div>
+          <div class="scorepill s-mid">pending</div>
+        </div>
+        <div class="runrow">
+          <div class="cal">23<br>JUN</div>
+          <div><div class="rt">Today 02:00</div><div class="rm">40 docs · 312 questions · 11m 22s · gemini-3-flash-lite judge</div></div>
+          <div style="flex:1"></div>
+          <div class="deltawrap up">▲ 4%</div>
+          <div class="scorepill s-hi">78%</div>
+        </div>
+        <div class="runrow">
+          <div class="cal">22<br>JUN</div>
+          <div><div class="rt">Yesterday 02:00</div><div class="rm">40 docs · 308 questions · 10m 51s</div></div>
+          <div style="flex:1"></div>
+          <div class="deltawrap down">▼ 2%</div>
+          <div class="scorepill s-mid">74%</div>
+        </div>
+        <div class="runrow">
+          <div class="cal">21<br>JUN</div>
+          <div><div class="rt">02:00</div><div class="rm">38 docs · 290 questions · 10m 02s</div></div>
+          <div style="flex:1"></div>
+          <div class="deltawrap up">▲ 6%</div>
+          <div class="scorepill s-mid">76%</div>
+        </div>
+      </div>
+
+      <!-- per-doc health -->
+      <div class="sectitle">Per-document health <span style="font-weight:500;text-transform:none;color:var(--muted)">— click to drill into every question + judge reasoning</span></div>
+      <div class="docgrid">
+        <div class="dh">
+          <div class="top2"><div class="thumb"></div><div><div class="dn">SOP-Fire-Safety.pdf</div><div class="dm">14 questions · evaluated 6h ago</div></div><div class="ring up">92%</div></div>
+          <div class="metrics">
+            <div class="m"><b>13/14</b><span>passed</span></div>
+            <div class="m"><b>98%</b><span>grounded</span></div>
+            <div class="m"><b>0</b><span>hallucinated</span></div>
+            <div class="m"><b>3/3</b><span>negatives caught</span></div>
+          </div>
+        </div>
+        <div class="dh flag">
+          <div class="top2"><div class="thumb"></div><div><div class="dn">HR-Leave-Policy-MY.pdf</div><div class="dm">11 questions · evaluated 6h ago</div></div><div class="ring down">58%</div></div>
+          <div class="metrics">
+            <div class="m"><b>6/11</b><span>passed</span></div>
+            <div class="m"><b>72%</b><span>grounded</span></div>
+            <div class="m" style="color:var(--red)"><b>2</b><span>hallucinated</span></div>
+            <div class="m"><b>1/3</b><span>negatives caught</span></div>
+          </div>
+          <div class="needs">⚠️ Needs review — agent answered 2 questions not in doc</div>
+        </div>
+        <div class="dh">
+          <div class="top2"><div class="thumb"></div><div><div class="dn">Equipment-Manual.pdf</div><div class="dm">9 questions · evaluated 6h ago</div></div><div class="ring" style="color:var(--amber)">71%</div></div>
+          <div class="metrics">
+            <div class="m"><b>6/9</b><span>passed</span></div>
+            <div class="m"><b>88%</b><span>grounded</span></div>
+            <div class="m"><b>1</b><span>hallucinated</span></div>
+            <div class="m"><b>2/2</b><span>negatives caught</span></div>
+          </div>
+        </div>
+        <div class="dh">
+          <div class="top2"><div class="thumb"></div><div><div class="dn">Onboarding-Guide.pdf</div><div class="dm">8 questions · evaluated 6h ago</div></div><div class="ring up">85%</div></div>
+          <div class="metrics">
+            <div class="m"><b>7/8</b><span>passed</span></div>
+            <div class="m"><b>95%</b><span>grounded</span></div>
+            <div class="m"><b>0</b><span>hallucinated</span></div>
+            <div class="m"><b>2/2</b><span>negatives caught</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DRILL-DOWN PANEL: one doc, every question, judge reasoning, raw trace -->
+  <div class="panel">
+    <div class="ph">
+      <button class="x">✕</button>
+      <div class="t">HR-Leave-Policy-MY.pdf</div>
+      <div class="s">Score 58% · 6/11 passed · evaluated today 02:14 · judge gemini-3-flash-lite · ⚠️ needs review</div>
+    </div>
+    <div class="pbody">
+      <div class="tabs">
+        <span class="tab on">Questions (11)</span>
+        <span class="tab">Raw log trace</span>
+        <span class="tab">How scored</span>
+      </div>
+
+      <!-- POSITIVE pass -->
+      <div class="q">
+        <div class="qh"><span class="kind k-pos">positive</span><span class="scoremini">judge 0.94</span><span class="verdict v-pass">PASS</span></div>
+        <div class="qq">How many annual leave days for a full-time employee?</div>
+        <div class="exp"><span class="lbl">Expected (from doc p.3)</span>14 days per year, accrued monthly.</div>
+        <div class="got"><span class="lbl">Agent answered</span>Full-time staff get 14 annual leave days, accrued each month.</div>
+        <div class="why"><span class="lbl">Judge</span><span class="judge">grounded ✓</span> — matches p.3 exactly, both facts present (14 days + monthly accrual).</div>
+      </div>
+
+      <!-- NEGATIVE caught = good -->
+      <div class="q">
+        <div class="qh"><span class="kind k-neg">negative</span><span class="scoremini">judge 1.0</span><span class="verdict v-pass">PASS</span></div>
+        <div class="qq">What is the dental insurance reimbursement limit?</div>
+        <div class="exp"><span class="lbl">Expected behaviour</span>REFUSE — dental insurance not covered in this document.</div>
+        <div class="got"><span class="lbl">Agent answered</span>This document doesn't mention dental insurance. It covers leave policy only.</div>
+        <div class="why"><span class="lbl">Judge</span><span class="judge">refused correctly ✓</span> — agent did not fabricate. Negative trap avoided.</div>
+      </div>
+
+      <!-- NEGATIVE missed = hallucination -->
+      <div class="q">
+        <div class="qh"><span class="kind k-neg">negative</span><span class="scoremini">judge 0.0</span><span class="verdict v-fail">FAIL</span></div>
+        <div class="qq">How many days of paternity leave does the CEO approve personally?</div>
+        <div class="exp"><span class="lbl">Expected behaviour</span>REFUSE — doc has no CEO-approval clause.</div>
+        <div class="got bad"><span class="lbl">Agent answered</span>The CEO personally approves up to 5 days of paternity leave. <i>(fabricated — not in doc)</i></div>
+        <div class="why"><span class="lbl">Judge</span><span class="judge">hallucination ✗</span> — invented a CEO-approval rule. 0 retrieved chunks contained "CEO". Flag doc for review.</div>
+      </div>
+
+      <!-- ADVERSARIAL partial -->
+      <div class="q">
+        <div class="qh"><span class="kind k-adv">adversarial</span><span class="scoremini">judge 0.5</span><span class="verdict v-part">PARTIAL</span></div>
+        <div class="qq">Leave carries over to next year unlimited, right?</div>
+        <div class="exp"><span class="lbl">Expected (p.4)</span>Max 5 days carry over; rest forfeited.</div>
+        <div class="got"><span class="lbl">Agent answered</span>Yes leave carries over. <i>(missed the 5-day cap)</i></div>
+        <div class="why"><span class="lbl">Judge</span><span class="judge">partial</span> — accepted false premise, omitted the 5-day limit. Half credit.</div>
+      </div>
+
+      <div class="legend">▸ Showing 4 of 11. Failed + partial sort to top. Each row = one golden question · its expected answer · what agent said · why judge scored it.</div>
+    </div>
+  </div>
+</body>
+</html>

@@ -223,7 +223,7 @@
   .kpis{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:6px;}
   .kpi{border:1px solid var(--border); border-radius:13px; padding:14px 15px; background:#fff;}
   .k-ic{width:32px; height:32px; border-radius:9px; background:#f4f3f0; display:grid; place-items:center; margin-bottom:9px;}
-  .k-val{font-family:Georgia,'Times New Roman',serif; font-size:24px; line-height:1; color:var(--ink); font-variant-numeric:tabular-nums;}
+  .k-val{font-family:var(--font); font-size:24px; line-height:1; color:var(--ink); font-variant-numeric:tabular-nums;}
   .k-lbl{font-size:10.5px; letter-spacing:.05em; text-transform:uppercase; font-weight:600; color:var(--muted); margin-top:7px;}
   .vis-note{font-size:11.5px; color:var(--muted); margin-top:9px;}
 

@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Self-Heal Agent — City Agent Aria (mockup)</title>
+<style>
+  :root{
+    --cream:#faf9f5; --paper:#fff; --sand:#f0eee6; --ink:#1f1e1d; --muted:#8a857c;
+    --line:#e9e6dd; --coral:#c2683f;             /* chat accent (logo only here) */
+    --heal:#2f8f83;  --healsoft:#e4f1ef;         /* self-heal agent accent = teal */
+    --violet:#7b6bd6; --amber:#c98a2e; --green:#3f8f5f; --red:#c0492f; --blue:#3f7fb0;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--cream);color:var(--ink);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;}
+  .shell{max-width:1240px;margin:0 auto;padding:18px 22px 60px;}
+  /* header */
+  .hdr{display:flex;align-items:center;gap:12px;padding:10px 0 16px;}
+  .logo{width:30px;height:30px;border-radius:8px;background:radial-gradient(circle at 30% 30%,#e98f6b,var(--coral));}
+  .title{font-weight:650;font-size:15px}
+  .title small{display:block;color:var(--muted);font-weight:400;font-size:12px}
+  .pill{margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--healsoft);
+    color:var(--heal);font-weight:600;font-size:12px;padding:6px 12px;border-radius:999px;}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--heal);position:relative}
+  .dot::after{content:"";position:absolute;inset:-4px;border-radius:50%;background:var(--heal);
+    opacity:.35;animation:pulse 1.4s ease-out infinite}
+  @keyframes pulse{0%{transform:scale(.6);opacity:.5}100%{transform:scale(2.2);opacity:0}}
+  /* agent strip — shows the 3 agents, self-heal highlighted */
+  .agents{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+  .agent{display:flex;align-items:center;gap:9px;background:var(--paper);border:1px solid var(--line);
+    border-radius:12px;padding:9px 13px;font-size:12.5px;color:var(--muted)}
+  .agent b{color:var(--ink);font-weight:600}
+  .agent.on{border-color:var(--heal);background:var(--healsoft)}
+  .agent .ic{width:9px;height:9px;border-radius:50%}
+  /* grid */
+  .grid{display:grid;grid-template-columns:240px 1fr 300px;gap:16px;align-items:start}
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);}
+  .card h3{margin:0;padding:13px 15px 9px;font-size:12px;letter-spacing:.04em;
+    text-transform:uppercase;color:var(--muted);font-weight:600}
+  /* queue */
+  .q{padding:0 8px 10px}
+  .qrow{display:flex;align-items:center;gap:9px;padding:9px 8px;border-radius:9px;font-size:13px}
+  .qrow:hover{background:var(--sand)}
+  .qrow.cur{background:var(--healsoft)}
+  .qd{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .qd small{display:block;color:var(--muted);font-size:11px}
+  .badge{font-size:11px;font-weight:600;padding:2px 7px;border-radius:6px}
+  .b-done{background:#e7f3ec;color:var(--green)} .b-run{background:var(--healsoft);color:var(--heal)}
+  .b-wait{background:#f1efe9;color:var(--muted)} .b-rev{background:#fbeede;color:var(--amber)}
+  .spin{width:13px;height:13px;border:2px solid var(--heal);border-top-color:transparent;
+    border-radius:50%;animation:sp .8s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  /* log */
+  .log{padding:6px 0 12px;font:12.5px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;max-height:430px;overflow:auto}
+  .ln{display:flex;gap:10px;padding:2px 15px}
+  .ln:hover{background:var(--sand)}
+  .ts{color:#b8b2a6;flex:none}
+  .tag{flex:none;font-weight:700;width:64px}
+  .t-mine{color:var(--blue)} .t-eval{color:var(--violet)} .t-heal{color:var(--heal)}
+  .t-judge{color:var(--amber)} .t-bank{color:var(--green)} .t-warn{color:var(--red)}
+  .msg{color:#3a372f}
+  .ok{color:var(--green);font-weight:600} .bad{color:var(--red);font-weight:600}
+  .cur-line{display:flex;gap:10px;padding:4px 15px;color:var(--heal);font-weight:600}
+  .caret{width:7px;height:15px;background:var(--heal);display:inline-block;animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  /* metrics */
+  .mwrap{padding:6px 15px 16px}
+  .climb{display:flex;align-items:flex-end;gap:8px;height:92px;margin:8px 0 4px}
+  .bar{flex:1;background:linear-gradient(var(--heal),#7cc4ba);border-radius:6px 6px 0 0;position:relative}
+  .bar span{position:absolute;top:-18px;left:0;right:0;text-align:center;font-size:11px;font-weight:700;color:var(--heal)}
+  .bar small{position:absolute;bottom:-18px;left:0;right:0;text-align:center;font-size:10px;color:var(--muted)}
+  .kpis{display:flex;gap:8px;margin:22px 0 14px}
+  .kpi{flex:1;background:var(--sand);border-radius:10px;padding:10px;text-align:center}
+  .kpi b{display:block;font-size:20px} .kpi small{color:var(--muted);font-size:11px}
+  .rev{font-size:12.5px}
+  .revrow{display:flex;gap:8px;padding:8px 0;border-top:1px dashed var(--line);color:#4a463e}
+  .revrow .q?{color:var(--amber);font-weight:700;flex:none}
+  .btn{display:inline-block;background:var(--heal);color:#fff;border:none;border-radius:9px;
+    padding:8px 14px;font-weight:600;font-size:13px;cursor:pointer}
+  .btn.ghost{background:transparent;color:var(--heal);border:1px solid var(--heal)}
+  .note{font-size:11px;color:var(--muted);margin-top:7px}
+  @media(max-width:980px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="hdr">
+    <div class="logo"></div>
+    <div class="title">City Agent Aria <small>Workspace › Insights › Self-Heal Agent</small></div>
+    <div class="pill"><span class="dot"></span> Running · round 3 of 4</div>
+  </div>
+
+  <!-- the three agents, self-heal active -->
+  <div class="agents">
+    <div class="agent"><span class="ic" style="background:var(--coral)"></span> <b>Answer agent</b> · serving chat</div>
+    <div class="agent"><span class="ic" style="background:var(--violet)"></span> <b>Dream cycle</b> · nightly · idle</div>
+    <div class="agent on"><span class="ic" style="background:var(--heal)"></span> <b>Self-Heal agent</b> · healing doc 5/6</div>
+  </div>
+
+  <div class="grid">
+
+    <!-- LEFT: doc queue -->
+    <div class="card">
+      <h3>Documents</h3>
+      <div class="q">
+        <div class="qrow"><span class="badge b-done">100%</span><div class="qd">AA-GPT Enablement<small>healed · 6 banked</small></div></div>
+        <div class="qrow"><span class="badge b-done">100%</span><div class="qd">New Site Creation<small>healed · 4 banked</small></div></div>
+        <div class="qrow"><span class="badge b-done">96%</span><div class="qd">New Store Setup<small>healed · 1 review</small></div></div>
+        <div class="qrow"><span class="badge b-done">100%</span><div class="qd">User Creation &amp; Disable<small>healed · 5 banked</small></div></div>
+        <div class="qrow cur"><span class="spin"></span><div class="qd"><b>User Management</b><small>healing · round 3…</small></div></div>
+        <div class="qrow"><span class="badge b-wait">queued</span><div class="qd">Burmese culture doc<small>waiting</small></div></div>
+      </div>
+    </div>
+
+    <!-- CENTER: live log -->
+    <div class="card">
+      <h3>Live activity — User Management</h3>
+      <div class="log">
+        <div class="ln"><span class="ts">12:41:02</span><span class="tag t-mine">MINE</span><span class="msg">extracted 5 golden Q&amp;A from compiled wiki (p.1–6)</span></div>
+        <div class="ln"><span class="ts">12:41:05</span><span class="tag t-eval">EVAL</span><span class="msg">Q1 "how to create a user" → grounded <span class="ok">✓</span> right-doc ✓ faithful ✓</span></div>
+        <div class="ln"><span class="ts">12:41:09</span><span class="tag t-eval">EVAL</span><span class="msg">Q2 "modify a user's role" → grounded ✓ <span class="bad">page-miss ✗</span> (cited p.1, expected p.4)</span></div>
+        <div class="ln"><span class="ts">12:41:11</span><span class="tag t-heal">HEAL</span><span class="msg">Q2 re-answer FROM source p.4 text → drafted 7-step procedure</span></div>
+        <div class="ln"><span class="ts">12:41:14</span><span class="tag t-judge">JUDGE</span><span class="msg">panel(3, refute-mode): supports 3/3 → <span class="ok">CONFIRM</span></span></div>
+        <div class="ln"><span class="ts">12:41:15</span><span class="tag t-bank">BANK</span><span class="msg">Q2 → qa_pairs active (serves verbatim, 0-LLM next round)</span></div>
+        <div class="ln"><span class="ts">12:41:19</span><span class="tag t-eval">EVAL</span><span class="msg">Q3 "delete a user account" → grounded ✓ right-doc ✓ faithful ✓</span></div>
+        <div class="ln"><span class="ts">12:41:24</span><span class="tag t-eval">EVAL</span><span class="msg">Q4 "what to verify in ESS ticket" → <span class="bad">unfaithful ✗</span> (p.4 doesn't back claim)</span></div>
+        <div class="ln"><span class="ts">12:41:27</span><span class="tag t-heal">HEAL</span><span class="msg">Q4 re-answer from p.4 → tighter, source-grounded</span></div>
+        <div class="ln"><span class="ts">12:41:30</span><span class="tag t-judge">JUDGE</span><span class="msg">panel(3): supports 1/3 → <span class="bad">REFUTE</span> → human-review list</span></div>
+        <div class="cur-line"><span class="ts">12:41:33</span><span class="tag t-eval">EVAL</span><span>re-evaluating round 3 … <span class="caret"></span></span></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: metrics + review -->
+    <div class="card">
+      <h3>Accuracy climb</h3>
+      <div class="mwrap">
+        <div class="climb">
+          <div class="bar" style="height:62%"><span>72%</span><small>r1</small></div>
+          <div class="bar" style="height:78%"><span>88%</span><small>r2</small></div>
+          <div class="bar" style="height:90%"><span>96%</span><small>r3</small></div>
+          <div class="bar" style="height:96%;opacity:.45;background:repeating-linear-gradient(45deg,#cfe7e3,#cfe7e3 5px,#e4f1ef 5px,#e4f1ef 10px)"><span style="color:var(--muted)">…</span><small>r4</small></div>
+        </div>
+        <div class="kpis">
+          <div class="kpi"><b style="color:var(--green)">96%</b><small>grounded</small></div>
+          <div class="kpi"><b style="color:var(--green)">18</b><small>banked</small></div>
+          <div class="kpi"><b style="color:var(--amber)">2</b><small>review</small></div>
+        </div>
+        <h3 style="padding-left:0">Needs human check</h3>
+        <div class="rev">
+          <div class="revrow"><span class="q?">?</span><div>User Mgmt · "what to verify in ESS ticket" — judges split (1/3)</div></div>
+          <div class="revrow"><span class="q?">?</span><div>New Store · "rollback a failed store" — no source page backs it</div></div>
+        </div>
+        <div style="margin-top:14px;display:flex;gap:8px">
+          <button class="btn">Run self-heal now</button>
+          <button class="btn ghost">Pause</button>
+        </div>
+        <div class="note">Auto-runs nightly (dream cycle) + as a parallel worker when a new doc reaches “ready”. Flag <code>SELFHEAL_ENABLED</code>.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

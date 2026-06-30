@@ -19,7 +19,14 @@ from .config import (
 _client = None
 if OPENROUTER_API_KEY:
     from openai import OpenAI
-    _client = OpenAI(api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL)
+    # per-call timeout + a couple retries: a single stalled OpenRouter call must
+    # NOT block the whole compile (it runs 6 concurrent page calls). On timeout the
+    # call raises → _compile_page's except → falls back to raw page text, so ingest
+    # always finishes instead of hanging at "compiling wiki".
+    _client = OpenAI(
+        api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL,
+        timeout=float(os.getenv("COMPILE_TIMEOUT", "90")), max_retries=2,
+    )
 
 _PAGE_SYS = (
     "You reformat one page of an IT SOP/runbook into CLEAN MARKDOWN.\n"

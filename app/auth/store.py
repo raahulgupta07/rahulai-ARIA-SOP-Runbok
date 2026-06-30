@@ -199,11 +199,21 @@ def create_user(
         else:
             role = cfg["default_role"]
     with get_conn() as conn:
-        return conn.execute(
+        row = conn.execute(
             "INSERT INTO users (email, name, role, password_hash, auth_source, oauth_sub) "
             "VALUES (%s,%s,%s,%s,%s,%s) RETURNING *",
             (email, name or email.split("@")[0], role, password_hash, source, oauth_sub),
         ).fetchone()
+    # row-level access: assign the user's home sector from their email domain
+    try:
+        from .. import rbac
+        if rbac.rbac_enabled():
+            rbac.assign_user_sector(row["id"], email)
+            with get_conn() as conn:
+                row = conn.execute("SELECT * FROM users WHERE id=%s", (row["id"],)).fetchone()
+    except Exception as e:
+        print(f"[rbac] sector assign skipped: {e!r}")
+    return row
 
 
 class MergeBlocked(Exception):

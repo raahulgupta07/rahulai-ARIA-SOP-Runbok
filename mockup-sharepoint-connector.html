@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SharePoint connector — all options — UI mockup</title>
+<style>
+  :root{
+    --cream:#fff;--paper:#fff;--sand:#f9f9f8;--ink:#1a1a18;--muted:#8b8b85;
+    --line:#e0dfda;--coral:#d97757;--green:#3f8f5f;--amber:#c98a2e;--blue:#3f7fb0;
+    --red:#c0492f;--hover:#f1f0ec;--navpill:#efeae1;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .top{height:52px;display:flex;align-items:center;gap:22px;padding:0 18px;border-bottom:1px solid var(--line);background:#fff}
+  .top .logo{font-weight:700}.top .nav{color:var(--muted);font-size:13px}.top .nav.on{color:var(--ink);font-weight:600}
+  .shell{display:flex;height:calc(100vh - 52px)}
+  .srail{width:210px;background:var(--sand);border-right:1px solid var(--line);padding:16px 11px}
+  .sgrp{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;padding:6px 8px}
+  .sitem{display:flex;align-items:center;gap:9px;padding:8px 12px;border-radius:9px;font-size:13.5px;font-weight:500;color:#46443f;cursor:pointer}
+  .sitem.on{background:var(--navpill);color:var(--ink);font-weight:600}
+  .center{flex:1;background:#fff;padding:26px 30px;overflow:auto}
+  .wrap{max-width:780px}
+  h1{font-size:21px;margin:0 0 3px;font-family:Georgia,serif}
+  .lede{color:var(--muted);font-size:13px;margin-bottom:22px}
+  /* method picker */
+  .methods{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:8px}
+  .meth{border:1px solid var(--line);border-radius:13px;padding:14px;cursor:pointer;position:relative}
+  .meth.on{border-color:var(--coral);box-shadow:0 0 0 3px #f6e7df}
+  .meth .mt{font-weight:700;font-size:14px;display:flex;align-items:center;gap:7px}
+  .meth .md{font-size:11.5px;color:var(--muted);margin-top:5px;line-height:1.45}
+  .meth .tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px}
+  .tag{font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:5px;text-transform:uppercase;letter-spacing:.03em}
+  .tag.ok{background:#e6f3ec;color:var(--green)}.tag.no{background:#f8e9e6;color:var(--red)}.tag.mid{background:#fbf3e3;color:var(--amber)}
+  .meth .pick{position:absolute;top:12px;right:12px;width:18px;height:18px;border-radius:50%;border:2px solid var(--line)}
+  .meth.on .pick{border-color:var(--coral);background:var(--coral);box-shadow:inset 0 0 0 3px #fff}
+  .rec{position:absolute;top:-9px;left:14px;font-size:9.5px;font-weight:800;background:var(--coral);color:#fff;padding:2px 8px;border-radius:999px;text-transform:uppercase}
+  .pane{display:none}.pane.on{display:block}
+  /* cards/forms */
+  .card{border:1px solid var(--line);border-radius:13px;padding:18px 19px;margin-bottom:18px}
+  .card h2{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 14px}
+  .row{margin-bottom:14px}
+  label{display:block;font-size:12.5px;font-weight:600;margin-bottom:5px}
+  .hint{font-size:11.5px;color:var(--muted);font-weight:400;margin-top:4px}
+  input[type=text],input[type=password],select{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:13.5px;background:#fff;color:var(--ink)}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .chips{display:flex;gap:7px;flex-wrap:wrap}
+  .chip{font-size:12px;font-weight:600;border:1px solid var(--line);border-radius:8px;padding:5px 11px;cursor:pointer;background:#fff;color:#5a5852}
+  .chip.on{background:var(--navpill);color:var(--ink);border-color:#d9d4c8}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;flex-wrap:wrap}
+  .seg button{border:none;background:#fff;padding:8px 13px;font-size:13px;color:var(--muted);cursor:pointer}
+  .seg button.on{background:var(--navpill);color:var(--ink);font-weight:700}
+  .toggle{display:flex;align-items:center;gap:10px}
+  .sw{width:40px;height:23px;border-radius:999px;background:#d9d4c8;position:relative;cursor:pointer;flex:none}
+  .sw.on{background:var(--coral)} .sw i{position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;background:#fff;transition:.15s}.sw.on i{left:19px}
+  .btn{font-size:13px;font-weight:600;border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px 14px;cursor:pointer;color:var(--ink)}
+  .btn.primary{background:var(--coral);color:#fff;border:none}.btn.ghost{background:#fff}.btn.danger{color:var(--red);border-color:#e7c6bd}
+  .save{display:flex;gap:9px;margin-top:6px}
+  .conn{display:flex;align-items:center;gap:12px;border:1px solid #bfe0cb;background:#f2f9f5;border-radius:13px;padding:13px 15px;margin-bottom:16px}
+  .av{width:34px;height:34px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;flex:none}
+  .badge{font-size:11px;font-weight:800;padding:2px 9px;border-radius:999px;background:#e6f3ec;color:var(--green)}
+  .stat{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .st{border:1px solid var(--line);border-radius:11px;padding:12px 13px}
+  .st .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+  .st .v{font-size:16px;font-weight:700;margin-top:3px}
+  .code-box{font:12px/1.6 ui-monospace,Menlo,monospace;background:#1a1a18;color:#d6d3cb;border-radius:11px;padding:13px 14px;position:relative;white-space:pre-wrap}
+  .code-box .cp{position:absolute;top:9px;right:9px;font-size:10.5px;border:1px solid #444;background:#222;color:#ddd;border-radius:6px;padding:3px 8px;cursor:pointer}
+  .callout{font-size:12px;background:var(--sand);border:1px solid var(--line);border-radius:10px;padding:11px 13px;margin-bottom:14px;color:#55534d}
+  .callout b{color:var(--ink)}
+  ol.steps{margin:0;padding-left:18px;font-size:13px}ol.steps li{margin-bottom:7px}
+</style>
+</head>
+<body>
+  <div class="top">
+    <span class="logo">City Agent · Aria</span>
+    <span class="nav">Sources</span><span class="nav">Chat</span><span class="nav">Eval</span>
+    <span class="nav on">Settings</span><span class="nav">Wiki</span>
+  </div>
+  <div class="shell">
+    <div class="srail">
+      <div class="sgrp">Settings</div>
+      <div class="sitem">General</div><div class="sitem">Answer behaviour</div><div class="sitem">Persona</div>
+      <div class="sgrp" style="margin-top:12px">Connectors</div>
+      <div class="sitem on">SharePoint</div><div class="sitem">OneDrive</div><div class="sitem">Amazon S3</div>
+      <div class="sgrp" style="margin-top:12px">Admin</div>
+      <div class="sitem">Members</div>
+    </div>
+
+    <div class="center">
+      <div class="wrap">
+        <h1>SharePoint</h1>
+        <div class="lede">Pull documents from a SharePoint library into Aria, on a schedule. <b>Pick the connection method that fits your tenant</b> — works whether or not you can touch Microsoft admin.</div>
+
+        <!-- METHOD PICKER -->
+        <div class="card" style="padding-bottom:14px">
+          <h2>Connection method</h2>
+          <div class="methods">
+            <div class="meth on" onclick="pick(0,this)">
+              <span class="rec">No admin</span>
+              <div class="pick"></div>
+              <div class="mt">🖥️ Desktop Sync</div>
+              <div class="md">Official OneDrive “Sync” mirrors the library to a desktop folder; a tiny Aria agent ships new files in.</div>
+              <div class="tags"><span class="tag ok">No app</span><span class="tag ok">No admin</span><span class="tag mid">Needs desktop</span></div>
+            </div>
+            <div class="meth" onclick="pick(1,this)">
+              <div class="pick"></div>
+              <div class="mt">🔑 Device code</div>
+              <div class="md">Sign in once with your own account (enter a code at microsoft.com/devicelogin). Runs headless after.</div>
+              <div class="tags"><span class="tag ok">No app</span><span class="tag mid">1× consent</span><span class="tag ok">Headless</span></div>
+            </div>
+            <div class="meth" onclick="pick(2,this)">
+              <div class="pick"></div>
+              <div class="mt">🏢 Azure app</div>
+              <div class="md">Admin registers one app (client ID + secret). Most robust for a server — unattended service auth.</div>
+              <div class="tags"><span class="tag no">App reg</span><span class="tag no">Admin</span><span class="tag ok">Headless</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PANE 0 — DESKTOP SYNC -->
+        <div class="pane on" id="p0">
+          <div class="card">
+            <h2>Desktop Sync — setup</h2>
+            <div class="callout">Best when you <b>can't get Microsoft admin help</b>. The desktop’s OneDrive client does the sign-in (already approved by your org) — Aria never touches Microsoft.</div>
+            <ol class="steps">
+              <li>On the SharePoint library in your browser → click <b>Sync</b> (opens OneDrive, mirrors it to a local folder).</li>
+              <li>Install the Aria desktop agent on that machine (one binary):</li>
+            </ol>
+            <div class="code-box" style="margin:10px 0 14px"><span class="cp">Copy</span>curl -fsSL https://aria.yourorg/agent.sh | ARIA_TOKEN=ax_8f31…d20c bash</div>
+            <ol class="steps" start="3">
+              <li>Point it at the synced folder + Aria — done. New files auto-upload.</li>
+            </ol>
+          </div>
+          <div class="card">
+            <h2>Watched folder</h2>
+            <div class="row"><label>Synced folder path (on the desktop)</label>
+              <input type="text" value="/Users/you/Library/CloudStorage/OneDrive-YourOrg/ITTeam/SOPs" /></div>
+            <div class="row"><label>File types</label>
+              <div class="chips"><span class="chip on">PDF</span><span class="chip on">Word</span><span class="chip on">Excel</span><span class="chip on">PowerPoint</span><span class="chip">Text</span></div></div>
+            <div class="row"><label>Sub-folders</label>
+              <div class="toggle"><div class="sw on"><i></i></div><span style="font-size:13px">Include sub-folders</span></div></div>
+          </div>
+        </div>
+
+        <!-- PANE 1 — DEVICE CODE -->
+        <div class="pane" id="p1">
+          <div class="conn">
+            <div class="av">RG</div>
+            <div><div style="font-weight:650">Connected as rahul@yourorg.com <span class="badge">SIGNED IN</span></div>
+              <div style="font-size:12px;color:var(--muted)">Delegated · token auto-refreshes · no app registration</div></div>
+            <div style="margin-left:auto;display:flex;gap:8px"><button class="btn ghost">Reconnect</button><button class="btn danger">Disconnect</button></div>
+          </div>
+          <div class="card">
+            <h2>What to sync</h2>
+            <div class="row"><label>SharePoint site URL</label>
+              <input type="text" value="https://yourorg.sharepoint.com/sites/ITTeam" />
+              <div class="hint">We resolve the library automatically after you connect.</div></div>
+            <div class="row"><label>Library / folder</label>
+              <select><option>Documents › SOPs</option><option>Documents (root)</option></select></div>
+            <div class="row"><label>File types</label>
+              <div class="chips"><span class="chip on">PDF</span><span class="chip on">Word</span><span class="chip on">Excel</span><span class="chip on">PowerPoint</span></div></div>
+          </div>
+          <div class="card">
+            <h2>Advanced</h2>
+            <div class="row"><label>Public client ID</label>
+              <input type="text" value="04b07795-8ddb-461a-bbee-02f9e1bf7b46" />
+              <div class="hint">Default = Microsoft’s public Azure CLI client (no app needed). Override only if your tenant requires its own.</div></div>
+          </div>
+        </div>
+
+        <!-- PANE 2 — AZURE APP -->
+        <div class="pane" id="p2">
+          <div class="card">
+            <h2>Azure app credentials</h2>
+            <div class="callout">Admin registers one app in Azure AD (Graph → <b>Sites.Read.All</b> application permission, grant consent), then paste the three values here.</div>
+            <div class="row"><label>Tenant ID</label><input type="text" value="contoso.onmicrosoft.com" /></div>
+            <div class="two">
+              <div class="row"><label>Client ID</label><input type="text" value="b91d…7e02" /></div>
+              <div class="row"><label>Client secret</label><input type="password" value="••••••••••••" /></div>
+            </div>
+            <div style="font-size:11.5px;color:var(--muted)">Secret stored encrypted, never shown again. <a href="#" style="color:var(--coral)">Test connection</a></div>
+          </div>
+          <div class="card">
+            <h2>What to sync</h2>
+            <div class="row"><label>Site URL</label><input type="text" value="https://yourorg.sharepoint.com/sites/ITTeam" /></div>
+            <div class="row"><label>Library / folder</label><input type="text" value="Documents/SOPs" /></div>
+            <div class="row"><label>File types</label>
+              <div class="chips"><span class="chip on">PDF</span><span class="chip on">Word</span><span class="chip on">Excel</span><span class="chip on">PowerPoint</span></div></div>
+          </div>
+        </div>
+
+        <!-- SHARED: SCHEDULE + STATUS (all methods) -->
+        <div class="card">
+          <h2>Schedule <span style="font-weight:500;text-transform:none;letter-spacing:0;color:var(--muted)">— applies to every method</span></h2>
+          <div class="row"><label>Auto-sync</label>
+            <div class="toggle"><div class="sw on"><i></i></div><span style="font-size:13px">Automatically check for new files</span></div></div>
+          <div class="row"><label>How often</label>
+            <div class="seg"><button>10 min</button><button class="on">Hourly</button><button>Every 6h</button><button>Daily</button><button>Manual</button></div>
+            <div class="hint">Incremental — new + changed only. SharePoint deletions never remove from Aria.</div></div>
+          <div class="save"><button class="btn primary">Save & connect</button><button class="btn ghost">Sync now</button></div>
+        </div>
+
+        <div class="card">
+          <h2>Status</h2>
+          <div class="stat">
+            <div class="st"><div class="k">Last sync</div><div class="v" style="font-size:13.5px">6 min ago</div></div>
+            <div class="st"><div class="k">Files pulled</div><div class="v">142</div></div>
+            <div class="st"><div class="k">Next run</div><div class="v" style="font-size:13.5px">in 54 min</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function pick(i, el){
+      document.querySelectorAll('.meth').forEach((m,idx)=>m.classList.toggle('on', idx===i));
+      document.querySelectorAll('.pane').forEach((p,idx)=>p.classList.toggle('on', idx===i));
+    }
+  </script>
+</body>
+</html>

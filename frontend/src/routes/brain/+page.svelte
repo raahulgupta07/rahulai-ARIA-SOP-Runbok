@@ -4174,7 +4174,7 @@
   .dcard.op:hover{transform:none; box-shadow:none; border-color:var(--border);}
   .dcover{position:relative; height:78px; background:linear-gradient(160deg,#fafafa,#f0efed); border-bottom:1px solid var(--line); overflow:hidden; display:grid; place-items:center;}
   .dcode{font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace; font-size:22px; font-weight:600; letter-spacing:.03em;}
-  .dcover-ttl{font-family:Georgia,'Times New Roman',serif; font-size:13px; font-weight:500; line-height:1.22; text-align:center; padding:0 12px; max-width:100%; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;}
+  .dcover-ttl{font-family:var(--font); font-size:13px; font-weight:500; line-height:1.22; text-align:center; padding:0 12px; max-width:100%; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;}
   .dglyph{position:absolute; right:11px; bottom:8px; font-size:14px; opacity:.45; z-index:2;}
   .dcover-ph{font-size:12px; color:#9a8e7f; display:flex; flex-direction:column; align-items:center; gap:2px;}
   .dcover-ph.fail{color:var(--err); font-weight:600;}
@@ -4253,7 +4253,7 @@
   /* drawer insights */
   .ptiles{display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:16px;}
   .ptile{background:#f7f7f5; border:1px solid var(--border); border-radius:10px; padding:10px 6px; text-align:center;}
-  .ptile b{display:block; font-family:Georgia,'Times New Roman',serif; font-size:21px; line-height:1; color:var(--ink); font-variant-numeric:tabular-nums;}
+  .ptile b{display:block; font-family:var(--font); font-size:21px; line-height:1; color:var(--ink); font-variant-numeric:tabular-nums;}
   .ptile span{display:block; font-size:9.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-top:4px;}
   .prows{margin-top:14px; display:flex; flex-direction:column; gap:11px;}
   .prow{display:flex; align-items:baseline; justify-content:space-between; gap:14px; font-size:12.5px; color:var(--ink);}

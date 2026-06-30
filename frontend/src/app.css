@@ -5,7 +5,10 @@
   /* ── Path A — Claude desktop: white surfaces, BLUE interactive, coral=brand ── */
   --cream: #ffffff;   /* white canvas (claude desktop) */
   --paper: #ffffff;
-  /* --clay = THE interactive accent token (name kept). Path A = BLUE. */
+  /* --clay = THE interactive accent token (name kept). Path A = BLUE.
+     RUNTIME WHITE-LABEL: these are DEFAULTS. The root layout injects a later
+     :root{--clay:…;--clay-dk:…} from GET /api/brand to re-skin live — keep these
+     plain custom props (NO !important) so the injected style wins. */
   --clay: #1a1a18;    /* interactive: links, toggles, primary actions, focus */
   --clay-dk: #000000;
   --blue: #1a1a18;    /* explicit alias for new code */
@@ -16,13 +19,17 @@
   --border: #e0dfda;  /* soft but visible — cards must read against white page (gaps) */
   --sand: #f9f9f8;    /* sidebar / rail — near-white */
   --sidebar: #f9f9f8;
-  --serif: 'Fraunces', Georgia, 'Times New Roman', serif;
+  /* ONE font across the whole platform: --serif now aliases the UI sans stack,
+     so every `.serif` heading/wordmark renders in Hanken Grotesk too (was Fraunces).
+     To bring the serif display back, restore: 'Fraunces', Georgia, serif. */
+  --font: 'Hanken Grotesk', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    system-ui, 'Noto Sans Myanmar', 'Padauk', 'Myanmar Text', sans-serif;
+  --serif: var(--font);
 }
 
 html, body { height: 100%; }
 body {
-  font-family: 'Hanken Grotesk', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    system-ui, 'Noto Sans Myanmar', 'Padauk', 'Myanmar Text', sans-serif;
+  font-family: var(--font);
   background: var(--cream);
   color: var(--ink);
 }

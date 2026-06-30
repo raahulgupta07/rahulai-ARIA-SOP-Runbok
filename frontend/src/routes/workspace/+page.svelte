@@ -2,7 +2,7 @@
   import '$lib/dashboard.css';
   import { auth, type User } from '$lib/auth';
   import { api } from '$lib/api';
-  import { range, tick, wsItem, WS_ITEMS, brainTeachSignal, brainFilesSignal, brainScanSignal, brainS3Signal, loadBrainData, mobileNav } from '$lib/dashstore';
+  import { range, tick, wsItem, WS_ITEMS, brainTeachSignal, loadBrainData, mobileNav } from '$lib/dashstore';
   import { RANGES } from '$lib/dashutil';
   import { onMount } from 'svelte';
   import Overview from '$lib/dashboard/sections/Overview.svelte';
@@ -14,6 +14,10 @@
   import System from '$lib/dashboard/sections/System.svelte';
   import Learning from '$lib/dashboard/sections/Learning.svelte';
   import Dream from '$lib/dashboard/sections/Dream.svelte';
+  import Accuracy from '$lib/dashboard/sections/Accuracy.svelte';
+  import SelfHeal from '$lib/dashboard/sections/SelfHeal.svelte';
+  import GraphRAG from '$lib/dashboard/sections/GraphRAG.svelte';
+  import Eval from '$lib/dashboard/sections/Eval.svelte';
   import Cockpit from '$lib/dash/Cockpit.svelte';
   import Brain from '../brain/+page.svelte';
 
@@ -24,7 +28,8 @@
   const COMP: Record<string, any> = {
     overview: Overview, live: Cockpit, exec: Exec, users: Users, perf: Perf,
     knowledge: KnowledgeSec, review: Review, system: System, learning: Learning,
-    dream: Dream
+    dream: Dream, accuracy: Accuracy, selfheal: SelfHeal, graphrag: GraphRAG,
+    eval: Eval
   };
 
   // live ticker (admin)
@@ -57,63 +62,7 @@
   let onBrain = $derived(active?.kind === 'knowledge');   // Brain mounted → buttons work
   function fireTeach() { brainTeachSignal.update((n) => n + 1); }
 
-  // ---- OpenWebUI-style upload menu (no modal) ----
-  let upMenu = $state(false);
-  let upScan = $state<{ exists: boolean; found: number; new: number } | null>(null);
-  let upS3 = $state<{ configured: boolean; found: number; new: number } | null>(null);
-  let wFileInput: HTMLInputElement;
-  let wFolderInput: HTMLInputElement;
-  function toggleUpMenu() {
-    upMenu = !upMenu;
-    if (upMenu && isAdmin) {
-      api.scanPreview().then((r) => (upScan = r)).catch(() => (upScan = null));
-      api.s3ScanPreview().then((r) => (upS3 = r)).catch(() => (upS3 = null));
-    }
-  }
-  function bridgeFiles(files: FileList | null) {
-    if (files && files.length) brainFilesSignal.set(Array.from(files));
-    upMenu = false;
-  }
-  function fireScan() { brainScanSignal.update((n) => n + 1); upMenu = false; }
-  function fireS3() { brainS3Signal.update((n) => n + 1); upMenu = false; }
-
-  // ---- Cloud import: SharePoint + OneDrive (location only; creds live in Settings) ----
-  type GraphCfg = { site_host: string; site_path: string; user_upn: string; drive_id: string; folder: string; sync_enabled?: boolean; sync_interval_h?: number; creds_ready?: boolean; kind_enabled?: boolean };
-  const emptyCfg = (): GraphCfg => ({ site_host: '', site_path: '', user_upn: '', drive_id: '', folder: '', sync_enabled: false, sync_interval_h: 6, creds_ready: false, kind_enabled: true });
-  let spOpen = $state(false);
-  let spKind = $state<'sharepoint' | 'onedrive'>('sharepoint');
-  let spCfg = $state<GraphCfg>(emptyCfg());
-  let spBusy = $state(false);
-  let spMsg = $state('');
-  let spReady = $derived(!!spCfg.creds_ready && spCfg.kind_enabled !== false);
-  function loadGraphCfg() {
-    spMsg = '';
-    api.graphConfig(spKind).then((r) => { spCfg = { ...emptyCfg(), ...r }; }).catch(() => { spCfg = emptyCfg(); });
-  }
-  function openSharePoint(kind: 'sharepoint' | 'onedrive' = 'sharepoint') {
-    upMenu = false; spOpen = true; spKind = kind; loadGraphCfg();
-  }
-  function spSwitch(kind: 'sharepoint' | 'onedrive') {
-    if (kind === spKind) return;
-    spKind = kind; loadGraphCfg();
-  }
-  async function spSave() {
-    spBusy = true; spMsg = '';
-    try { const r = await api.graphSaveConfig(spKind, spCfg as any); spCfg = { ...spCfg, ...r }; spMsg = 'Saved.'; }
-    catch (e: any) { spMsg = e?.message || 'save failed'; } finally { spBusy = false; }
-  }
-  async function spTest() {
-    spBusy = true; spMsg = 'Testing…';
-    try { const r = await api.graphTest(spKind); spMsg = r.ok ? 'Connected ✓' : ('Failed: ' + (r.detail || 'check creds')); }
-    catch (e: any) { spMsg = e?.message || 'test failed'; } finally { spBusy = false; }
-  }
-  async function spImport() {
-    spBusy = true; spMsg = 'Importing…';
-    try {
-      const r = await api.graphImport(spKind);
-      spMsg = r.ok ? `Queued ${r.queued} · skipped ${r.skipped} (of ${r.found})` : ('Failed: ' + (r.detail || 'not configured'));
-    } catch (e: any) { spMsg = e?.message || 'import failed'; } finally { spBusy = false; }
-  }
+  // Document upload/import lives ONLY on the Sources page — Workspace has no upload UI.
   function fmtBytes(n: number) {
     if (!n) return '0';
     if (n < 1048576) return `${(n / 1024).toFixed(0)} KB`;
@@ -185,52 +134,6 @@
         </div>
         <div class="sacts">
           {#if onBrain}
-            <div class="upwrap">
-              <button class="tbtn up" onclick={toggleUpMenu} title="Add documents">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-                Add
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="margin-left:-1px"><path d="M6 9l6 6 6-6"/></svg>
-              </button>
-              {#if upMenu}
-                <button class="upmenu-scrim" onclick={() => (upMenu = false)} aria-label="Close"></button>
-                <div class="upmenu" role="menu">
-                  <button class="upmi" onclick={() => wFileInput.click()}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>
-                    <span><b>Upload files</b><i>one or many · PDF, PNG, JPG</i></span>
-                  </button>
-                  <button class="upmi" onclick={() => wFolderInput.click()}>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                    <span><b>Upload directory</b><i>whole folder · subfolders</i></span>
-                  </button>
-                  {#if isAdmin}
-                    <button class="upmi" onclick={fireScan}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h6l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M12 11v5"/><path d="M9.5 13.5 12 11l2.5 2.5"/></svg>
-                      <span><b>Import from server</b><i>{upScan ? (upScan.exists ? `${upScan.new} new · ${upScan.found} in folder` : 'folder not found') : 'scan server documents folder'}</i></span>
-                    </button>
-                    {#if upS3 && upS3.configured}
-                      <div class="upmenu-sep"></div>
-                      <button class="upmi" onclick={fireS3}>
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.66 3.58 3 8 3s8-1.34 8-3V6"/><path d="M4 12v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>
-                        <span><b>Import from S3</b><i>{`${upS3.new} new · ${upS3.found} in bucket`}</i></span>
-                      </button>
-                    {/if}
-                    <div class="upmenu-sep"></div>
-                    <button class="upmi" onclick={() => openSharePoint('sharepoint')}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18"/><path d="M8 14h4"/></svg>
-                      <span><b>Import from SharePoint</b><i>Microsoft 365 document library</i></span>
-                    </button>
-                    <button class="upmi" onclick={() => openSharePoint('onedrive')}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 19h11a4 4 0 0 0 .8-7.9A5.5 5.5 0 0 0 7.6 9.2 4.2 4.2 0 0 0 6.5 19z"/></svg>
-                      <span><b>Import from OneDrive</b><i>A user's OneDrive files</i></span>
-                    </button>
-                  {/if}
-                </div>
-              {/if}
-              <input bind:this={wFileInput} type="file" multiple accept=".pdf,.png,.jpg,.jpeg" class="hidden"
-                onchange={(e) => { bridgeFiles(e.currentTarget.files); e.currentTarget.value = ''; }} />
-              <input bind:this={wFolderInput} type="file" multiple webkitdirectory class="hidden"
-                onchange={(e) => { bridgeFiles(e.currentTarget.files); e.currentTarget.value = ''; }} />
-            </div>
             <button class="tbtn" onclick={fireTeach} title="Teach a fact">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V18h6v-1.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg>
               Teach fact
@@ -299,60 +202,6 @@
   {/if}
 </div>
 
-{#if spOpen}
-  <button class="sp-scrim" onclick={() => (spOpen = false)} aria-label="Close"></button>
-  <div class="sp-modal" role="dialog" aria-label="Import from cloud">
-    <div class="sp-head">
-      <b>Import from cloud</b>
-      <button class="sp-x" onclick={() => (spOpen = false)} aria-label="Close">✕</button>
-    </div>
-    <div class="sp-tabs">
-      <button class="sp-tab {spKind === 'sharepoint' ? 'on' : ''}" onclick={() => spSwitch('sharepoint')}>SharePoint</button>
-      <button class="sp-tab {spKind === 'onedrive' ? 'on' : ''}" onclick={() => spSwitch('onedrive')}>OneDrive</button>
-    </div>
-    <p class="sp-sub">
-      {#if spKind === 'sharepoint'}Pulls every PDF/image from a Microsoft 365 document library into Aria.{:else}Pulls every PDF/image from a user's OneDrive into Aria.{/if}
-    </p>
-    {#if !spReady}
-      <div class="sp-gate">
-        {#if !spCfg.creds_ready}
-          Microsoft 365 isn't connected yet. <a href="/settings/microsoft">Set it up in Settings →</a>
-        {:else}
-          {spKind === 'sharepoint' ? 'SharePoint' : 'OneDrive'} is turned off. Enable it in <a href="/settings/microsoft">Settings → Microsoft 365 →</a>
-        {/if}
-      </div>
-    {:else}
-      <div class="sp-grid">
-        {#if spKind === 'sharepoint'}
-          <label class="sp-f"><span>Site host</span><input bind:value={spCfg.site_host} placeholder="contoso.sharepoint.com" /></label>
-          <label class="sp-f"><span>Site path</span><input bind:value={spCfg.site_path} placeholder="/sites/IT" /></label>
-        {:else}
-          <label class="sp-f sp-f-wide"><span>User (UPN / email)</span><input bind:value={spCfg.user_upn} placeholder="alice@contoso.com" /></label>
-        {/if}
-        <label class="sp-f"><span>Drive ID <i>(optional)</i></span><input bind:value={spCfg.drive_id} placeholder="default drive if blank" /></label>
-        <label class="sp-f"><span>Folder <i>(optional)</i></span><input bind:value={spCfg.folder} placeholder="Runbooks/SOPs" /></label>
-      </div>
-      <label class="sp-toggle">
-        <input type="checkbox" bind:checked={spCfg.sync_enabled} />
-        <span>Auto-sync — keep pulling new files on a schedule</span>
-      </label>
-      {#if spCfg.sync_enabled}
-        <label class="sp-interval">
-          <span>Sync every</span>
-          <input type="number" min="1" max="168" bind:value={spCfg.sync_interval_h} />
-          <span>hours</span>
-        </label>
-      {/if}
-      {#if spMsg}<div class="sp-msg">{spMsg}</div>{/if}
-      <div class="sp-actions">
-        <button class="sp-btn ghost" disabled={spBusy} onclick={spSave}>Save</button>
-        <button class="sp-btn ghost" disabled={spBusy} onclick={spTest}>Test</button>
-        <button class="sp-btn" disabled={spBusy} onclick={spImport}>Import all</button>
-      </div>
-    {/if}
-  </div>
-{/if}
-
 <style>
   .ws { display: grid; grid-template-columns: 210px 1fr; height: 100%; min-height: 0; }
   .wsrail {
@@ -377,21 +226,7 @@
   .sacts { display: flex; align-items: center; gap: 7px; margin-left: auto; padding: 0 14px; }
   .tbtn { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: #fff; color: var(--ink); cursor: pointer; white-space: nowrap; transition: background .14s; }
   .tbtn:hover { background: var(--hover, #efefec); }
-  .tbtn.up { background: var(--clay); color: #fff; border-color: var(--clay); }
-  .tbtn.up:hover { opacity: .92; background: var(--clay); }
-  /* OpenWebUI-style add menu */
-  .upwrap { position: relative; display: inline-flex; }
   .hidden { display: none; }
-  .upmenu-scrim { position: fixed; inset: 0; z-index: 60; background: transparent; border: none; cursor: default; }
-  .upmenu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 61; width: 244px; background: #fff; border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 10px 30px rgba(40,35,30,.16); padding: 5px; animation: upin .13s ease-out; }
-  @keyframes upin { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
-  .upmi { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 8px 9px; border: none; background: transparent; border-radius: 8px; cursor: pointer; transition: background .12s; }
-  .upmi:hover { background: var(--hover, #f4f3f0); }
-  .upmi svg { flex: none; color: var(--clay); }
-  .upmi span { display: flex; flex-direction: column; min-width: 0; }
-  .upmi b { font-size: 12.5px; font-weight: 600; color: var(--ink); }
-  .upmi i { font-size: 11px; font-style: normal; color: var(--muted); }
-  .upmenu-sep { height: 1px; background: var(--border); margin: 5px 7px; }
   .killbtn { font-size: 12.5px; font-weight: 600; padding: 6px 13px; border-radius: 8px; border: 1px solid #d8a99c; background: #fbeeea; color: #b03a22; cursor: pointer; white-space: nowrap; transition: background .14s; }
   .killbtn:hover { background: #f6ddd5; }
   .killbtn:disabled { opacity: .6; cursor: default; }
@@ -469,34 +304,4 @@
     .ws-head, .ws-body { padding-left: 16px; padding-right: 16px; }
   }
 
-  /* SharePoint import modal */
-  .sp-scrim { position: fixed; inset: 0; background: rgba(20,18,15,.34); z-index: 60; border: 0; }
-  .sp-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 61;
-    width: min(560px, 92vw); background: var(--paper, #fff); border: 1px solid var(--border, #e0dfda);
-    border-radius: 14px; padding: 18px 20px; box-shadow: 0 18px 50px rgba(0,0,0,.18); }
-  .sp-head { display: flex; align-items: center; justify-content: space-between; font-size: 15px; color: var(--ink); }
-  .sp-x { font-size: 13px; color: var(--muted); padding: 4px 8px; border-radius: 8px; }
-  .sp-x:hover { background: #f1f0ec; }
-  .sp-sub { font-size: 12px; color: var(--muted); margin: 6px 0 14px; line-height: 1.5; }
-  .sp-tabs { display: inline-flex; gap: 2px; margin-top: 12px; padding: 3px; background: var(--bg-alt, #f4f3f0); border-radius: 9px; }
-  .sp-tab { border: 0; background: transparent; padding: 5px 14px; font-size: 12.5px; border-radius: 7px; color: var(--muted); cursor: pointer; }
-  .sp-tab.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
-  .sp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .sp-f-wide { grid-column: 1 / -1; }
-  .sp-gate { margin-top: 14px; padding: 14px 16px; background: var(--bg-alt, #f4f3f0); border: 1px solid var(--border, #e0dfda); border-radius: 10px; font-size: 13px; color: var(--muted); line-height: 1.6; }
-  .sp-gate a { color: var(--clay); font-weight: 600; }
-  .sp-toggle { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12.5px; color: var(--ink); cursor: pointer; }
-  .sp-toggle input { width: 15px; height: 15px; accent-color: var(--clay); }
-  .sp-interval { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
-  .sp-interval input { width: 64px; border: 1px solid var(--border, #e0dfda); border-radius: 8px; padding: 5px 8px; font-size: 13px; color: var(--ink); background: #fff; outline: none; }
-  .sp-interval input:focus { border-color: var(--clay); }
-  .sp-f { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--muted); }
-  .sp-f i { font-style: normal; opacity: .7; }
-  .sp-f input { border: 1px solid var(--border, #e0dfda); border-radius: 8px; padding: 7px 9px; font-size: 13px; color: var(--ink); background: #fff; outline: none; }
-  .sp-f input:focus { border-color: var(--clay); }
-  .sp-msg { margin-top: 10px; font-size: 12.5px; color: var(--ink); }
-  .sp-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
-  .sp-btn { font-size: 13px; padding: 7px 16px; border-radius: 9px; background: var(--clay); color: #fff; }
-  .sp-btn.ghost { background: #fff; color: var(--muted); border: 1px solid var(--border, #e0dfda); }
-  .sp-btn:disabled { opacity: .5; }
 </style>

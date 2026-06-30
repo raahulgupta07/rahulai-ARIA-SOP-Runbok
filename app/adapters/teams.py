@@ -229,7 +229,19 @@ def _process(activity: dict) -> None:
                 out = agent_mod.answer(q, seed, mode="quick")   # quick = fast for chat
     except Exception as e:
         out = {"text": f"Sorry, something went wrong: {e}", "page_ids": []}
-    _reply(service_url, conv, aid, _card(out["text"], out.get("page_ids", [])))
+    # per-deployment citation toggle: when OFF, strip [N]/PAGES markers and drop the
+    # citation buttons so the Teams card matches the web/API behaviour.
+    text = out["text"]
+    page_ids = out.get("page_ids", [])
+    try:
+        from .. import appcfg
+        if not appcfg.citations_enabled():
+            from ..agent import strip_citations
+            text = strip_citations(text)
+            page_ids = []
+    except Exception as e:
+        print(f"[teams] citation policy skipped: {e!r}")
+    _reply(service_url, conv, aid, _card(text, page_ids))
 
 
 def on_activity(activity: dict) -> dict:

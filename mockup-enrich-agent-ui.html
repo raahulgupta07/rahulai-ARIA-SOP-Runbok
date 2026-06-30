@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Enrichment Agent — in-app UI mockup</title>
+<style>
+  :root{
+    --cream:#fff;--paper:#fff;--sand:#f9f9f8;--ink:#1a1a18;--muted:#8b8b85;
+    --line:#e7e3d9;--coral:#d97757;--green:#3f8f5f;--amber:#c98a2e;--blue:#3f7fb0;--red:#c0492f;--hover:#f1f0ec;--navpill:#efeae1;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .top{height:52px;display:flex;align-items:center;gap:22px;padding:0 18px;border-bottom:1px solid var(--line);background:#fff}
+  .top .logo{font-weight:700}
+  .top .nav{color:var(--muted);font-size:13px}
+  .top .nav.on{color:var(--ink);font-weight:600}
+  .shell{display:flex;height:calc(100vh - 52px)}
+  .rail{width:210px;background:var(--sand);border-right:1px solid var(--line);padding:16px 11px}
+  .grp{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;padding:6px 8px}
+  .fitem{display:flex;align-items:center;gap:9px;padding:8px 12px;border-radius:9px;font-size:13.5px;font-weight:500;color:#46443f;cursor:pointer}
+  .fitem.on{background:var(--navpill);color:var(--ink);font-weight:600}
+  .fitem .n{margin-left:auto;font-size:11px;font-weight:700;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:6px;padding:0 6px}
+  .center{flex:1;background:#fff;padding:18px 22px;overflow:auto;position:relative}
+  h1{font-size:18px;margin:0}
+  .chead{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .chead small{color:var(--muted)}
+  .addbtn{margin-left:auto;background:var(--coral);color:#fff;border:none;border-radius:9px;padding:8px 14px;font-weight:600;font-size:13px}
+  .agentchip{display:flex;align-items:center;gap:7px;border:1px solid #eccdbd;background:#fdf6f1;color:var(--coral);border-radius:8px;padding:5px 11px;font-size:12.5px;font-weight:600;cursor:pointer}
+  .dotp{width:8px;height:8px;border-radius:50%;background:var(--coral);animation:pulse 1.2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  /* doc rows */
+  .doc{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px;margin-bottom:9px}
+  .doc .thumb{width:30px;height:36px;border-radius:6px;background:#eef2f6;border:1px solid #dde6ee;flex:none}
+  .doc .n{font-weight:600}
+  .doc .meta{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:7px;margin-top:2px}
+  .bar{height:5px;border-radius:999px;background:#efece4;overflow:hidden;margin-top:7px;width:240px}
+  .bar>i{display:block;height:100%;border-radius:999px}
+  .bar>i.lite{background:linear-gradient(90deg,#2f8f6a,#7fc9a8)}
+  .bar>i.full{background:var(--coral)}
+  .pill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px}
+  .pill.lite{background:#e6f3ec;color:var(--green)}
+  .pill.ready{background:#eef2f6;color:var(--blue)}
+  .pill.q{background:#f3efe6;color:var(--muted)}
+  .spacer{flex:1}
+  .ask{font-size:11.5px;font-weight:600;border:1px solid var(--line);background:#fff;border-radius:7px;padding:4px 10px;color:var(--ink)}
+  /* slide-over agent panel */
+  .panel{position:absolute;top:0;right:0;width:380px;height:100%;background:#fff;border-left:1px solid var(--line);box-shadow:-12px 0 40px rgba(0,0,0,.08);display:flex;flex-direction:column}
+  .ph{padding:15px 18px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;justify-content:space-between}
+  .ph .t{font-size:16px;font-weight:650}
+  .ph .s{font-size:12px;color:var(--muted);margin-top:2px;display:flex;align-items:center;gap:7px}
+  .ph .x{border:none;background:none;color:var(--muted);font-size:14px;cursor:pointer}
+  .pbody{flex:1;overflow:auto;padding:12px 14px}
+  /* agent controls */
+  .ctrls{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  .btn{font-size:12px;font-weight:600;border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 11px;cursor:pointer}
+  .btn.pause{border-color:#eccdbd;color:var(--coral)}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:none;background:#fff;padding:5px 10px;font-size:11.5px;color:var(--muted);cursor:pointer}
+  .seg button.on{background:var(--navpill);color:var(--ink);font-weight:600}
+  .knob{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
+  .knob input{width:42px;border:1px solid var(--line);border-radius:6px;padding:3px 6px;font:inherit;font-size:12px;text-align:center}
+  /* enrich job card */
+  .ej{border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:10px}
+  .ej .jn{font-weight:600;font-size:13px;display:flex;align-items:center;gap:7px}
+  .ej .steps{display:flex;gap:5px;margin:9px 0 6px;flex-wrap:wrap}
+  .chip{font-size:10.5px;font-weight:600;border:1px solid var(--line);border-radius:6px;padding:2px 7px;color:var(--muted);display:flex;align-items:center;gap:4px}
+  .chip.done{color:var(--green);border-color:#cfe6d6;background:#f5fbf7}
+  .chip.run{color:var(--coral);border-color:#eccdbd;background:#fdf6f1}
+  .ej .js{font-size:11.5px;color:var(--muted)}
+  .stopb{font-size:11px;font-weight:600;border:1px solid #e7c3ba;color:var(--red);background:#fff;border-radius:7px;padding:3px 9px;margin-left:auto}
+  .sec{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;margin:14px 4px 8px}
+  .foot{font-size:11px;color:var(--muted);padding:8px 4px}
+  .legend{font-size:11px;color:var(--muted);margin-top:8px}
+</style>
+</head>
+<body>
+  <div class="top">
+    <span class="logo">CityAgent · Aria</span>
+    <span class="nav">Chat</span><span class="nav">Workspace</span>
+    <span class="nav on">Sources</span><span class="nav">Settings</span><span class="nav">Wiki</span>
+  </div>
+
+  <div class="shell">
+    <aside class="rail">
+      <div class="grp">Folders</div>
+      <div class="fitem on">▦ All documents <span class="n">4</span></div>
+      <div class="grp" style="margin-top:10px">Shared folders</div>
+      <div class="fitem">▢ CH Docs <span class="n">2</span></div>
+      <div class="fitem">▢ IT SOPs <span class="n">2</span></div>
+    </aside>
+
+    <main class="center">
+      <div class="chead">
+        <h1>All documents</h1><small>4 documents</small>
+        <button class="addbtn">＋ Add ▾</button>
+        <button class="agentchip"><span class="dotp"></span>Agent · 1 enriching · 2 queued</button>
+      </div>
+
+      <!-- doc list: instant-answerable + background enrich -->
+      <div class="doc">
+        <div class="thumb"></div>
+        <div>
+          <div class="n">New Site Creation</div>
+          <div class="meta"><span class="pill lite">answerable</span> · agent enriching 14/22</div>
+          <div class="bar"><i class="full" style="width:64%"></i></div>
+        </div>
+        <div class="spacer"></div><button class="ask">Ask</button>
+      </div>
+      <div class="doc">
+        <div class="thumb"></div>
+        <div>
+          <div class="n">Store Setup SOP</div>
+          <div class="meta"><span class="pill lite">answerable</span> · <span class="pill q">queued for enrich</span></div>
+          <div class="bar"><i class="lite" style="width:40%"></i></div>
+        </div>
+        <div class="spacer"></div><button class="ask">Ask</button>
+      </div>
+      <div class="doc">
+        <div class="thumb"></div>
+        <div>
+          <div class="n">User Creation &amp; Disable</div>
+          <div class="meta"><span class="pill ready">ready</span> · fully enriched · 22 pages</div>
+          <div class="bar"><i class="full" style="width:100%"></i></div>
+        </div>
+        <div class="spacer"></div><button class="ask">Ask</button>
+      </div>
+
+      <!-- ENRICHMENT AGENT slide-over -->
+      <aside class="panel">
+        <div class="ph">
+          <div>
+            <div class="t">Enrichment Agent</div>
+            <div class="s"><span class="dotp"></span>Running · 1 enriching · 2 queued</div>
+          </div>
+          <button class="x">✕</button>
+        </div>
+        <div class="pbody">
+          <div class="ctrls">
+            <button class="btn pause">⏸ Pause agent</button>
+            <span class="knob">Parallel <input value="2" /></span>
+            <div class="seg">
+              <button class="on">Immediate</button>
+              <button>Off-peak</button>
+              <button>Every 10m</button>
+            </div>
+          </div>
+
+          <div class="sec">Enriching now</div>
+          <div class="ej">
+            <div class="jn">📄 New Site Creation <button class="stopb">⏹ Stop</button></div>
+            <div class="steps">
+              <span class="chip done">✓ vision</span>
+              <span class="chip run">◷ tree</span>
+              <span class="chip">compile</span>
+              <span class="chip">enrichers</span>
+            </div>
+            <div class="bar" style="width:100%"><i class="full" style="width:64%"></i></div>
+            <div class="js" style="margin-top:6px">reading page 14/22 · ~40s left</div>
+          </div>
+
+          <div class="sec">Queued</div>
+          <div class="ej">
+            <div class="jn">📄 Store Setup SOP <button class="stopb">⏹ Skip</button></div>
+            <div class="js" style="margin-top:6px">answerable now · waiting for a free slot</div>
+          </div>
+          <div class="ej">
+            <div class="jn">📄 Finance Policy <button class="stopb">⏹ Skip</button></div>
+            <div class="js" style="margin-top:6px">answerable now · waiting for a free slot</div>
+          </div>
+
+          <div class="sec">Recently enriched</div>
+          <div class="ej" style="opacity:.7">
+            <div class="jn">✓ User Creation &amp; Disable</div>
+            <div class="js" style="margin-top:4px">fully enriched · 39 entities · 1 Q&amp;A · 2m ago</div>
+          </div>
+
+          <div class="foot">Agent survives restarts — resumes from cache (~20s), never re-runs from page 1. Throttle &amp; schedule keep LLM cost smooth.</div>
+        </div>
+      </aside>
+    </main>
+  </div>
+</body>
+</html>

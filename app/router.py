@@ -11,13 +11,13 @@ from .config import (
     AUTO_ROUTE_ENABLED, AUTO_ROUTE_LLM,
 )
 
-# signals a question needs deep (multi-step / visual / synthesis) reasoning
+# signals a question genuinely needs deep (cross-page SYNTHESIS / COMPARISON /
+# VISUAL screenshot reading) — NOT plain "how to" procedures, which quick mode
+# now answers fully from the compiled wiki + depth-fill + playbook injection.
+# Deep loads page images + an Agno tool-loop, so it's much slower; reserve it.
 _DEEP = re.compile(
-    r"\b(step[\s-]?by[\s-]?step|walk me through|how do i|how to|procedure|"
-    r"configure|set ?up|troubleshoot|diagnose|compare|difference between|"
-    r"vs\.?|all the ways|every (method|option|step)|end[\s-]?to[\s-]?end|"
-    r"workflow|reconcile|why does|explain|screenshot|which (screen|menu|tab|field))\b"
-    r"|�‌ဘယ်လို|အဆင့်ဆင့်",   # Burmese: "how" / "step by step"
+    r"\b(compare|difference between|vs\.?|all the ways|every (method|option|step)|"
+    r"end[\s-]?to[\s-]?end|reconcile|screenshot|which (screen|menu|tab|field))\b",
     re.IGNORECASE,
 )
 # strong quick signals: short lookups / single facts

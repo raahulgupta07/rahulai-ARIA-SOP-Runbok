@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Sources — rich (Documents features merged) · Aria</title>
+<style>
+  :root{--cream:#faf9f5;--paper:#fff;--sand:#f0eee6;--ink:#1f1e1d;--muted:#8a857c;--line:#e9e6dd;
+    --coral:#c2683f;--blue:#3f7fb0;--teal:#2f8f83;--violet:#7b6bd6;--amber:#c98a2e;--green:#3f8f5f;--red:#c0492f;}
+  *{box-sizing:border-box}html,body{height:100%}
+  body{margin:0;background:var(--cream);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;display:flex;flex-direction:column;height:100vh}
+  .top{display:flex;align-items:center;gap:18px;padding:11px 22px;background:#fbfaf7;border-bottom:1px solid var(--line);flex:none}
+  .logo{width:28px;height:28px;border-radius:8px;background:radial-gradient(circle at 30% 30%,#e98f6b,var(--coral))}
+  .top nav{display:flex;gap:6px}.top a{padding:7px 13px;border-radius:9px;color:var(--muted);font-weight:500;font-size:13.5px;text-decoration:none}
+  .top a.on{background:#efece6;color:var(--ink);font-weight:600}
+  .add{margin-left:auto;background:var(--coral);color:#fff;border:none;border-radius:9px;padding:8px 14px;font-weight:600;font-size:13px;cursor:pointer}
+  .spin{width:11px;height:11px;border:2px solid var(--blue);border-top-color:transparent;border-radius:50%;animation:sp .8s linear infinite;flex:none}@keyframes sp{to{transform:rotate(360deg)}}
+  .shell{flex:1;display:flex;min-height:0}
+  /* left rail */
+  .rail{width:222px;flex:none;background:var(--sand);border-right:1px solid #e4e0d6;display:flex;flex-direction:column;padding:12px 10px;overflow:auto}
+  .grp{font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:600;padding:8px 10px 6px}
+  .fi{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;font-size:13px;color:#4a463e;cursor:pointer}
+  .fi:hover{background:#e7e3d9}.fi.on{background:#fff;color:var(--blue);font-weight:600;box-shadow:inset 2px 0 0 var(--blue)}
+  .fi .n{margin-left:auto;color:var(--muted);font-size:11px}.fi .sh{opacity:.5;font-size:12px}.fi .lk{font-size:10px;color:var(--amber)}
+  .newf{margin:8px 6px;padding:9px;border:1px dashed #cfc9bc;border-radius:10px;text-align:center;color:var(--muted);font-size:12.5px;cursor:pointer}
+  /* center */
+  .center{flex:1;min-width:0;display:flex;flex-direction:column;overflow:auto}
+  .chead{display:flex;align-items:center;gap:10px;padding:16px 22px 8px}
+  .chead h1{margin:0;font-size:18px}.chead small{color:var(--muted);margin-left:6px;font-size:13px}
+  .up{margin-left:auto;background:var(--ink);color:#fff;border:none;border-radius:9px;padding:8px 13px;font-weight:600;font-size:13px;cursor:pointer}
+  /* category chips */
+  .chips{display:flex;gap:8px;flex-wrap:wrap;padding:4px 22px 6px;align-items:center}
+  .chip{font-size:12.5px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:#fff;color:#5a554c;cursor:pointer}
+  .chip.on{border-color:var(--coral);background:#fbeee7;color:var(--coral);font-weight:600}
+  .chip .c{color:var(--muted);margin-left:5px}.retag{margin-left:auto;font-size:12px;color:var(--coral);border:1px solid #eccdbd;background:#fff;border-radius:8px;padding:5px 10px;cursor:pointer}
+  /* toolbar */
+  .tb{display:flex;align-items:center;gap:10px;padding:4px 22px 8px;font-size:12.5px;color:var(--muted)}
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+  .seg button{border:none;background:none;padding:5px 11px;font-size:12.5px;cursor:pointer;color:var(--muted)}
+  .seg button.on{background:var(--sand);color:var(--ink);font-weight:600}
+  .jobs{border:1px solid #eccdbd;background:#fff;color:var(--coral);border-radius:8px;padding:5px 10px;cursor:pointer;display:flex;gap:6px;align-items:center}
+  /* table */
+  .list{margin:0 22px 22px;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .grouplbl{padding:11px 16px 6px;font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:600}
+  .lh,.lr{display:grid;grid-template-columns:1fr 56px 60px 60px 78px 92px 70px;align-items:center;gap:8px;padding:11px 16px;border-bottom:1px solid var(--line)}
+  .lh{color:var(--muted);font-size:10.5px;text-transform:uppercase;font-weight:600}
+  .lr{cursor:pointer}.lr:hover{background:#fcfbf8}.lr.sel{background:#f3f8fc;box-shadow:inset 3px 0 0 var(--blue)}
+  .lr:last-child{border-bottom:none}
+  .ti{display:flex;align-items:center;gap:9px;min-width:0}.ti .ic{width:26px;height:30px;border-radius:6px;background:#eef2f6;border:1px solid #dde6ee;flex:none}
+  .ti .ic.my{background:#fbf3e6;border-color:#ecd9b3}
+  .tt{min-width:0}.tt .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tt .s{color:var(--muted);font-size:11px;margin-top:2px;display:flex;gap:6px;align-items:center}
+  .badge{font-size:9.5px;font-weight:700;letter-spacing:.03em;padding:1px 6px;border-radius:5px;background:#fbeee7;color:var(--coral)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block}
+  .lang{font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px;justify-self:start}
+  .lang.en{background:#eaf2f8;color:var(--blue)}.lang.my{background:#fbf3e6;color:var(--amber)}
+  .used{color:var(--coral);font-weight:600}.acc{color:var(--green);font-weight:600}.muted{color:var(--muted)}
+  /* right inspector (image 17) */
+  .scrim{position:fixed;inset:0;background:rgba(20,18,16,.18);display:block;z-index:30}
+  .insp{position:fixed;top:0;right:0;width:430px;max-width:96vw;height:100vh;background:#fff;border-left:1px solid var(--line);z-index:31;display:flex;flex-direction:column}
+  .ih{padding:18px 20px 8px;position:relative}.ih h2{margin:0;font-size:19px}.ih .sub{color:var(--muted);font-size:12.5px;margin-top:4px}
+  .ix{position:absolute;top:16px;right:16px;width:30px;height:30px;border-radius:8px;background:var(--sand);border:none;font-size:16px;color:var(--muted);cursor:pointer}
+  .ibody{flex:1;overflow:auto;padding:6px 20px 20px}
+  .open{width:100%;background:var(--coral);color:#fff;border:none;border-radius:10px;padding:12px;font-weight:600;font-size:14px;cursor:pointer;margin:8px 0 16px}
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
+  .tile{border:1px solid var(--line);border-radius:10px;padding:11px 6px;text-align:center}
+  .tile b{display:block;font-size:18px}.tile small{color:var(--muted);font-size:10px;text-transform:uppercase}
+  .kv{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .kv .k{color:#4a463e}.kv .v{color:var(--muted)}
+  .bar{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:12.5px}
+  .bar .lb{width:44px;color:var(--muted)}.bar .tr{flex:1;height:7px;background:#edeae3;border-radius:99px;overflow:hidden}
+  .bar .tr i{display:block;height:100%}.bar .pc{width:38px;text-align:right;color:var(--muted)}
+  .prev{margin-top:14px;border:1px solid var(--line);border-radius:12px;background:#faf9f6;height:220px;display:grid;place-items:center;color:var(--muted);position:relative}
+  .prev .pg{display:flex;align-items:center;gap:12px;position:absolute;bottom:10px;left:50%;transform:translateX(-50%);font-size:12px;color:var(--muted)}
+  .prev .pg b{width:26px;height:26px;border:1px solid var(--line);border-radius:7px;display:grid;place-items:center;background:#fff;cursor:pointer}
+  .outline{margin-top:18px}.outt{font-size:11px;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:8px}
+  .oi{display:flex;gap:9px;padding:7px 0;border-bottom:1px dashed var(--line);font-size:13px;color:#4a463e}.oi .pn{color:var(--muted);font-size:11px;margin-left:auto}
+  .train{margin:14px 0 4px;width:100%;border:1px solid var(--teal);color:var(--teal);background:#eef6f4;border-radius:10px;padding:10px;font-weight:600;font-size:13px;cursor:pointer}
+</style></head>
+<body>
+  <div class="top"><div class="logo"></div>
+    <nav><a href="#">Chat</a><a href="#">Workspace</a><a href="#" class="on">Sources</a><a href="#">Settings</a></nav>
+    <button class="add">＋ Add ▾</button></div>
+
+  <div class="shell">
+    <aside class="rail">
+      <div class="grp">Folders</div>
+      <div class="fi on"><span>▦</span> All documents <span class="n">7</span></div>
+      <div class="fi"><span>○</span> Unfiled <span class="n">6</span></div>
+      <div class="grp">Shared folders</div>
+      <div class="fi"><span>📁</span> IT SOPs <span class="sh">⌁</span><span class="n">1</span></div>
+      <div class="fi"><span>📁</span> HR Policies <span class="sh">⌁</span><span class="n">0</span></div>
+      <div class="fi"><span>📁</span> Finance <span class="lk">🔒1</span><span class="sh">⌁</span><span class="n">0</span></div>
+      <div class="newf">＋ New folder</div>
+    </aside>
+
+    <main class="center">
+      <div class="chead"><h1>All documents</h1><small>7 documents · 65 pages · 100% read · 32 facts</small><button class="up">⬆ Upload here</button></div>
+
+      <!-- category chips (from image 15) -->
+      <div class="chips">
+        <span class="chip on">All <span class="c">7</span></span>
+        <span class="chip">Store Provisioning <span class="c">2</span></span>
+        <span class="chip">User Admin <span class="c">2</span></span>
+        <span class="chip">AI Governance <span class="c">1</span></span>
+        <span class="chip">Employee Benefits <span class="c">1</span></span>
+        <span class="chip">Event Mgmt <span class="c">1</span></span>
+        <span class="retag">↻ Re-tag</span>
+      </div>
+      <!-- toolbar: group / view / jobs (from image 15) -->
+      <div class="tb">Group:
+        <span class="seg"><button class="on">Date</button><button>Category</button></span>
+        View: <span class="seg"><button>Cards</button><button class="on">List</button></span>
+        <span class="jobs"><span class="spin"></span> Jobs · 0 active</span>
+        <span style="margin-left:auto">Sort: Newest ▾</span>
+      </div>
+
+      <div class="list">
+        <div class="grouplbl">Today · 1</div>
+        <div class="lh"><div>Title</div><div>Lang</div><div>Pages</div><div>Used</div><div>Accuracy</div><div>Uploaded</div><div>By</div></div>
+        <div class="lr">
+          <div class="ti"><div class="ic my"></div><div class="tt"><div class="nm">FAQ for Scholarship Program (bilingual)</div>
+            <div class="s"><span class="badge">SOP</span><span class="dot"></span> Ready · Employee Benefits</div></div></div>
+          <span class="lang my">MY</span><div class="muted">5</div><div class="muted">—</div><div class="acc">100%</div><div class="muted">Jun 22</div><div class="muted">admin</div>
+        </div>
+        <div class="grouplbl">Earlier this month · 6</div>
+        <div class="lr sel">
+          <div class="ti"><div class="ic"></div><div class="tt"><div class="nm">User Management</div>
+            <div class="s"><span class="badge">SOP</span><span class="dot"></span> GLDCENTRAL · User Admin · Ready</div></div></div>
+          <span class="lang en">EN</span><div class="muted">6</div><div class="used">45×</div><div class="acc">100%</div><div class="muted">Jun 19</div><div class="muted">admin</div>
+        </div>
+        <div class="lr">
+          <div class="ti"><div class="ic"></div><div class="tt"><div class="nm">User Creation &amp; Disable</div>
+            <div class="s"><span class="badge">SOP</span><span class="dot"></span> GLDCENTRAL · User Admin · Ready</div></div></div>
+          <span class="lang en">EN</span><div class="muted">8</div><div class="used">31×</div><div class="acc">100%</div><div class="muted">Jun 19</div><div class="muted">admin</div>
+        </div>
+        <div class="lr">
+          <div class="ti"><div class="ic"></div><div class="tt"><div class="nm">New Site Creation</div>
+            <div class="s"><span class="badge">SOP</span><span class="dot"></span> Store Provisioning · Ready</div></div></div>
+          <span class="lang en">EN</span><div class="muted">22</div><div class="used">26×</div><div class="acc">100%</div><div class="muted">Jun 19</div><div class="muted">admin</div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- RICH INSPECTOR (image 17) -->
+  <div class="scrim"></div>
+  <aside class="insp">
+    <div class="ih"><button class="ix">✕</button><h2>User Management</h2>
+      <div class="sub">User Admin · EN · 6 pages · 9 sections</div></div>
+    <div class="ibody">
+      <button class="open">Open full document →</button>
+      <div class="tiles">
+        <div class="tile"><b>6</b><small>pages</small></div>
+        <div class="tile"><b>9</b><small>sections</small></div>
+        <div class="tile"><b style="color:var(--coral)">45×</b><small>used</small></div>
+        <div class="tile"><b style="color:var(--green)">100%</b><small>read</small></div>
+      </div>
+      <div class="kv"><span class="k">Uploaded</span><span class="v">19 Jun 2026 · 3d ago</span></div>
+      <div class="kv"><span class="k">✓ Ingested</span><span class="v">3d ago</span></div>
+      <div class="kv"><span class="k">Last answered</span><span class="v">today · 45 questions</span></div>
+      <div style="margin:14px 0 4px;font-size:13px;color:#4a463e">✓ Extraction</div>
+      <div class="bar"><span class="lb">vision</span><span class="tr"><i style="width:100%;background:var(--green)"></i></span><span class="pc">100%</span></div>
+      <div class="bar"><span class="lb">text</span><span class="tr"><i style="width:100%;background:var(--coral)"></i></span><span class="pc">100%</span></div>
+      <div class="kv"><span class="k">Structure</span><span class="v">9 sections · tree ✓</span></div>
+
+      <div class="prev">📄 page 1 image (scanned) — zoom / pan
+        <div class="pg"><b>‹</b> page 1 / 6 <b>›</b></div></div>
+
+      <button class="train">⟳ Re-train / re-process this document</button>
+
+      <div class="outline"><div class="outt">In this document</div>
+        <div class="oi">Overview & roles <span class="pn">p.1</span></div>
+        <div class="oi">Create a user <span class="pn">p.2</span></div>
+        <div class="oi">Assign / modify role <span class="pn">p.3</span></div>
+        <div class="oi">Disable / delete <span class="pn">p.4</span></div>
+        <div class="oi">Verify in ESS <span class="pn">p.5</span></div>
+      </div>
+    </div>
+  </aside>
+</body></html>

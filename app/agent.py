@@ -45,7 +45,7 @@ if OPENROUTER_API_KEY:
     _client = OpenAI(api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL)
 
 # shared answer rules (detail + per-page inline citations)
-RULES = (
+_RULES_HEAD = (
     "You are DocSensei, the single expert brain for company SOPs and policies.\n"
     "LANGUAGE: ALWAYS answer in the SAME language as the user's QUESTION, even if "
     "the source is in another language (translate the source). English question -> "
@@ -62,10 +62,14 @@ RULES = (
     "STRUCTURE: Start with a one-line summary, then the numbered steps, then any "
     "notes / warnings / contacts. Use markdown (numbered lists, **bold** for screen "
     "names and codes, tables) so the steps are easy to follow.\n"
+)
+_RULES_CITE = (
     "CITATIONS: After each step or factual claim, cite the source it came from inline "
     "as [N], using the bracketed SOURCE NUMBER shown in that block's header (the [1], "
     "[2], … label — NOT the page number). If a fact spans two sources cite both, "
     "e.g. [1][3].\n"
+)
+_RULES_GROUND = (
     "GROUNDING: Use ONLY the SOURCE PAGES and KNOWN FACTS below. Never invent steps. "
     "If the answer is not present, say so plainly and ask the user to upload the "
     "relevant SOP.\n"
@@ -74,15 +78,44 @@ RULES = (
     "follow the KNOWN FACT, give that as the answer, and briefly note the page is "
     "outdated (e.g. 'updated — the SOP still lists X'). Never let a stale page win "
     "over a taught fact.\n"
+)
+_RULES_PAGES = (
     "At the very end output one line exactly: PAGES: <comma-separated SOURCE NUMBERS "
     "[N] you used> (or 'PAGES: none').\n"
-    "Then ONE more line exactly: FOLLOWUPS: <three follow-up questions the user might "
+)
+_RULES_NOCITE = (
+    "CITATIONS: Do NOT cite sources. Write the answer as plain prose with NO bracketed "
+    "[N] markers, NO page references, and NO 'PAGES:' line. Just give the answer.\n"
+)
+_RULES_FOLLOWUPS = (
+    "Output ONE line exactly: FOLLOWUPS: <three follow-up questions the user might "
     "ask next, separated by ' | '>. Each MUST be a COMPLETE, natural question ending "
     "with '?' (NOT a topic or phrase like 'User Creation' — write 'How do I create a "
     "user?'). Ground them in this document's content. Write them in the SAME language "
     "as the QUESTION (English question -> English; Burmese question -> Burmese). "
     "(or 'FOLLOWUPS: none')."
 )
+
+
+def chat_rules(cite: bool = True) -> str:
+    """Assemble the answer system prompt. When `cite` is False the model is told
+    NOT to emit [N] markers or a PAGES line (citations disabled per deployment).
+    A configured persona (identity/voice) is prepended — it governs tone only,
+    never grounding."""
+    persona = ""
+    try:
+        from . import appcfg, persona as persona_mod
+        persona = persona_mod.persona_block(appcfg.get_persona())
+    except Exception:
+        persona = ""
+    body = persona + _RULES_HEAD + (_RULES_CITE if cite else _RULES_NOCITE) + _RULES_GROUND
+    if cite:
+        body += _RULES_PAGES
+    return body + _RULES_FOLLOWUPS
+
+
+# back-compat constant (full citations-on rules) for any other importer
+RULES = chat_rules(True)
 
 _PAGES_RE = re.compile(r"PAGES:\s*([0-9, ]+|none)", re.IGNORECASE)
 _FOLLOWUPS_RE = re.compile(r"FOLLOWUPS:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
@@ -110,6 +143,17 @@ def parse_pages(text: str, fallback: list[int]) -> tuple[str, list[int]]:
         nums = [int(x) for x in re.findall(r"\d+", m.group(1))]
     clean = _PAGES_RE.sub("", text or "").strip()
     return clean, (nums or fallback)
+
+
+def strip_citations(text: str) -> str:
+    """Remove ALL citation artefacts from an answer (used when citations are
+    disabled for a deployment): the trailing PAGES: line + every inline [N] marker,
+    then tidy the doubled spaces the removals leave behind."""
+    t = _PAGES_RE.sub("", text or "")
+    t = _CITE_RE.sub("", t)
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    t = re.sub(r"\s+([.,;:])", r"\1", t)     # space left before punctuation
+    return t.strip()
 
 
 def map_cited(nums: list[int], pages: list[dict]) -> list[int]:
@@ -319,7 +363,8 @@ def _quick_stream(query: str, seed_pages: list[dict], history: list[dict] | None
     if not _client:
         yield "LLM key not configured."
         return
-    messages = [{"role": "system", "content": RULES}]
+    from . import appcfg
+    messages = [{"role": "system", "content": chat_rules(appcfg.citations_enabled())}]
     arule = _AUDIENCE_RULE.get(audience or "expert")
     if arule:
         messages.append({"role": "system", "content": arule})
@@ -360,9 +405,10 @@ def _deep_text(query: str, seed_pages: list[dict], session_id: str | None,
     # context + images into agent_sessions.memory, ballooning one session to
     # ~18MB. Follow-up context comes from our own messages history (below)
     # instead, which keeps agent_sessions from growing at all.
+    from . import appcfg
     agent = Agent(
         model=model,
-        instructions=[RULES, _AUDIENCE_RULE.get(audience or "expert", ""),
+        instructions=[chat_rules(appcfg.citations_enabled()), _AUDIENCE_RULE.get(audience or "expert", ""),
                       "Candidate pages are also shown as IMAGES — read them "
                       "for screenshots / diagrams / Burmese text not in the text layer. "
                       "Use list_documents/open_outline/read_page to verify or pull more."],

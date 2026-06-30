@@ -10,7 +10,7 @@
 .dtitle { min-width: 0; }
 .dfilters { display: flex; align-items: center; gap: 10px; flex: none; }
 .fdiv { width: 1px; height: 22px; background: var(--border); }
-.dhead h1 { font-family: var(--serif, Georgia, serif); font-size: 24px; font-weight: 600; color: var(--ink); }
+.dhead h1 { font-family: var(--font); font-size: 24px; font-weight: 600; color: var(--ink); }
 .sub { font-size: 13px; color: var(--muted); margin-top: 3px; }
 .pad { padding: 40px 4px; }
 .muted { color: var(--muted); }

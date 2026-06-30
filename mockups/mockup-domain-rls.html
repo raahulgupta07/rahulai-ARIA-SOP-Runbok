@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Domain folders + row-level access — City Agent Aria (mockup)</title>
+<style>
+  :root{
+    --cream:#faf9f5; --paper:#fff; --sand:#f0eee6; --ink:#1f1e1d; --muted:#8a857c;
+    --line:#e9e6dd; --coral:#c2683f; --blue:#3f7fb0; --teal:#2f8f83; --violet:#7b6bd6;
+    --amber:#c98a2e; --green:#3f8f5f; --red:#c0492f; --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--cream);color:var(--ink);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+  .shell{max-width:1280px;margin:0 auto;padding:16px 22px 60px}
+  .hdr{display:flex;align-items:center;gap:12px;padding:8px 0 14px}
+  .logo{width:30px;height:30px;border-radius:8px;background:radial-gradient(circle at 30% 30%,#e98f6b,var(--coral))}
+  .title{font-weight:650;font-size:15px}
+  .title small{display:block;color:var(--muted);font-weight:400;font-size:12px}
+  .who{margin-left:auto;display:flex;align-items:center;gap:9px;background:var(--paper);
+    border:1px solid var(--line);border-radius:999px;padding:5px 6px 5px 13px;font-size:12.5px}
+  .who b{font-weight:600}
+  .av{width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;
+    display:grid;place-items:center;font-size:12px;font-weight:600}
+  .tabs{display:flex;gap:8px;margin:6px 0 16px}
+  .tab{font-size:13px;padding:7px 14px;border-radius:10px;border:1px solid var(--line);
+    background:var(--paper);cursor:pointer;color:var(--muted)}
+  .tab.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .grid{display:grid;grid-template-columns:260px 1fr;gap:16px;align-items:start}
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius)}
+  .card h3{margin:0;padding:13px 15px 9px;font-size:12px;letter-spacing:.04em;
+    text-transform:uppercase;color:var(--muted);font-weight:600}
+  /* folder tree */
+  .tree{padding:4px 8px 12px}
+  .dom{margin-top:6px}
+  .domh{display:flex;align-items:center;gap:8px;padding:8px 9px;border-radius:9px;font-weight:600;font-size:13px}
+  .domh .chip{margin-left:auto;font-size:10px;font-weight:600;padding:2px 7px;border-radius:6px}
+  .chip-you{background:#e4f1ef;color:var(--teal)} .chip-lock{background:#f1efe9;color:var(--muted)}
+  .fold{display:flex;align-items:center;gap:8px;padding:7px 9px 7px 26px;border-radius:9px;font-size:13px;cursor:pointer;color:#4a463e}
+  .fold:hover{background:var(--sand)}
+  .fold.on{background:#eaf2f8;color:var(--blue);font-weight:600}
+  .fold .n{margin-left:auto;color:var(--muted);font-size:11px}
+  .locked{opacity:.45;pointer-events:none}
+  .ic{width:15px;text-align:center}
+  /* doc area */
+  .bar{display:flex;align-items:center;gap:10px;padding:12px 15px;border-bottom:1px solid var(--line)}
+  .crumb{font-weight:600}.crumb small{color:var(--muted);font-weight:400}
+  .up{margin-left:auto;background:var(--blue);color:#fff;border:none;border-radius:9px;padding:8px 13px;font-weight:600;font-size:13px;cursor:pointer}
+  .scope{font-size:11.5px;color:var(--teal);background:#e4f1ef;border-radius:8px;padding:5px 10px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;padding:10px 15px;border-bottom:1px solid var(--line)}
+  td{padding:11px 15px;border-bottom:1px solid var(--line)}
+  tr:last-child td{border-bottom:none}
+  .pill{font-size:11px;font-weight:600;padding:2px 8px;border-radius:6px;background:#e7f3ec;color:var(--green)}
+  .muted{color:var(--muted)}
+  .note{font-size:12px;color:var(--muted);padding:12px 15px;background:var(--sand);border-radius:0 0 var(--radius) var(--radius)}
+  .hide{display:none}
+  /* admin access matrix */
+  .mtab td,.mtab th{padding:10px 14px}
+  .tick{color:var(--green);font-weight:700}.cross{color:#cfc8bb}
+  .dchip{display:inline-flex;align-items:center;gap:6px;font-weight:600}
+  .dot{width:9px;height:9px;border-radius:50%}
+  .banner{background:#fbf3e6;border:1px solid #ecd9b3;color:#8a6d2f;border-radius:10px;padding:10px 14px;font-size:12.5px;margin-bottom:14px}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="hdr">
+    <div class="logo"></div>
+    <div class="title">City Agent Aria <small>Workspace › Documents — domain folders + row-level access</small></div>
+    <div class="who"><span>john<b>@cityholdings.com</b></span><span class="av">JC</span></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on" onclick="show('user')">User (own sector only)</button>
+    <button class="tab" onclick="show('secadmin')">Sector-admin (upload own sector)</button>
+    <button class="tab" onclick="show('group')">All-Access group (read all)</button>
+    <button class="tab" onclick="show('admin')">Super-admin (creates everything)</button>
+  </div>
+
+  <!-- ============ USER VIEW ============ -->
+  <div id="user">
+    <div class="banner">🔒 <b>john@cityholdings.com</b> is scoped to <b>City Holdings</b>. Every list, every search, every cited page is filtered to this domain — other domains' folders are invisible, not just hidden.</div>
+    <div class="grid">
+      <!-- folder tree, only THIS user's domain -->
+      <div class="card">
+        <h3>Folders</h3>
+        <div class="tree">
+          <div class="dom">
+            <div class="domh"><span class="ic">🏢</span> City Holdings <span class="chip chip-you">your domain</span></div>
+            <div class="fold on"><span class="ic">📁</span> IT SOPs <span class="n">5</span></div>
+            <div class="fold"><span class="ic">📁</span> HR Policies <span class="n">3</span></div>
+            <div class="fold"><span class="ic">📁</span> Finance <span class="n">2</span></div>
+            <div class="fold"><span class="ic">＋</span> New folder</div>
+          </div>
+          <!-- other domains exist but are NOT rendered for this user -->
+          <div style="padding:14px 9px 4px;color:var(--muted);font-size:11px">Other domains (Citymart, Shwelar…) are not visible to you.</div>
+        </div>
+      </div>
+      <!-- docs in selected folder -->
+      <div class="card">
+        <div class="bar">
+          <div class="crumb">City Holdings <small>/ IT SOPs</small></div>
+          <span class="scope">scope: cityholdings.com</span>
+          <button class="up">⬆ Upload to IT SOPs</button>
+        </div>
+        <table>
+          <thead><tr><th>Document</th><th>Pages</th><th>Uploaded by</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>New Site Creation.pdf</td><td>22</td><td>john@cityholdings.com</td><td><span class="pill">Ready</span></td></tr>
+            <tr><td>User Creation &amp; Disable.pdf</td><td>8</td><td>mary@cityholdings.com</td><td><span class="pill">Ready</span></td></tr>
+            <tr><td>New Store Setup.pdf</td><td>10</td><td>john@cityholdings.com</td><td><span class="pill">Ready</span></td></tr>
+          </tbody>
+        </table>
+        <div class="note">Chat &amp; search for this user only ever retrieve from <b>City Holdings</b> docs — a question is answered (and cited) strictly within this domain.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ SECTOR-ADMIN VIEW ============ -->
+  <div id="secadmin" class="hide">
+    <div class="banner">🛠 <b>itlead@cityholdings.com</b> is the <b>sector-admin for City Holdings</b>. Can <b>upload &amp; manage docs in City Holdings only</b> — cannot see other sectors and cannot create sectors/admins (super-admin only).</div>
+    <div class="grid">
+      <div class="card">
+        <h3>Folders · City Holdings</h3>
+        <div class="tree">
+          <div class="dom">
+            <div class="domh"><span class="ic">🏢</span> City Holdings <span class="chip chip-you">you manage</span></div>
+            <div class="fold on"><span class="ic">📁</span> IT SOPs <span class="n">5</span></div>
+            <div class="fold"><span class="ic">📁</span> HR Policies <span class="n">3</span></div>
+            <div class="fold"><span class="ic">📁</span> Finance <span class="n">2</span></div>
+            <div class="fold"><span class="ic">＋</span> New folder</div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="bar"><div class="crumb">City Holdings <small>/ IT SOPs</small></div>
+          <span class="scope">write: City Holdings only</span>
+          <button class="up">⬆ Upload to IT SOPs</button></div>
+        <table>
+          <thead><tr><th>Document</th><th>Pages</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>New Site Creation.pdf</td><td>22</td><td><span class="pill">Ready</span></td><td class="muted">Edit · Delete · Retry</td></tr>
+            <tr><td>User Creation &amp; Disable.pdf</td><td>8</td><td><span class="pill">Ready</span></td><td class="muted">Edit · Delete · Retry</td></tr>
+          </tbody>
+        </table>
+        <div class="note">A sector-admin gets the upload / edit / delete / retry controls — but ONLY for their own sector. No “Add domain”, no “Manage users”, no other sectors.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ALL-ACCESS GROUP VIEW ============ -->
+  <div id="group" class="hide">
+    <div class="banner">🌐 <b>cfo@cityholdings.com</b> is in the <b>All-Access group</b> — can <b>read &amp; chat across every sector</b> (execs / audit). Read-only: no upload, no management.</div>
+    <div class="grid">
+      <div class="card">
+        <h3>All sectors (read)</h3>
+        <div class="tree">
+          <div class="dom"><div class="domh"><span class="ic">🏢</span> City Holdings</div>
+            <div class="fold on"><span class="ic">📁</span> IT SOPs <span class="n">5</span></div>
+            <div class="fold"><span class="ic">📁</span> HR Policies <span class="n">3</span></div></div>
+          <div class="dom"><div class="domh"><span class="ic">🏢</span> Citymart</div>
+            <div class="fold"><span class="ic">📁</span> Retail Ops <span class="n">4</span></div></div>
+          <div class="dom"><div class="domh"><span class="ic">🏢</span> Shwelar</div>
+            <div class="fold"><span class="ic">📁</span> Restaurant SOPs <span class="n">4</span></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="bar"><div class="crumb">City Holdings <small>/ IT SOPs</small></div>
+          <span class="scope" style="background:#eef;color:var(--violet)">read: ALL sectors</span></div>
+        <table>
+          <thead><tr><th>Document</th><th>Sector</th><th>Pages</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>New Site Creation.pdf</td><td>City Holdings</td><td>22</td><td><span class="pill">Ready</span></td></tr>
+            <tr><td>Retail Replenishment.pdf</td><td>Citymart</td><td>14</td><td><span class="pill">Ready</span></td></tr>
+            <tr><td>Kitchen Opening SOP.pdf</td><td>Shwelar</td><td>9</td><td><span class="pill">Ready</span></td></tr>
+          </tbody>
+        </table>
+        <div class="note">Chat answers can draw from <b>any sector</b> for this group — useful for cross-company audit / leadership. No upload or edit buttons (read-only).</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ SUPER-ADMIN VIEW ============ -->
+  <div id="admin" class="hide">
+    <div class="banner">👑 <b>admin@city.com</b> (super-admin) — the <b>only</b> role that can <b>create sectors, assign sector-admins, and manage the All-Access group</b>. Sees everything.</div>
+    <div class="grid">
+      <div class="card">
+        <h3>All domains</h3>
+        <div class="tree">
+          <div class="dom"><div class="domh"><span class="ic">🏢</span> City Holdings <span class="chip chip-lock">10 docs</span></div>
+            <div class="fold on"><span class="ic">📁</span> IT SOPs <span class="n">5</span></div>
+            <div class="fold"><span class="ic">📁</span> HR Policies <span class="n">3</span></div>
+            <div class="fold"><span class="ic">📁</span> Finance <span class="n">2</span></div></div>
+          <div class="dom"><div class="domh"><span class="ic">🏢</span> Citymart <span class="chip chip-lock">7 docs</span></div>
+            <div class="fold"><span class="ic">📁</span> Retail Ops <span class="n">4</span></div>
+            <div class="fold"><span class="ic">📁</span> Logistics <span class="n">3</span></div></div>
+          <div class="dom"><div class="domh"><span class="ic">🏢</span> Shwelar <span class="chip chip-lock">4 docs</span></div>
+            <div class="fold"><span class="ic">📁</span> Restaurant SOPs <span class="n">4</span></div></div>
+          <div class="dom" style="margin-top:8px"><div class="fold"><span class="ic">＋</span> Add domain</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="bar"><div class="crumb">Users · roles · access</div>
+          <span class="scope" style="background:#eef;color:var(--violet)">super-admin only</span>
+          <button class="up" style="background:var(--ink)">＋ Assign sector-admin</button></div>
+        <table class="mtab">
+          <thead><tr><th>User</th><th>Role</th>
+            <th><span class="dchip"><span class="dot" style="background:var(--blue)"></span>C.Holdings</span></th>
+            <th><span class="dchip"><span class="dot" style="background:var(--teal)"></span>Citymart</span></th>
+            <th><span class="dchip"><span class="dot" style="background:var(--amber)"></span>Shwelar</span></th></tr></thead>
+          <tbody>
+            <tr><td>john@cityholdings.com</td><td><span class="pill" style="background:#f1efe9;color:var(--muted)">user</span></td><td class="tick">✓</td><td class="cross">—</td><td class="cross">—</td></tr>
+            <tr><td>itlead@cityholdings.com</td><td><span class="pill" style="background:#e4f1ef;color:var(--teal)">sector-admin</span></td><td class="tick">✓ R/W</td><td class="cross">—</td><td class="cross">—</td></tr>
+            <tr><td>sale@citymart.com</td><td><span class="pill" style="background:#f1efe9;color:var(--muted)">user</span></td><td class="cross">—</td><td class="tick">✓</td><td class="cross">—</td></tr>
+            <tr><td>cfo@cityholdings.com</td><td><span class="pill" style="background:#eee9fb;color:var(--violet)">All-Access</span></td><td class="tick">✓</td><td class="tick">✓</td><td class="tick">✓</td></tr>
+            <tr><td>admin@city.com</td><td><span class="pill" style="background:#fbeede;color:var(--amber)">super-admin</span></td><td class="tick">✓</td><td class="tick">✓</td><td class="tick">✓</td></tr>
+          </tbody>
+        </table>
+        <div class="note"><b>Sector</b> = email domain at signup. Only super-admin can: <b>＋ Add sector</b>, <b>＋ Assign sector-admin</b> (R/W in one sector), and <b>manage the All-Access group</b> (read every sector). Sector-admins upload; users read their own sector; All-Access reads all.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script>
+  const VIEWS=['user','secadmin','group','admin'];
+  function show(v){
+    VIEWS.forEach(id=>document.getElementById(id).classList.toggle('hide', id!==v));
+    document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('on', VIEWS[i]===v));
+  }
+</script>
+</body>
+</html>

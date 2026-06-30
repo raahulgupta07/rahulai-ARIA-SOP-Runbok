@@ -257,7 +257,7 @@
 
 <style>
   .wrap{max-width:1280px;}
-  .ttl{font-family:Georgia,'Times New Roman',serif; font-size:22px; color:var(--ink);}
+  .ttl{font-family:var(--font); font-size:22px; color:var(--ink);}
   .ttlsub{font-size:12.5px; color:var(--muted); margin-top:3px;}
   .unsaved{font-size:12px; font-weight:600; color:#9a6a16;}
   .btn.nudge{box-shadow:0 0 0 3px rgba(194,104,63,.22);}

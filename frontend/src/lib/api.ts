@@ -161,13 +161,72 @@ export const api = {
     return jsonOrThrow(await fetch(`${BASE}/conversations/${id}`, { method: 'DELETE', headers: headers(false) }));
   },
 
-  async documents() {
-    return jsonOrThrow(await fetch(`${BASE}/documents`, { headers: headers(false) }));
+  async documents(folderId?: number | null) {
+    const qs = (folderId === undefined || folderId === null) ? '' : `?folder_id=${folderId}`;
+    return jsonOrThrow(await fetch(`${BASE}/documents${qs}`, { headers: headers(false) }));
+  },
+
+  // ---- folders (document hub) ----
+  async folders() {
+    return jsonOrThrow(await fetch(`${BASE}/folders`, { headers: headers(false) }));
+  },
+  async createFolder(
+    name: string,
+    opts?: {
+      access_mode?: 'sector' | 'specific' | 'org';
+      principals?: { type: 'user' | 'group'; id: number }[];
+      sector_id?: number | null;
+    }
+  ) {
+    const body: Record<string, any> = { name };
+    if (opts?.access_mode) body.access_mode = opts.access_mode;
+    if (opts?.principals) body.principals = opts.principals;
+    if (opts?.sector_id !== undefined) body.sector_id = opts.sector_id;
+    return jsonOrThrow(await fetch(`${BASE}/folders`, { method: 'POST', headers: headers(), body: JSON.stringify(body) }));
+  },
+
+  // current access for a folder (preloads the Share modal)
+  async folderAccess(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/folders/${id}/access`, { headers: headers(false) }));
+  },
+  // save access back from the Share modal
+  async setFolderAccess(
+    id: number,
+    opts: {
+      access_mode: 'sector' | 'specific' | 'org';
+      principals: { type: 'user' | 'group'; id: number }[];
+    }
+  ) {
+    return jsonOrThrow(await fetch(`${BASE}/folders/${id}/access`, {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify({ access_mode: opts.access_mode, principals: opts.principals })
+    }));
+  },
+  // delete a folder (RBAC-gated server-side); its docs are un-filed, not deleted
+  async deleteFolder(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/folders/${id}`, { method: 'DELETE', headers: headers() }));
+  },
+
+  // admin: users + groups to populate the folder-access picker
+  async principals() {
+    return jsonOrThrow(await fetch(`${BASE}/principals`, { headers: headers(false) }));
   },
 
   async upload(file: File) {
     const fd = new FormData();
     fd.append('file', file);
+    const h: Record<string, string> = {};
+    const t = token();
+    if (t) h['Authorization'] = `Bearer ${t}`;
+    return jsonOrThrow(await fetch(`${BASE}/upload`, { method: 'POST', headers: h, body: fd }));
+  },
+
+  // like upload() but routes the file into a folder when given
+  async uploadTo(file: File, folderId?: number | null) {
+    const fd = new FormData();
+    fd.append('file', file);
+    if (folderId !== undefined && folderId !== null) fd.append('folder_id', String(folderId));
     const h: Record<string, string> = {};
     const t = token();
     if (t) h['Authorization'] = `Bearer ${t}`;
@@ -180,6 +239,14 @@ export const api = {
 
   async retryDoc(id: number) {
     return jsonOrThrow(await fetch(`${BASE}/documents/${id}/retry`, { method: 'POST', headers: headers(false) }));
+  },
+  async docProcessing(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/documents/${id}/processing`, { headers: headers(false) }));
+  },
+  async moveDoc(id: number, folderId: number | null) {
+    return jsonOrThrow(await fetch(`${BASE}/documents/${id}`, {
+      method: 'PATCH', headers: headers(true), body: JSON.stringify({ folder_id: folderId }),
+    }));
   },
   async categorizeDoc(id: number) {
     return jsonOrThrow(await fetch(`${BASE}/documents/${id}/categorize`, { method: 'POST', headers: headers(false) }));
@@ -207,6 +274,44 @@ export const api = {
   },
   async scanImport() {
     return jsonOrThrow(await fetch(`${BASE}/ingest/scan`, { method: 'POST', headers: headers(false) }));
+  },
+  // ---- Enrichment Agent (deferred phase-2 lane) ----
+  async enrichStatus() {
+    return jsonOrThrow(await fetch(`${BASE}/enrich/status`, { headers: headers(false) }));
+  },
+  async enrichPause() {
+    return jsonOrThrow(await fetch(`${BASE}/enrich/pause`, { method: 'POST', headers: headers(false) }));
+  },
+  async enrichResume() {
+    return jsonOrThrow(await fetch(`${BASE}/enrich/resume`, { method: 'POST', headers: headers(false) }));
+  },
+  async enrichConcurrency(concurrency: number) {
+    return jsonOrThrow(await fetch(`${BASE}/enrich/concurrency`, { method: 'POST', headers: headers(), body: JSON.stringify({ concurrency }) }));
+  },
+  async enrichSkip(docId: number) {
+    return jsonOrThrow(await fetch(`${BASE}/enrich/doc/${docId}/skip`, { method: 'POST', headers: headers(false) }));
+  },
+  // ---- Eval Agent (offline answer-quality scoring) ----
+  async evalStatus() {
+    return jsonOrThrow(await fetch(`${BASE}/eval/status`, { headers: headers(false) }));
+  },
+  async evalDocs() {
+    return jsonOrThrow(await fetch(`${BASE}/eval/docs`, { headers: headers(false) }));
+  },
+  async evalDoc(docId: number) {
+    return jsonOrThrow(await fetch(`${BASE}/eval/doc/${docId}`, { headers: headers(false) }));
+  },
+  async evalRun() {
+    return jsonOrThrow(await fetch(`${BASE}/eval/run`, { method: 'POST', headers: headers(false) }));
+  },
+  async evalPause() {
+    return jsonOrThrow(await fetch(`${BASE}/eval/pause`, { method: 'POST', headers: headers(false) }));
+  },
+  async evalResume() {
+    return jsonOrThrow(await fetch(`${BASE}/eval/resume`, { method: 'POST', headers: headers(false) }));
+  },
+  async evalConcurrency(concurrency: number) {
+    return jsonOrThrow(await fetch(`${BASE}/eval/concurrency`, { method: 'POST', headers: headers(), body: JSON.stringify({ concurrency }) }));
   },
   async s3ScanPreview() {
     return jsonOrThrow(await fetch(`${BASE}/ingest/s3-scan`, { headers: headers(false) }));
@@ -242,6 +347,37 @@ export const api = {
   },
   async graphImport(kind: string) {
     return jsonOrThrow(await fetch(`${BASE}/ingest/graph/${kind}/import`, { method: 'POST', headers: headers(false) }));
+  },
+  // ---- unified SharePoint connector (push / device / app) ----
+  async spGet() {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp`, { headers: headers(false) }));
+  },
+  async spSave(body: any) {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp`, { method: 'POST', headers: headers(), body: JSON.stringify(body) }));
+  },
+  async spStatus() {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/status`, { headers: headers(false) }));
+  },
+  async spSyncNow() {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/sync-now`, { method: 'POST', headers: headers(false) }));
+  },
+  async spRotateToken() {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/token/rotate`, { method: 'POST', headers: headers(false) }));
+  },
+  async spAgentScript(os: 'win' | 'mac' = 'mac') {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/agent-script?os=${os}`, { headers: headers(false) }));
+  },
+  async spDeviceStart() {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/device/start`, { method: 'POST', headers: headers(false) }));
+  },
+  async spDevicePoll(deviceCode = '') {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/device/poll`, { method: 'POST', headers: headers(), body: JSON.stringify({ device_code: deviceCode }) }));
+  },
+  async spDeviceDisconnect() {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/device/disconnect`, { method: 'POST', headers: headers(false) }));
+  },
+  async spAppTest() {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/app/test`, { method: 'POST', headers: headers(false) }));
   },
   async storageConfig() {
     return jsonOrThrow(await fetch(`${BASE}/storage/config`, { headers: headers(false) }));
@@ -320,6 +456,39 @@ export const api = {
     return jsonOrThrow(await fetch(`${BASE}/memory/${id}/reject`, { method: 'POST', headers: headers(false) }));
   },
 
+  async getFeatures() {
+    return jsonOrThrow(await fetch(`${BASE}/settings/features`, { headers: headers(false) }));
+  },
+  async saveFeatures(patch: Record<string, boolean>) {
+    return jsonOrThrow(await fetch(`${BASE}/settings/features`, {
+      method: 'POST', headers: headers(true), body: JSON.stringify(patch),
+    }));
+  },
+  // ---- Persona (agent identity / voice, generated from documents) ----
+  async getPersona() {
+    return jsonOrThrow(await fetch(`${BASE}/settings/persona`, { headers: headers(false) }));
+  },
+  async savePersona(patch: any) {
+    return jsonOrThrow(await fetch(`${BASE}/settings/persona`, {
+      method: 'POST', headers: headers(true), body: JSON.stringify(patch),
+    }));
+  },
+  async generatePersona() {
+    return jsonOrThrow(await fetch(`${BASE}/settings/persona/generate`, {
+      method: 'POST', headers: headers(true),
+    }));
+  },
+  async personaHistory() {
+    return jsonOrThrow(await fetch(`${BASE}/settings/persona/history`, { headers: headers(false) }));
+  },
+  async getWikiSchema() {
+    return jsonOrThrow(await fetch(`${BASE}/settings/wiki-schema`, { headers: headers(false) }));
+  },
+  async saveWikiSchema(patch: any) {
+    return jsonOrThrow(await fetch(`${BASE}/settings/wiki-schema`, {
+      method: 'POST', headers: headers(true), body: JSON.stringify(patch),
+    }));
+  },
   async getGovernance() {
     return jsonOrThrow(await fetch(`${BASE}/governance`, { headers: headers(false) }));
   },
@@ -426,6 +595,45 @@ export const api = {
   },
   async analyticsDocs(days = 30) {
     return jsonOrThrow(await fetch(`${BASE}/analytics/docs?days=${days}`, { headers: headers(false) }));
+  },
+  async docEval() {
+    return jsonOrThrow(await fetch(`${BASE}/analytics/doc-eval`, { headers: headers(false) }));
+  },
+  async docEvalRun(maxQ = 6) {
+    return jsonOrThrow(await fetch(`${BASE}/analytics/doc-eval/run?max_q=${maxQ}`, { method: 'POST', headers: headers(false) }));
+  },
+  // ---- Self-Heal agent (per-doc grounded-answer healing loop) ----
+  async selfheal() {
+    return jsonOrThrow(await fetch(`${BASE}/analytics/selfheal`, { headers: headers(false) }));
+  },
+  async selfhealLogs(docId?: number | null, after = 0) {
+    const qs = `?${docId != null ? `doc_id=${docId}&` : ''}after=${after}`;
+    return jsonOrThrow(await fetch(`${BASE}/analytics/selfheal/logs${qs}`, { headers: headers(false) }));
+  },
+  async selfhealRun(docId?: number | null) {
+    const qs = docId != null ? `?doc_id=${docId}` : '';
+    return jsonOrThrow(await fetch(`${BASE}/analytics/selfheal/run${qs}`, { method: 'POST', headers: headers(false) }));
+  },
+  // ---- GraphRAG explorer (entity graph + path + global community queries) ----
+  async graphragGraph(limit = 300) {
+    return jsonOrThrow(await fetch(`${BASE}/graphrag/graph?limit=${limit}`, { headers: headers(false) }));
+  },
+  async graphragEntity(id?: number | null, name?: string | null) {
+    const qs = id != null ? `id=${id}` : `name=${encodeURIComponent(name || '')}`;
+    return jsonOrThrow(await fetch(`${BASE}/graphrag/entity?${qs}`, { headers: headers(false) }));
+  },
+  async graphragPath(a: string, b: string) {
+    const qs = `a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`;
+    return jsonOrThrow(await fetch(`${BASE}/graphrag/path?${qs}`, { headers: headers(false) }));
+  },
+  async graphragGlobal(q: string) {
+    return jsonOrThrow(await fetch(`${BASE}/graphrag/global?q=${encodeURIComponent(q)}`, { headers: headers(false) }));
+  },
+  async graphragStats() {
+    return jsonOrThrow(await fetch(`${BASE}/graphrag/stats`, { headers: headers(false) }));
+  },
+  async graphragBuildCommunities() {
+    return jsonOrThrow(await fetch(`${BASE}/graphrag/communities/build`, { method: 'POST', headers: headers(false) }));
   },
   async analyticsVerify(days = 30) {
     return jsonOrThrow(await fetch(`${BASE}/analytics/verify?days=${days}`, { headers: headers(false) }));
@@ -541,6 +749,10 @@ export const api = {
     if (!pageIds?.length) return { nodes: [], links: [] };
     return jsonOrThrow(await fetch(`${BASE}/answer/graph?ids=${pageIds.join(',')}`, { headers: headers(false) }));
   },
+  async answerKg(pageIds: number[]) {
+    if (!pageIds?.length) return { nodes: [], edges: [] };
+    return jsonOrThrow(await fetch(`${BASE}/answer/kg?ids=${pageIds.join(',')}`, { headers: headers(false) }));
+  },
 
   // ---- admin ----
   async adminUsers() {
@@ -563,6 +775,42 @@ export const api = {
   },
   async adminTestLdap(cfg: any) {
     return jsonOrThrow(await fetch(`${BASE}/admin/auth-config/test-ldap`, { method: 'POST', headers: headers(), body: JSON.stringify(cfg) }));
+  },
+
+  // ---- sector RBAC: sectors / user roles / groups (super-admin) ----
+  async adminSectors() {
+    return jsonOrThrow(await fetch(`${BASE}/admin/sectors`, { headers: headers(false) }));
+  },
+  async adminCreateSector(name: string, label?: string) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/sectors`, { method: 'POST', headers: headers(), body: JSON.stringify({ name, label }) }));
+  },
+  async adminDeleteSector(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/sectors/${id}`, { method: 'DELETE', headers: headers(false) }));
+  },
+  // multi-tenant RBAC switch (super-admin)
+  async adminRbac() {
+    return jsonOrThrow(await fetch(`${BASE}/admin/rbac`, { headers: headers(false) }));
+  },
+  async adminSetRbac(enabled: boolean) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/rbac`, { method: 'POST', headers: headers(), body: JSON.stringify({ enabled }) }));
+  },
+  async adminSetUser(id: number, body: { role?: string; sector_id?: number | null }) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/users/${id}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) }));
+  },
+  async adminGroups() {
+    return jsonOrThrow(await fetch(`${BASE}/admin/groups`, { headers: headers(false) }));
+  },
+  async adminCreateGroup(name: string, allSectors = false) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/groups`, { method: 'POST', headers: headers(), body: JSON.stringify({ name, all_sectors: allSectors }) }));
+  },
+  async adminDeleteGroup(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/groups/${id}`, { method: 'DELETE', headers: headers(false) }));
+  },
+  async adminAddMember(gid: number, uid: number) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/groups/${gid}/members/${uid}`, { method: 'POST', headers: headers(false) }));
+  },
+  async adminRemoveMember(gid: number, uid: number) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/groups/${gid}/members/${uid}`, { method: 'DELETE', headers: headers(false) }));
   },
 
   // ---- embeddable widget keys (admin) ----
@@ -636,6 +884,15 @@ export const api = {
     return jsonOrThrow(await fetch(`${BASE}/catalog`, { headers: headers(false) }));
   },
 
+  // ---- white-label branding (one-logo: name/mark/favicon/icons + accent generated) ----
+  async brand() {
+    return jsonOrThrow(await fetch(`${BASE}/brand`, { headers: headers(false) }));
+  },
+  async saveBrand(fd: FormData) {
+    // headers(false) → no Content-Type so the browser sets the multipart boundary
+    return jsonOrThrow(await fetch(`${BASE}/admin/brand`, { method: 'POST', headers: headers(false), body: fd }));
+  },
+
   // ---- KB health (conflicts + stale docs) ----
   async kbConflicts(status = 'open') {
     return jsonOrThrow(await fetch(`${BASE}/kb/conflicts?status=${status}`, { headers: headers(false) }));
@@ -648,5 +905,30 @@ export const api = {
   },
   async kbStale(days = 90) {
     return jsonOrThrow(await fetch(`${BASE}/kb/stale?days=${days}`, { headers: headers(false) }));
+  },
+
+  // ---- contradictions review queue (Karpathy "LLM wiki" Phase 1) ----
+  async getContradictions(status = 'pending') {
+    return jsonOrThrow(await fetch(`${BASE}/contradictions?status=${status}`, { headers: headers(false) }));
+  },
+  async resolveContradiction(id: number, choice: 'new' | 'old' | 'both' | 'dismiss') {
+    return jsonOrThrow(await fetch(`${BASE}/contradictions/${id}/resolve`, {
+      method: 'POST', headers: headers(true), body: JSON.stringify({ choice }),
+    }));
+  },
+
+  // ---- Wiki (Karpathy "LLM wiki" Phase 3 — browsable entity/doc knowledge base) ----
+  async wikiIndex() {
+    return jsonOrThrow(await fetch(`${BASE}/wiki/index`, { headers: headers(false) }));
+  },
+  async wikiEntity(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/wiki/entity/${id}`, { headers: headers(false) }));
+  },
+  async wikiResolve(name: string) {
+    const r = await fetch(`${BASE}/wiki/resolve?name=${encodeURIComponent(name)}`, { headers: headers(false) });
+    return r.ok ? r.json() : null;
+  },
+  async wikiDoc(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/wiki/doc/${id}`, { headers: headers(false) }));
   }
 };
