@@ -207,7 +207,7 @@ def create_user(
     # row-level access: assign the user's home sector from their email domain
     try:
         from .. import rbac
-        if rbac.RBAC_ENABLED:
+        if rbac.rbac_enabled():
             rbac.assign_user_sector(row["id"], email)
             with get_conn() as conn:
                 row = conn.execute("SELECT * FROM users WHERE id=%s", (row["id"],)).fetchone()

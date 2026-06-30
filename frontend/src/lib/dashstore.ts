@@ -67,7 +67,6 @@ export const WS_ITEMS: WsItem[] = [
 
   { id: 'brain-docs',   label: 'Documents', group: 'Brain', kind: 'knowledge', roles: ['admin', 'user'], view: { tab: 'brain', feed: 'doc' } },
   { id: 'brain-facts',  label: 'Facts',     group: 'Brain', kind: 'knowledge', roles: ['admin', 'user'], view: { tab: 'brain', feed: 'fact' } },
-  { id: 'brain-graph',  label: 'Graph',     group: 'Brain', kind: 'knowledge', roles: ['admin', 'user'], view: { tab: 'graph' } },
   { id: 'brain-health', label: 'Health',    group: 'Brain', kind: 'knowledge', roles: ['admin', 'user'], view: { tab: 'audit' }, badge: 'health' },
   { id: 'dream',        label: 'Self-improvement', group: 'Brain', kind: 'insight', roles: ['admin'] },
 
@@ -80,6 +79,7 @@ export const WS_ITEMS: WsItem[] = [
   { id: 'accuracy',  label: 'Accuracy',    group: 'Insights', kind: 'insight', roles: ['admin'] },
   { id: 'selfheal',  label: 'Self-Heal',   group: 'Insights', kind: 'insight', roles: ['admin'] },
   { id: 'graphrag',  label: 'Knowledge Graph', group: 'Insights', kind: 'insight', roles: ['admin'] },
+  { id: 'eval',      label: 'Eval',        group: 'Insights', kind: 'insight', roles: ['admin'] },
   { id: 'system',    label: 'System',      group: 'Insights', kind: 'insight', roles: ['admin'] }
 ];
 const WKEY = 'aria_ws_item';
@@ -184,7 +184,7 @@ export function loadBrainData(force = false): Promise<void> {
 const WS_HREF: Record<string, string> = {
   '/dashboard': 'overview', '/dashboard/users': 'users', '/dashboard/exec': 'exec',
   '/dashboard/perf': 'overview', '/dashboard/performance': 'overview',
-  '/dashboard/knowledge': 'brain-health', '/dashboard/graph': 'brain-graph',
+  '/dashboard/knowledge': 'brain-health', '/dashboard/graph': 'graphrag',
   '/dashboard/review': 'review', '/dashboard/system': 'system',
   '/dashboard/learning': 'learning', '/brain': 'brain-docs'
 };

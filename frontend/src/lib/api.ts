@@ -203,6 +203,10 @@ export const api = {
       body: JSON.stringify({ access_mode: opts.access_mode, principals: opts.principals })
     }));
   },
+  // delete a folder (RBAC-gated server-side); its docs are un-filed, not deleted
+  async deleteFolder(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/folders/${id}`, { method: 'DELETE', headers: headers() }));
+  },
 
   // admin: users + groups to populate the folder-access picker
   async principals() {
@@ -271,6 +275,44 @@ export const api = {
   async scanImport() {
     return jsonOrThrow(await fetch(`${BASE}/ingest/scan`, { method: 'POST', headers: headers(false) }));
   },
+  // ---- Enrichment Agent (deferred phase-2 lane) ----
+  async enrichStatus() {
+    return jsonOrThrow(await fetch(`${BASE}/enrich/status`, { headers: headers(false) }));
+  },
+  async enrichPause() {
+    return jsonOrThrow(await fetch(`${BASE}/enrich/pause`, { method: 'POST', headers: headers(false) }));
+  },
+  async enrichResume() {
+    return jsonOrThrow(await fetch(`${BASE}/enrich/resume`, { method: 'POST', headers: headers(false) }));
+  },
+  async enrichConcurrency(concurrency: number) {
+    return jsonOrThrow(await fetch(`${BASE}/enrich/concurrency`, { method: 'POST', headers: headers(), body: JSON.stringify({ concurrency }) }));
+  },
+  async enrichSkip(docId: number) {
+    return jsonOrThrow(await fetch(`${BASE}/enrich/doc/${docId}/skip`, { method: 'POST', headers: headers(false) }));
+  },
+  // ---- Eval Agent (offline answer-quality scoring) ----
+  async evalStatus() {
+    return jsonOrThrow(await fetch(`${BASE}/eval/status`, { headers: headers(false) }));
+  },
+  async evalDocs() {
+    return jsonOrThrow(await fetch(`${BASE}/eval/docs`, { headers: headers(false) }));
+  },
+  async evalDoc(docId: number) {
+    return jsonOrThrow(await fetch(`${BASE}/eval/doc/${docId}`, { headers: headers(false) }));
+  },
+  async evalRun() {
+    return jsonOrThrow(await fetch(`${BASE}/eval/run`, { method: 'POST', headers: headers(false) }));
+  },
+  async evalPause() {
+    return jsonOrThrow(await fetch(`${BASE}/eval/pause`, { method: 'POST', headers: headers(false) }));
+  },
+  async evalResume() {
+    return jsonOrThrow(await fetch(`${BASE}/eval/resume`, { method: 'POST', headers: headers(false) }));
+  },
+  async evalConcurrency(concurrency: number) {
+    return jsonOrThrow(await fetch(`${BASE}/eval/concurrency`, { method: 'POST', headers: headers(), body: JSON.stringify({ concurrency }) }));
+  },
   async s3ScanPreview() {
     return jsonOrThrow(await fetch(`${BASE}/ingest/s3-scan`, { headers: headers(false) }));
   },
@@ -305,6 +347,37 @@ export const api = {
   },
   async graphImport(kind: string) {
     return jsonOrThrow(await fetch(`${BASE}/ingest/graph/${kind}/import`, { method: 'POST', headers: headers(false) }));
+  },
+  // ---- unified SharePoint connector (push / device / app) ----
+  async spGet() {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp`, { headers: headers(false) }));
+  },
+  async spSave(body: any) {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp`, { method: 'POST', headers: headers(), body: JSON.stringify(body) }));
+  },
+  async spStatus() {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/status`, { headers: headers(false) }));
+  },
+  async spSyncNow() {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/sync-now`, { method: 'POST', headers: headers(false) }));
+  },
+  async spRotateToken() {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/token/rotate`, { method: 'POST', headers: headers(false) }));
+  },
+  async spAgentScript(os: 'win' | 'mac' = 'mac') {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/agent-script?os=${os}`, { headers: headers(false) }));
+  },
+  async spDeviceStart() {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/device/start`, { method: 'POST', headers: headers(false) }));
+  },
+  async spDevicePoll(deviceCode = '') {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/device/poll`, { method: 'POST', headers: headers(), body: JSON.stringify({ device_code: deviceCode }) }));
+  },
+  async spDeviceDisconnect() {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/device/disconnect`, { method: 'POST', headers: headers(false) }));
+  },
+  async spAppTest() {
+    return jsonOrThrow(await fetch(`${BASE}/connector/sp/app/test`, { method: 'POST', headers: headers(false) }));
   },
   async storageConfig() {
     return jsonOrThrow(await fetch(`${BASE}/storage/config`, { headers: headers(false) }));
@@ -383,6 +456,39 @@ export const api = {
     return jsonOrThrow(await fetch(`${BASE}/memory/${id}/reject`, { method: 'POST', headers: headers(false) }));
   },
 
+  async getFeatures() {
+    return jsonOrThrow(await fetch(`${BASE}/settings/features`, { headers: headers(false) }));
+  },
+  async saveFeatures(patch: Record<string, boolean>) {
+    return jsonOrThrow(await fetch(`${BASE}/settings/features`, {
+      method: 'POST', headers: headers(true), body: JSON.stringify(patch),
+    }));
+  },
+  // ---- Persona (agent identity / voice, generated from documents) ----
+  async getPersona() {
+    return jsonOrThrow(await fetch(`${BASE}/settings/persona`, { headers: headers(false) }));
+  },
+  async savePersona(patch: any) {
+    return jsonOrThrow(await fetch(`${BASE}/settings/persona`, {
+      method: 'POST', headers: headers(true), body: JSON.stringify(patch),
+    }));
+  },
+  async generatePersona() {
+    return jsonOrThrow(await fetch(`${BASE}/settings/persona/generate`, {
+      method: 'POST', headers: headers(true),
+    }));
+  },
+  async personaHistory() {
+    return jsonOrThrow(await fetch(`${BASE}/settings/persona/history`, { headers: headers(false) }));
+  },
+  async getWikiSchema() {
+    return jsonOrThrow(await fetch(`${BASE}/settings/wiki-schema`, { headers: headers(false) }));
+  },
+  async saveWikiSchema(patch: any) {
+    return jsonOrThrow(await fetch(`${BASE}/settings/wiki-schema`, {
+      method: 'POST', headers: headers(true), body: JSON.stringify(patch),
+    }));
+  },
   async getGovernance() {
     return jsonOrThrow(await fetch(`${BASE}/governance`, { headers: headers(false) }));
   },
@@ -643,6 +749,10 @@ export const api = {
     if (!pageIds?.length) return { nodes: [], links: [] };
     return jsonOrThrow(await fetch(`${BASE}/answer/graph?ids=${pageIds.join(',')}`, { headers: headers(false) }));
   },
+  async answerKg(pageIds: number[]) {
+    if (!pageIds?.length) return { nodes: [], edges: [] };
+    return jsonOrThrow(await fetch(`${BASE}/answer/kg?ids=${pageIds.join(',')}`, { headers: headers(false) }));
+  },
 
   // ---- admin ----
   async adminUsers() {
@@ -676,6 +786,13 @@ export const api = {
   },
   async adminDeleteSector(id: number) {
     return jsonOrThrow(await fetch(`${BASE}/admin/sectors/${id}`, { method: 'DELETE', headers: headers(false) }));
+  },
+  // multi-tenant RBAC switch (super-admin)
+  async adminRbac() {
+    return jsonOrThrow(await fetch(`${BASE}/admin/rbac`, { headers: headers(false) }));
+  },
+  async adminSetRbac(enabled: boolean) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/rbac`, { method: 'POST', headers: headers(), body: JSON.stringify({ enabled }) }));
   },
   async adminSetUser(id: number, body: { role?: string; sector_id?: number | null }) {
     return jsonOrThrow(await fetch(`${BASE}/admin/users/${id}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) }));
@@ -788,5 +905,30 @@ export const api = {
   },
   async kbStale(days = 90) {
     return jsonOrThrow(await fetch(`${BASE}/kb/stale?days=${days}`, { headers: headers(false) }));
+  },
+
+  // ---- contradictions review queue (Karpathy "LLM wiki" Phase 1) ----
+  async getContradictions(status = 'pending') {
+    return jsonOrThrow(await fetch(`${BASE}/contradictions?status=${status}`, { headers: headers(false) }));
+  },
+  async resolveContradiction(id: number, choice: 'new' | 'old' | 'both' | 'dismiss') {
+    return jsonOrThrow(await fetch(`${BASE}/contradictions/${id}/resolve`, {
+      method: 'POST', headers: headers(true), body: JSON.stringify({ choice }),
+    }));
+  },
+
+  // ---- Wiki (Karpathy "LLM wiki" Phase 3 — browsable entity/doc knowledge base) ----
+  async wikiIndex() {
+    return jsonOrThrow(await fetch(`${BASE}/wiki/index`, { headers: headers(false) }));
+  },
+  async wikiEntity(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/wiki/entity/${id}`, { headers: headers(false) }));
+  },
+  async wikiResolve(name: string) {
+    const r = await fetch(`${BASE}/wiki/resolve?name=${encodeURIComponent(name)}`, { headers: headers(false) });
+    return r.ok ? r.json() : null;
+  },
+  async wikiDoc(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/wiki/doc/${id}`, { headers: headers(false) }));
   }
 };

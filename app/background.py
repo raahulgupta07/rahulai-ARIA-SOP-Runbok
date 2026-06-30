@@ -18,6 +18,10 @@ def start_all() -> bool:
     print("[bg] leader acquired — starting ingest worker + daemons")
     from . import worker, watcher, digest, usage_rollup, verify
     worker.start()    # async ingest: requeue stuck docs + run worker thread(s)
+    from . import enrich_agent
+    enrich_agent.start()   # deferred PHASE-2 lane — Enrichment Agent (flag DEFER_ENRICH)
+    from . import eval_agent
+    eval_agent.start()     # nightly offline answer-quality scoring (flag EVAL_ENABLED)
     watcher.start()   # pick up files dropped straight into the storage inbox
     digest.start()    # weekly self-audit digest into the activity feed
     from . import embed as _embed
@@ -36,6 +40,8 @@ def start_all() -> bool:
     _selfheal.start_daemon()          # parallel per-doc eval-gated self-heal (SELFHEAL_ENABLED)
     from . import sharepoint as _sp
     _sp.start()                       # SharePoint auto-sync (SHAREPOINT_SYNC_ENABLED)
+    from . import sp_connector as _spc
+    _spc.start()                      # unified SharePoint connector (CONNECTOR_SP_ENABLED)
     try:
         from . import s3client
         if s3client.enabled():

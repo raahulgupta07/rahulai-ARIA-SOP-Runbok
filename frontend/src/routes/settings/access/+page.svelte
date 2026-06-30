@@ -12,6 +12,16 @@
   let sectors = $state<any[]>([]);
   let users = $state<any[]>([]);
   let groups = $state<any[]>([]);
+  let rbacOn = $state(false);
+  let rbacBusy = $state(false);
+  async function toggleRbac() {
+    rbacBusy = true;
+    try {
+      const r: any = await api.adminSetRbac(!rbacOn);
+      rbacOn = !!r?.enabled;
+    } catch (e: any) { alert(e?.message || 'Failed to toggle multi-tenant access'); }
+    rbacBusy = false;
+  }
 
   const ROLES = ['user', 'sector_admin', 'admin'];
 
@@ -26,14 +36,16 @@
     loading = true;
     err = '';
     try {
-      const [s, u, g] = await Promise.all([
+      const [s, u, g, rb] = await Promise.all([
         api.adminSectors().catch(() => []),
         api.adminUsers().catch(() => []),
-        api.adminGroups().catch(() => [])
+        api.adminGroups().catch(() => []),
+        api.adminRbac().catch(() => ({ enabled: false }))
       ]);
       sectors = arr(s, 'sectors');
       users = arr(u, 'users');
       groups = arr(g, 'groups');
+      rbacOn = !!(rb as any)?.enabled;
     } catch (e: any) {
       err = e?.message || 'Failed to load';
     }
@@ -137,6 +149,25 @@
       <div class="gate">Super-admin only.</div>
     {:else}
       {#if err}<div class="errbar">{err}</div>{/if}
+
+      <!-- ============ MULTI-TENANT SWITCH ============ -->
+      <section class="card">
+        <div class="chead">
+          <div>
+            <div class="ctitle">Multi-tenant access</div>
+            <div class="csub">When ON, users only see documents and folders in their own sector or shared with them. When OFF (single-tenant) everyone sees everything and only admins manage knowledge. Takes effect immediately — no restart.</div>
+          </div>
+          <button
+            onclick={toggleRbac} disabled={rbacBusy}
+            role="switch" aria-checked={rbacOn} aria-label="Enable multi-tenant access"
+            style="flex:none;width:46px;height:26px;border-radius:999px;border:none;cursor:{rbacBusy ? 'default' : 'pointer'};opacity:{rbacBusy ? 0.6 : 1};position:relative;transition:background .15s;background:{rbacOn ? 'var(--ink,#1a1a18)' : '#cfcdc6'};">
+            <span style="position:absolute;top:3px;left:{rbacOn ? '23px' : '3px'};width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s;"></span>
+          </button>
+        </div>
+        <div style="margin-top:8px;font-size:12.5px;font-weight:600;color:{rbacOn ? '#2f8f6a' : 'var(--muted)'};">
+          {rbacOn ? '● Enforcing — sectors & folders are live' : '○ Off — single-tenant (everyone sees all)'}
+        </div>
+      </section>
 
       <!-- ============ SECTORS ============ -->
       <section class="card">

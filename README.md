@@ -1,5 +1,18 @@
 # City Agent Aria
 
+## What's new (2026-06-23) — Eval Agent: nightly answer-quality scoring
+A background **Eval Agent** continuously measures how good the assistant's answers
+are — automatically, with no thumbs-up/down from users and no cost at upload or
+answer time. It runs **nightly** (and on demand via **Run eval now**). For every
+ready document it auto-writes golden test questions — *positive* (answerable from
+the doc), *negative* (NOT in the doc → the assistant must refuse, catching
+hallucination), and *adversarial* (a false premise → must be corrected) — asks them
+through the real answer path, and an LLM judge grades each one. The new **Eval**
+page shows the corpus score, grounded %, hallucination count, nightly run history,
+a per-document health grid, and a drill-down with every question, the answer given,
+and the judge's reasoning. Which models are doing the answering and the judging is
+shown right on the page. Enable with `EVAL_ENABLED=1` (nightly hour = `EVAL_HOUR`).
+
 **Agent for Runbooks & IT Assistance** (codename DocSensei). Bilingual (English +
 Burmese) AI agent for company SOPs, runbooks & policies. Reads document pages **as
 images** (incl. scanned / Burmese / screenshot-heavy), answers in the **user's
@@ -21,6 +34,59 @@ Packaged OpenWebUI-style: one image serves the API + the SvelteKit SPA on a
 single port, plus Postgres. Multi-method login, per-user chat history, AI
 follow-up questions, stop/copy/feedback. (Model labelled "ARIA 1.0" in the UI;
 backend uses Gemini via OpenRouter.)
+
+## What's new (2026-06-23) — SharePoint Sync (Desktop Sync / device login / Azure app)
+One SharePoint source, three sync methods, one schedule + status — set up in
+**Settings → Integrations → SharePoint Sync** (flag `CONNECTOR_SP_ENABLED`). The headline
+is **Desktop Sync**: a tiny folder-watch script on your PC pushes new files to Aria with a
+token — **zero Azure setup**, the working path for locked-down tenants. Also: **device
+login** (sign in once, headless server pulls — no app registration) and **Azure app**
+(app-only, reuses Microsoft 365 creds). SSRF-guarded + rate-limited. See "Load your SOPs".
+
+## What's new (2026-06-23) — instant upload + background Enrichment Agent
+
+Upload now returns immediately and the document is **answerable in seconds**. A
+background **Enrichment Agent** does the heavy work (vision reading, page tree,
+wiki compile, knowledge enrichers) **later**, on its own throttle — so uploads
+never wait and the doc is usable the whole time it's being enriched.
+
+- **Two lanes.** Lane 1 (upload): render + text → answerable. Lane 2 (agent): the
+  slow LLM enrichment, in the background, `ENRICH_CONCURRENCY` docs at a time.
+  Enable with `DEFER_ENRICH=1`.
+- **Agent controls** (Sources → **Jobs**): pause/resume the agent, set how many
+  docs enrich in parallel, watch live progress, or **Skip** to accept a doc as-is.
+- **Resilient + fast retries.** A restart resumes from cache (~20s, not ~2 min) —
+  the agent never re-runs finished work from page 1. PageIndex tree + wiki compile
+  now have timeouts so a stalled model call can never hang ingest.
+- **Sources page** got a workspace-style `＋ Add` menu (files / folder / server /
+  S3 / SharePoint / OneDrive), upload restricted to folders (uploading lives only
+  on Sources now), a double-confirm delete, and a right-side Jobs panel with
+  per-job and stop-all controls.
+
+## What's new (2026-06-23) — the "living knowledge base" pass
+
+Adopting Andrej Karpathy's *LLM-wiki* pattern (compile-once, vectorless,
+self-consolidating). See `docs/PLAN_KARPATHY_WIKI.md`.
+
+- **Instant-usable upload** — a document is answerable in ~3 seconds (text-first
+  ingest); vision/playbook/graph enrich in the background. Status shows
+  *Ready · enriching* until fully indexed.
+- **Contradiction detection** — when a new document conflicts with an existing one
+  (e.g. *Access = 3* vs *Access = 2*), it's flagged to a review queue
+  (**Dashboard → Contradictions**). Resolving it archives the losing value
+  (kept as history) and makes the winner take effect in answers.
+- **Browsable Wiki** — top-nav **Wiki**: entity hub pages (every doc that mentions
+  *Gold Central*, etc.), auto-hyperlinked documents, backlinks, and a searchable
+  index — the connected knowledge made human-walkable.
+- **Ask the whole corpus** — "summarize all documents", "what do you cover",
+  "list all SOPs" now answer from a grounded overview (was refused before).
+- **Persona** (**Settings → Persona**) — generate an identity & voice from your
+  documents (name, role, tone, rules) that shapes *how* answers sound without
+  changing *what* the agent knows (still docs-only + cited).
+- **Citations on/off** (**Settings → Answer Behaviour**) — per-deployment toggle so
+  one codebase serves projects that want source citations and ones that don't.
+- **Perplexity-style source circles** under each answer; doc-delete now restricted
+  to the uploader or an admin.
 
 ## Stack
 - **FastAPI** + **Python 3.12**, **Postgres 17**
@@ -159,6 +225,27 @@ Three ways, all feed the same async worker:
 - **Microsoft 365 (SharePoint + OneDrive)** — fully UI-configured, no env vars needed. Connect once in **Settings → Integrations → Microsoft 365** (tenant ID, client ID, client secret, enable SharePoint / OneDrive, Test credentials); one app-only Azure app serves both sources (`Sites.Read.All` + `Files.Read.All` app permissions + admin consent). Then pick what to import in **Add → Import from SharePoint / OneDrive**: the library site/path or a user's UPN, optional folder, and a per-source auto-sync toggle + interval (hours) that keeps pulling new files on a schedule. The secret is stored server-side and never shown back (env `GRAPH_CLIENT_SECRET` works as a fallback).
 - **Drop into the server folder**: copy SOPs into host `./documents` (mounted to `/app/documents`, env `IMPORT_DIR`) → `+ Add ▾ → Import from server`. Or drop straight into `data/inbox/` (a watcher rows them automatically).
 - **CLI**: `.venv/bin/python scripts/bulk_upload.py /path/to/sop_folder` (copies into the inbox).
+
+### SharePoint Sync — one source, three ways (flag `CONNECTOR_SP_ENABLED`)
+A unified connector (**Settings → Integrations → SharePoint Sync**) keeps ONE SharePoint
+source in sync with ONE config + schedule + status. Pick whichever method your tenant
+allows — all land files in the same ingest pipeline:
+- **Desktop Sync ★ (zero-admin, no Azure):** generate a connector token, download a tiny
+  folder-watch script (Windows PowerShell or macOS/Linux bash), point it at your synced
+  SharePoint folder and run it. The script pushes new/changed files (dedup by name+mtime)
+  to `POST /api/connector/push` (token auth). Nothing to register in Azure — the working
+  path for locked-down tenants.
+- **Device login (no app, headless):** sign in once with the device-code flow (uses the
+  public Azure CLI client — no app registration, no admin consent). The server holds a
+  refresh token and pulls new files from the library on a schedule.
+- **Azure app (app-only):** tenant + client ID + secret; reuses the existing Microsoft 365
+  app-only engine. Set the site location + Test connection here.
+
+Common to all three: a schedule (interval in hours, with `next_run`), **Sync now**, and a
+live status card with a rolling activity log. SSRF-guarded (site URL must be `https`
+`*.sharepoint.com`); the push endpoint is rate-limited. Secrets/tokens are stored
+server-side and never shown back. *(Coexists with the older Microsoft 365 page; the Azure
+app method shares those credentials.)*
 
 Watch progress in the right-side **Jobs drawer** (auto-opens on upload; reopen via the `⟳ Jobs` pill): an overall bar + stage lane counts (Render/Read/Structure/Compile/Tag/Queued/Ready/Failed), the actively-processing docs with a 7-stage stepper + live log + cancel, the queue (searchable), and failed/done — scales cleanly to hundreds of files. The document table itself shows newest/in-flight first with `Uploaded · Updated · By` columns.
 

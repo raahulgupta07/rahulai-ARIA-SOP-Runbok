@@ -99,6 +99,10 @@ def serve_match(question: str, min_sim: float = 0.72,
             "WHERE qp.status = 'active' AND similarity(qp.question, %(q)s) >= %(t)s "
             "AND length(btrim(qp.answer)) >= %(ml)s "
             "AND NOT (qp.answer ~* %(df)s AND length(btrim(qp.answer)) < 200) "
+            # never serve an ORPHANED pair: if it was mined from a doc, that doc must
+            # still exist (qa_pairs has no FK cascade → deleted docs leave stale pairs
+            # with dangling page_ids that render 'unsourced' and may be hallucinated).
+            "AND (qp.doc_id IS NULL OR d.id IS NOT NULL) "
             "AND (%(folders)s::bigint[] IS NULL OR d.folder_id = ANY(%(folders)s) "
             "     OR (d.folder_id IS NULL AND d.sector_id = ANY(%(sectors)s))) "
             "ORDER BY sim DESC LIMIT 1",

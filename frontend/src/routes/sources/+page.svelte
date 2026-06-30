@@ -3,6 +3,7 @@
   import { api } from '$lib/api';
   import { parseDocName } from '$lib/docname';
   import { onDestroy } from 'svelte';
+  import { goto } from '$app/navigation';
 
   // ── reactive admin/me gate (cachedUser is non-reactive → revalidate via me()) ──
   let me = $state<User | null>(auth.cachedUser());
@@ -26,18 +27,23 @@
 
   // ── state (Svelte5 $state: arrays mutate by INDEX, never raw ref) ──
   let folders = $state<Folder[]>([]);
-  let unfiled = $state(0);
   let docs = $state<Doc[]>([]);
   let total = $state(0);
-  let selected = $state<number | 'all' | 'unfiled'>('all');   // selected folder id, or virtual rows
+  let selected = $state<number | 'all'>('all');   // 'all' aggregate view, or a real folder id
   let loadingDocs = $state(false);
 
   // ── center list: category filter / group / view / sort ──
   let catFilter = $state<string>('all');           // 'all' or a category label
   let groupBy = $state<'date' | 'category'>('date');
   let viewMode = $state<'list' | 'cards'>('list');
-  let sortBy = $state<'newest' | 'oldest' | 'used'>('newest');
+  let sortBy = $state<'newest' | 'oldest' | 'used' | 'name' | 'pages' | 'acc'>('newest');
+  let sortDir = $state<'asc' | 'desc'>('desc');     // column-header sort direction
   let retagging = $state(false);
+  let query = $state('');                            // live title search
+  let dragOver = $state(false);                      // drag-drop dropzone state
+  let selIds = $state<Set<number>>(new Set());       // bulk-selected doc ids
+  let bulkBusy = $state(false);
+  let bulkMoveOpen = $state(false);
 
   // ── new-folder MODAL ──
   let showFolderModal = $state(false);
@@ -164,21 +170,124 @@
 
   // upload
   let uploading = $state(false);
+  let dirInput = $state<HTMLInputElement>();        // webkitdirectory picker
+  // ── Add ▾ menu ──
+  let addOpen = $state(false);
+  let serverScan = $state<{ found: number; new: number } | null>(null);
+  let s3Scan = $state<{ configured: boolean; found: number; new: number } | null>(null);
+  function toggleAdd() {
+    addOpen = !addOpen;
+    if (addOpen && serverScan === null) {
+      api.scanPreview().then((r: any) => { serverScan = { found: r.found ?? 0, new: r.new ?? 0 }; }).catch(() => { serverScan = { found: 0, new: 0 }; });
+      api.s3ScanPreview().then((r: any) => { s3Scan = r; }).catch(() => { s3Scan = { configured: false, found: 0, new: 0 }; });
+    }
+  }
+  async function importS3() {
+    addOpen = false;
+    uploading = true;
+    try {
+      const r: any = await api.s3Import();
+      const q = r.queued ?? 0;
+      if (q) { flashToast(`${q} document${q > 1 ? 's' : ''} queued from S3`, 'ok'); await Promise.all([loadFolders(), loadDocs()]); }
+      else flashToast(`Nothing new in S3 (${r.skipped ?? 0} already present)`, 'ok');
+    } catch (e: any) {
+      const msg = (e?.message || '').toLowerCase();
+      if (msg.includes('not configured') || msg.includes('s3_bucket') || msg.includes('400')) flashToast('S3 not configured (set S3_BUCKET)', 'err');
+      else flashToast(e?.message || 'S3 import failed', 'err');
+    } finally { uploading = false; }
+  }
+  function pickDir() { addOpen = false; dirInput?.click(); }
+
+  // ── delete confirm modal (double-confirm: info + type-to-arm) ──
+  type DelReq = { mode: 'one'; id: number; doc: any } | { mode: 'bulk'; n: number } | { mode: 'folder'; folder: Folder };
+  let delReq = $state<DelReq | null>(null);
+  let delInput = $state('');
+  let delArmed = $derived.by(() => {
+    if (!delReq) return false;
+    if (delReq.mode === 'bulk') return delInput.trim().toUpperCase() === 'DELETE';
+    if (delReq.mode === 'folder') {
+      const fn = (delReq.folder?.name || '').trim();
+      return fn.length > 0 && delInput.trim() === fn;
+    }
+    const name = (delReq.doc?.name || '').trim();
+    return name.length > 0 && delInput.trim() === name;
+  });
+  function openDel(r: DelReq) { delReq = r; delInput = ''; }
+  function closeDel() { delReq = null; delInput = ''; }
+  async function confirmDelete() {
+    if (!delReq || !delArmed) return;
+    const r = delReq; closeDel();
+    if (r.mode === 'one') await performDelete(r.id);
+    else if (r.mode === 'folder') await performFolderDelete(r.folder);
+    else await performBulkDelete();
+  }
+  async function performFolderDelete(f: Folder) {
+    try {
+      const r: any = await api.deleteFolder(f.id);
+      if (selected === f.id) selected = 'all';
+      await Promise.all([loadFolders(), loadDocs()]);
+      const n = r?.unfiled_docs ?? 0;
+      flashToast(n > 0 ? `Folder deleted · ${n} doc${n === 1 ? '' : 's'} un-filed` : 'Folder deleted', 'ok');
+    } catch (err: any) {
+      flashToast(err?.message?.includes('403') ? 'Not allowed to delete this folder' : 'Delete failed', 'err');
+    }
+  }
+  async function importServer() {
+    addOpen = false;
+    uploading = true;
+    try {
+      const r: any = await api.scanImport();
+      const q = r.queued ?? 0;
+      if (q) { flashToast(`${q} document${q > 1 ? 's' : ''} queued from server`, 'ok'); await Promise.all([loadFolders(), loadDocs()]); }
+      else flashToast(`Nothing new on server (${r.skipped ?? 0} already present)`, 'ok');
+      serverScan = null;
+    } catch (e: any) { flashToast(e?.message || 'Server import failed', 'err'); }
+    finally { uploading = false; }
+  }
+  async function importGraph(kind: 'sharepoint' | 'onedrive') {
+    addOpen = false;
+    const label = kind === 'sharepoint' ? 'SharePoint' : 'OneDrive';
+    uploading = true;
+    try {
+      const r: any = await api.graphImport(kind);
+      const q = r.queued ?? 0;
+      if (q) { flashToast(`${q} document${q > 1 ? 's' : ''} queued from ${label}`, 'ok'); await Promise.all([loadFolders(), loadDocs()]); }
+      else flashToast(`Nothing new in ${label} (${r.skipped ?? 0} already present)`, 'ok');
+    } catch (e: any) {
+      const msg = (e?.message || '').toLowerCase();
+      if (msg.includes('not configured') || msg.includes('not enabled') || msg.includes('400')) {
+        flashToast(`${label} not set up — Settings → Integrations`, 'err');
+        setTimeout(() => goto('/settings/microsoft'), 900);
+      } else flashToast(e?.message || `${label} import failed`, 'err');
+    } finally { uploading = false; }
+  }
   let fileInput: HTMLInputElement | null = null;
+  let uploadToast = $state('');          // error/skip message shown on screen
+  let uploadToastKind = $state<'err' | 'ok'>('err');
+  let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  function flashToast(msg: string, kind: 'err' | 'ok' = 'err') {
+    uploadToast = msg;
+    uploadToastKind = kind;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { uploadToast = ''; }, 6000);
+  }
 
   // ── derived: which folder_id query to send for the selected source ──
   let selFolderId = $derived(typeof selected === 'number' ? selected : null);
   let breadcrumb = $derived.by(() => {
     if (selected === 'all') return 'All documents';
-    if (selected === 'unfiled') return 'Unfiled';
     return folders.find((f) => f.id === selected)?.name ?? 'Folder';
   });
+
+  function removeFolder(f: Folder, e?: Event) {
+    e?.stopPropagation();
+    openDel({ mode: 'folder', folder: f });   // styled double-confirm (type folder name)
+  }
 
   async function loadFolders() {
     try {
       const r = await api.folders();
       folders = r.folders || [];
-      unfiled = r.unfiled ?? 0;
     } catch {}
   }
 
@@ -200,7 +309,7 @@
   $effect(() => { selected; loadDocs(); });
 
   // ── poll the LIST while any doc is queued/processing ──
-  let inFlight = $derived(docs.some((d) => d.status === 'queued' || d.status === 'processing'));
+  let inFlight = $derived(docs.some((d) => d.status === 'queued' || d.status === 'processing' || d.status === 'ready_lite'));
   let pollTimer = $state<ReturnType<typeof setInterval> | null>(null);
   $effect(() => {
     if (inFlight && !pollTimer) {
@@ -215,11 +324,79 @@
   // initial load
   $effect(() => { if (me && isAdmin) { loadFolders(); } });
 
-  // ── jobs (queued/processing) count ──
-  let jobsCount = $derived(docs.filter((d) => {
+  // ── jobs (queued / processing / still-enriching) ──
+  let activeJobs = $derived(docs.filter((d) => {
     const s = (d.status || 'ready').toLowerCase();
-    return s === 'queued' || s === 'processing';
-  }).length);
+    return s === 'queued' || s === 'processing' || s === 'ready_lite';
+  }));
+  let jobsCount = $derived(activeJobs.length);
+  let jobsOpen = $state(false);
+
+  // ── Enrichment Agent (deferred phase-2) ──
+  let agent = $state<any>(null);          // { enabled, running, paused, concurrency, enriching, queued, recent }
+  let agentBusy = $state(false);
+  let agentTimer: ReturnType<typeof setInterval> | null = null;
+  async function loadAgent() { try { agent = await api.enrichStatus(); } catch { agent = null; } }
+  $effect(() => {
+    if (jobsOpen) {
+      loadAgent();
+      if (!agentTimer) agentTimer = setInterval(loadAgent, 2500);
+    } else if (agentTimer) { clearInterval(agentTimer); agentTimer = null; }
+  });
+  onDestroy(() => { if (agentTimer) clearInterval(agentTimer); });
+  async function toggleAgent() {
+    if (!agent || agentBusy) return;
+    agentBusy = true;
+    try {
+      if (agent.paused) { await api.enrichResume(); flashToast('Agent resumed', 'ok'); }
+      else { await api.enrichPause(); flashToast('Agent paused', 'ok'); }
+      await loadAgent();
+    } catch (e: any) { flashToast(e?.message || 'Could not toggle agent', 'err'); }
+    finally { agentBusy = false; }
+  }
+  async function setConcurrency(n: number) {
+    n = Math.max(1, Math.min(8, Math.round(n) || 1));
+    try { await api.enrichConcurrency(n); await loadAgent(); } catch {}
+  }
+  async function skipEnrich(d: Doc, e: Event) {
+    e.stopPropagation();
+    try { await api.enrichSkip(d.id); await Promise.all([loadAgent(), loadDocs()]); flashToast('Accepted as-is', 'ok'); }
+    catch (err: any) { flashToast(err?.message || 'Could not skip', 'err'); }
+  }
+  function jobStage(d: Doc): string {
+    const s = (d.status || '').toLowerCase();
+    if (s === 'queued') return 'queued';
+    if (s === 'ready_lite') return 'answerable · enriching';
+    if (s === 'processing') return 'processing';
+    return s || 'working';
+  }
+  function jobPct(d: Doc): number {
+    if (typeof d.progress === 'number' && d.progress > 0) return Math.min(100, Math.round(d.progress));
+    const s = (d.status || '').toLowerCase();
+    if (s === 'ready_lite') return 50;          // text done, vision/enrichers pending
+    if (s === 'queued') return 5;
+    return 0;
+  }
+  function openJob(d: Doc) { jobsOpen = false; openPanel(d); }
+  // ── stop controls ──
+  let stoppingIds = $state<Set<number>>(new Set());
+  let stopAllBusy = $state(false);
+  async function stopJob(d: Doc, e: Event) {
+    e.stopPropagation();
+    if (stoppingIds.has(d.id)) return;
+    stoppingIds = new Set(stoppingIds).add(d.id);
+    try { await api.cancelDoc(d.id); await Promise.all([loadFolders(), loadDocs()]); flashToast('Job stopped', 'ok'); }
+    catch (err: any) { flashToast(err?.message || 'Could not stop job', 'err'); }
+    finally { const s = new Set(stoppingIds); s.delete(d.id); stoppingIds = s; }
+  }
+  async function stopAllJobs() {
+    if (stopAllBusy || activeJobs.length === 0) return;
+    if (!confirm(`Stop all ${activeJobs.length} job${activeJobs.length > 1 ? 's' : ''}? Queued and processing documents will be halted.`)) return;
+    stopAllBusy = true;
+    try { await api.ingestStop(); await Promise.all([loadFolders(), loadDocs()]); flashToast('All jobs stopped', 'ok'); }
+    catch (err: any) { flashToast(err?.message || 'Could not stop jobs', 'err'); }
+    finally { stopAllBusy = false; }
+  }
 
   // ── category chips (client-derived from docs[].category) ──
   function catOf(d: Doc): string { return (d.category && d.category.trim()) || 'Uncategorized'; }
@@ -232,13 +409,38 @@
   // ── filtered + sorted docs ──
   let visibleDocs = $derived.by(() => {
     let list = catFilter === 'all' ? docs : docs.filter((d) => catOf(d) === catFilter);
+    const q = query.trim().toLowerCase();
+    if (q) list = list.filter((d) => title(d).toLowerCase().includes(q) || (d.name || '').toLowerCase().includes(q));
     const t = (d: Doc) => (d.created_at ? new Date(d.created_at).getTime() : 0);
+    const dir = sortDir === 'asc' ? 1 : -1;
     list = [...list].sort((a, b) => {
-      if (sortBy === 'used') return (b.used_count ?? 0) - (a.used_count ?? 0);
+      // column-header sorts honour sortDir; the legacy select keeps its own order
+      if (sortBy === 'name') return dir * title(a).localeCompare(title(b));
+      if (sortBy === 'pages') return dir * ((a.page_count ?? 0) - (b.page_count ?? 0));
+      if (sortBy === 'acc') return dir * ((accuracyOf(a) ?? -1) - (accuracyOf(b) ?? -1));
+      if (sortBy === 'used') return dir * ((a.used_count ?? 0) - (b.used_count ?? 0));
       if (sortBy === 'oldest') return t(a) - t(b);
       return t(b) - t(a); // newest
     });
     return list;
+  });
+  function setSort(col: 'name' | 'pages' | 'used' | 'acc') {
+    if (sortBy === col) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+    else { sortBy = col; sortDir = col === 'name' ? 'asc' : 'desc'; }
+  }
+  function sortArrow(col: string): string {
+    if (sortBy !== col) return '';
+    return sortDir === 'asc' ? ' ↑' : ' ↓';
+  }
+
+  // ── folder summary strip ──
+  let folderStats = $derived.by(() => {
+    const n = docs.length;
+    const pages = docs.reduce((s, d) => s + (d.page_count ?? 0), 0);
+    const langs = new Set(docs.map((d) => langOf(d)));
+    const read = docs.reduce((s, d) => s + (d.vision_pages ?? 0), 0);
+    const cov = pages > 0 ? Math.round((read / pages) * 100) : 0;
+    return { n, pages, langs: [...langs].join(' · ') || '—', cov };
   });
 
   // ── group the visible docs by date-bucket or category ──
@@ -274,9 +476,17 @@
 
   // ── row display helpers ──
   function langOf(d: Doc): string { return (d.lang || '').toLowerCase().startsWith('my') ? 'MY' : 'EN'; }
+  function byUser(d: Doc): string {
+    const u = d.uploaded_by || '';
+    return u ? u.split('@')[0] : '—';     // username only — full email on hover title
+  }
   function accuracyOf(d: Doc): number | null {
-    const pc = d.page_count ?? 0; if (!pc) return null;
-    return Math.round(((d.vision_pages ?? 0) / pc) * 100);
+    // "Read coverage" = fraction of pages vision-read. On a fresh / lite doc this
+    // is 0 → show "—" instead of an alarming 0%. Only report once some pages read.
+    const pc = d.page_count ?? 0;
+    const vp = d.vision_pages ?? 0;
+    if (!pc || vp <= 0) return null;
+    return Math.round((vp / pc) * 100);
   }
   function subLine(d: Doc): string {
     const parts: string[] = [];
@@ -310,21 +520,98 @@
   }
 
   function pickFiles() { fileInput?.click(); }
-  async function onFilesPicked(e: Event) {
-    const input = e.target as HTMLInputElement;
-    const files = input.files;
-    if (!files || !files.length) return;
+  async function uploadFiles(files: File[] | FileList) {
+    const arr = Array.from(files);
+    if (!arr.length) return;
     uploading = true;
+    const errs: string[] = [];
+    let okCount = 0;
     try {
       const fid = typeof selected === 'number' ? selected : null;
-      for (const f of Array.from(files)) {
-        try { await api.uploadTo(f, fid); } catch {}
+      for (const f of arr) {
+        try { await api.uploadTo(f, fid); okCount++; }
+        catch (e: any) { errs.push(e?.message || `${f.name}: upload failed`); }
       }
       await Promise.all([loadFolders(), loadDocs()]);
     } finally {
       uploading = false;
-      input.value = '';
     }
+    if (errs.length) flashToast(errs.join('  ·  '), 'err');
+    else if (okCount) flashToast(`${okCount} file${okCount > 1 ? 's' : ''} uploaded`, 'ok');
+  }
+  async function onFilesPicked(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const files = input.files;
+    if (!files || !files.length) return;
+    // directory picker drags in everything → keep only ingestable types
+    const ok = /\.(pdf|png|jpe?g)$/i;
+    const arr = Array.from(files).filter((f) => ok.test(f.name));
+    if (!arr.length) { flashToast('No PDF/PNG/JPG files in that folder', 'err'); input.value = ''; return; }
+    await uploadFiles(arr);
+    input.value = '';
+  }
+  // ── drag-drop dropzone ──
+  function onDragOver(e: DragEvent) { if (selected === 'all') return; e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; dragOver = true; }
+  function onDragLeave(e: DragEvent) { if (e.currentTarget === e.target) dragOver = false; }
+  async function onDrop(e: DragEvent) {
+    if (selected === 'all') return;            // All-view = read-only aggregate; pick a folder to upload
+    e.preventDefault(); dragOver = false;
+    const files = e.dataTransfer?.files;
+    if (files && files.length) await uploadFiles(files);
+  }
+
+  // ── ask this doc in chat ──
+  function askDoc(d: Doc, e?: Event) {
+    e?.stopPropagation();
+    goto(`/?ask=${encodeURIComponent('About "' + title(d) + '": ')}`);
+  }
+
+  // ── bulk selection ──
+  function toggleSel(id: number, e?: Event) {
+    e?.stopPropagation();
+    const s = new Set(selIds);
+    s.has(id) ? s.delete(id) : s.add(id);
+    selIds = s;
+  }
+  function allVisibleSelected(): boolean {
+    return visibleDocs.length > 0 && visibleDocs.every((d) => selIds.has(d.id));
+  }
+  function toggleSelAll(e?: Event) {
+    e?.stopPropagation();
+    if (allVisibleSelected()) selIds = new Set();
+    else selIds = new Set(visibleDocs.map((d) => d.id));
+  }
+  function clearSel() { selIds = new Set(); bulkMoveOpen = false; }
+  function bulkDelete() {
+    if (!selIds.size || bulkBusy) return;
+    openDel({ mode: 'bulk', n: selIds.size });
+  }
+  async function performBulkDelete() {
+    bulkBusy = true;
+    const ids = [...selIds]; let ok = 0; const errs: string[] = [];
+    try {
+      for (const id of ids) {
+        try { await api.deleteDoc(id); ok++; } catch (e: any) { errs.push(e?.message || `#${id} failed`); }
+      }
+      await Promise.all([loadFolders(), loadDocs()]);
+    } finally { bulkBusy = false; clearSel(); }
+    if (errs.length) flashToast(`${ok} deleted · ${errs.length} failed: ${errs[0]}`, 'err');
+    else flashToast(`${ok} document${ok > 1 ? 's' : ''} deleted`, 'ok');
+  }
+  async function bulkMove(folderId: number | null) {
+    if (!selIds.size || bulkBusy) return;
+    bulkBusy = true; bulkMoveOpen = false;
+    const ids = [...selIds]; let ok = 0;
+    try {
+      for (const id of ids) { try { await api.moveDoc(id, folderId); ok++; } catch {} }
+      await Promise.all([loadFolders(), loadDocs()]);
+    } finally { bulkBusy = false; clearSel(); }
+    flashToast(`${ok} document${ok > 1 ? 's' : ''} moved`, 'ok');
+  }
+  async function bulkRetag() {
+    if (bulkBusy) return; bulkBusy = true;
+    try { await api.categorizeAll(false); await loadDocs(); } catch {} finally { bulkBusy = false; clearSel(); }
+    flashToast('Re-tagged selection', 'ok');
   }
 
   function title(d: Doc) {
@@ -336,11 +623,13 @@
   function statusOf(d: Doc) { return (d.status || 'ready').toLowerCase(); }
   function pillClass(s: string): string {
     if (s === 'ready') return 'p-ready';
+    if (s === 'ready_lite') return 'p-lite';     // answerable, still enriching
     if (s === 'failed' || s === 'cancelled') return 'p-fail';
     if (s === 'processing') return 'p-proc';
     return 'p-queued';
   }
   function pillLabel(s: string, d: Doc): string {
+    if (s === 'ready_lite') return 'Ready · enriching…';
     const cap = s.charAt(0).toUpperCase() + s.slice(1);
     if (s === 'processing' && typeof d.progress === 'number') return `Processing ${d.progress}%`;
     return cap;
@@ -370,7 +659,7 @@
   let moveOpen = $state(false);
 
   let procStatus = $derived((proc?.doc?.status || '').toLowerCase());
-  let procLive = $derived(procStatus === 'queued' || procStatus === 'processing');
+  let procLive = $derived(procStatus === 'queued' || procStatus === 'processing' || procStatus === 'ready_lite');
 
   function fmtElapsed(s: number) {
     const m = Math.floor(s / 60);
@@ -421,8 +710,8 @@
     } catch {
       proc = null;
     }
-    // manage the 2s poll based on live status
-    const live = proc && ['queued', 'processing'].includes((proc.doc?.status || '').toLowerCase());
+    // manage the 2s poll based on live status (ready_lite = phase-2 enriching)
+    const live = proc && ['queued', 'processing', 'ready_lite'].includes((proc.doc?.status || '').toLowerCase());
     if (live && !procTimer) {
       procTimer = setInterval(loadProc, 2000);
     } else if (!live) {
@@ -518,15 +807,17 @@
       await afterAction();
     } catch {} finally { actionBusy = false; }
   }
-  async function doDelete() {
+  function doDelete() {
     if (panelDocId == null) return;
-    if (!confirm('Delete this document? This cannot be undone.')) return;
+    openDel({ mode: 'one', id: panelDocId, doc: proc?.doc || {} });
+  }
+  async function performDelete(id: number) {
     actionBusy = true;
     try {
-      await api.deleteDoc(panelDocId);
+      await api.deleteDoc(id);
       closePanel();
       await Promise.all([loadFolders(), loadDocs()]);
-    } catch {} finally { actionBusy = false; }
+    } catch (e: any) { flashToast(e?.message || 'Delete failed', 'err'); } finally { actionBusy = false; }
   }
   async function doMove(folderId: number | null) {
     if (panelDocId == null) return;
@@ -650,66 +941,144 @@
     <button class="fitem" class:on={selected === 'all'} onclick={() => (selected = 'all')}>
       <span class="ic">▦</span> All documents <span class="n">{total}</span>
     </button>
-    <button class="fitem" class:on={selected === 'unfiled'} onclick={() => (selected = 'unfiled')}>
-      <span class="ic">○</span> Unfiled <span class="n">{unfiled}</span>
-    </button>
 
     <div class="grp">Shared folders</div>
     {#if folders.length === 0}
       <div class="rail-empty">No folders yet.</div>
     {:else}
       {#each folders as f (f.id)}
-        <button class="fitem" class:on={selected === f.id} onclick={() => (selected = f.id)}>
+        <button class="fitem" class:on={selected === f.id} title={f.name} onclick={() => (selected = f.id)}>
           <span class="ic">📁</span>
           <span class="fname">{f.name}</span>
-          <span
-            class="sh"
-            role="button"
-            tabindex="0"
-            title="Share / manage access"
-            aria-label="Share folder {f.name}"
-            onclick={(e) => openShareModal(f, e)}
-            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openShareModal(f); } }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle>
-              <line x1="8.6" y1="13.5" x2="15.4" y2="17.5"></line><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"></line>
-            </svg>
+          <span class="fmeta">
+            {#if f.access_mode === 'org'}
+              <span class="lk" title="Shared with the whole organisation">🌐</span>
+            {:else if f.access_mode === 'specific'}
+              <span class="lk" title="Shared with specific people / groups">🔒{f.access_n ?? 0}</span>
+            {/if}
+            <span
+              class="sh"
+              role="button"
+              tabindex="0"
+              title="Share / manage access"
+              aria-label="Share folder {f.name}"
+              onclick={(e) => openShareModal(f, e)}
+              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openShareModal(f); } }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle>
+                <line x1="8.6" y1="13.5" x2="15.4" y2="17.5"></line><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"></line>
+              </svg>
+            </span>
+            <span
+              class="sh del"
+              role="button"
+              tabindex="0"
+              title="Delete folder"
+              aria-label="Delete folder {f.name}"
+              onclick={(e) => removeFolder(f, e)}
+              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); removeFolder(f); } }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+              </svg>
+            </span>
+            <span class="n">{f.doc_count}</span>
           </span>
-          {#if f.access_mode === 'org'}
-            <span class="lk" title="Whole organisation">🌐</span>
-          {:else if f.access_mode === 'specific'}
-            <span class="lk" title="Specific people / groups">🔒{f.access_n ?? 0}</span>
-          {/if}
-          <span class="n">{f.doc_count}</span>
         </button>
       {/each}
     {/if}
 
-    <div class="newf" role="button" tabindex="0" onclick={openFolderModal}
-      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openFolderModal(); } }}>
-      ＋ New folder
-    </div>
+    <button class="newf" onclick={openFolderModal}>
+      <span class="ic">＋</span><span class="fname">New folder</span>
+    </button>
     <div class="spacer"></div>
     <div class="railfoot">{total} {total === 1 ? 'doc' : 'docs'}{inFlight ? ' · processing…' : ''}</div>
   </aside>
 
   <!-- ===== CENTER — doc list ===== -->
-  <main class="center">
+  <main class="center" ondragover={onDragOver} ondragleave={onDragLeave} ondrop={onDrop} role="region" aria-label="Documents">
+    {#if dragOver}
+      <div class="dropmask">
+        <div class="dropcard">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 9 12 4 17 9"/><line x1="12" y1="4" x2="12" y2="16"/></svg>
+          <div class="dropttl">Drop to upload</div>
+          <div class="dropsub">into {breadcrumb}</div>
+        </div>
+      </div>
+    {/if}
     <div class="chead">
       <h1>{breadcrumb}</h1>
       <small>{total} {total === 1 ? 'document' : 'documents'}</small>
-      <button class="up" onclick={pickFiles} disabled={uploading}>
-        {uploading ? 'Uploading…' : '⬆ Upload here'}
-      </button>
+      {#if selected !== 'all'}
+      <div class="addwrap">
+        <button class="addbtn" onclick={toggleAdd} disabled={uploading} aria-haspopup="menu" aria-expanded={addOpen}>
+          {uploading ? 'Working…' : '＋ Add'}<span class="caret">▾</span>
+        </button>
+        {#if addOpen}
+          <button class="addback" aria-label="Close menu" onclick={() => (addOpen = false)}></button>
+          <div class="addmenu" role="menu">
+            <button class="ai" role="menuitem" onclick={() => { addOpen = false; pickFiles(); }}>
+              <span class="aic">⬆</span>
+              <span class="atx"><b>Upload files</b><i>one or many · PDF, PNG, JPG</i></span>
+            </button>
+            <button class="ai" role="menuitem" onclick={pickDir}>
+              <span class="aic">▱</span>
+              <span class="atx"><b>Upload directory</b><i>whole folder · subfolders</i></span>
+            </button>
+            <button class="ai" role="menuitem" onclick={importServer}>
+              <span class="aic">⤓</span>
+              <span class="atx"><b>Import from server</b><i>{serverScan ? `${serverScan.new} new · ${serverScan.found} in folder` : 'scanning…'}</i></span>
+            </button>
+            {#if s3Scan?.configured}
+              <button class="ai" role="menuitem" onclick={importS3}>
+                <span class="aic">☁</span>
+                <span class="atx"><b>Import from S3</b><i>{`${s3Scan.new} new · ${s3Scan.found} in bucket`}</i></span>
+              </button>
+            {/if}
+            <div class="adiv"></div>
+            <button class="ai" role="menuitem" onclick={() => importGraph('sharepoint')}>
+              <span class="aic">▦</span>
+              <span class="atx"><b>Import from SharePoint</b><i>Microsoft 365 document library</i></span>
+            </button>
+            <button class="ai" role="menuitem" onclick={() => importGraph('onedrive')}>
+              <span class="aic">☁</span>
+              <span class="atx"><b>Import from OneDrive</b><i>A user’s OneDrive files</i></span>
+            </button>
+          </div>
+        {/if}
+      </div>
+      {/if}
       <input bind:this={fileInput} type="file" multiple class="hidden-file"
         accept=".pdf,.png,.jpg,.jpeg" onchange={onFilesPicked} />
+      <input bind:this={dirInput} type="file" multiple webkitdirectory class="hidden-file"
+        onchange={onFilesPicked} />
     </div>
+    {#if uploadToast}
+      <div class="uptoast {uploadToastKind}" role="alert">
+        <span>{uploadToast}</span>
+        <button class="uptoast-x" onclick={() => (uploadToast = '')} aria-label="Dismiss">✕</button>
+      </div>
+    {/if}
 
     {#if loadingDocs && docs.length === 0}
       <div class="empty">Loading documents…</div>
+    {:else if docs.length === 0 && selected === 'all'}
+      <div class="empty">No documents yet. Pick a folder and use <b>＋ Add</b> to upload.</div>
     {:else if docs.length === 0}
-      <div class="empty">No documents in this folder — upload one.</div>
+      <div class="dropzone" role="button" tabindex="0" onclick={pickFiles}
+        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickFiles(); } }}>
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 9 12 4 17 9"/><line x1="12" y1="4" x2="12" y2="16"/></svg>
+        <div class="dz-ttl">Drop PDFs here, or click to upload</div>
+        <div class="dz-sub">They’ll train this folder automatically — answerable in seconds.</div>
+      </div>
     {:else}
+      <!-- ===== folder summary strip ===== -->
+      <div class="sumstrip">
+        <span><b>{folderStats.n}</b> docs</span><i></i>
+        <span><b>{folderStats.pages}</b> pages</span><i></i>
+        <span>{folderStats.langs}</span><i></i>
+        <span><b>{folderStats.cov}%</b> read</span>
+        {#if inFlight}<i></i><span class="enr"><span class="dot l"></span> enriching…</span>{/if}
+      </div>
       <!-- ===== category chips ===== -->
       <div class="chips-row">
         <button class="chip" class:on={catFilter === 'all'} onclick={() => (catFilter = 'all')}>
@@ -727,6 +1096,11 @@
 
       <!-- ===== toolbar ===== -->
       <div class="tb">
+        <span class="tb-search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input placeholder="Search documents…" bind:value={query} />
+          {#if query}<button class="tb-clear" title="Clear" onclick={() => (query = '')}>✕</button>{/if}
+        </span>
         <span class="tb-lab">Group</span>
         <span class="seg">
           <button class:on={groupBy === 'date'} onclick={() => (groupBy = 'date')}>Date</button>
@@ -737,10 +1111,10 @@
           <button class:on={viewMode === 'cards'} onclick={() => (viewMode = 'cards')}>Cards</button>
           <button class:on={viewMode === 'list'} onclick={() => (viewMode = 'list')}>List</button>
         </span>
-        <span class="jobs">
+        <button class="jobs" class:active={jobsCount > 0} onclick={() => (jobsOpen = !jobsOpen)} aria-expanded={jobsOpen}>
           {#if jobsCount > 0}<span class="spin"></span>{/if}
           Jobs · {jobsCount} active
-        </span>
+        </button>
         <span class="tb-sort">
           Sort:
           <select bind:value={sortBy}>
@@ -751,6 +1125,25 @@
         </span>
       </div>
 
+      {#if selIds.size > 0}
+        <div class="bulkbar">
+          <span class="bb-n">{selIds.size} selected</span>
+          <div class="bb-move">
+            <button class="bb-btn" disabled={bulkBusy} onclick={() => (bulkMoveOpen = !bulkMoveOpen)}>Move ▾</button>
+            {#if bulkMoveOpen}
+              <div class="bb-pop">
+                {#each folders as f (f.id)}
+                  <button onclick={() => bulkMove(f.id)}>{f.name}</button>
+                {/each}
+              </div>
+            {/if}
+          </div>
+          <button class="bb-btn" disabled={bulkBusy} onclick={bulkRetag}>Re-tag</button>
+          <button class="bb-btn danger" disabled={bulkBusy} onclick={bulkDelete}>Delete</button>
+          <button class="bb-clear" onclick={clearSel}>Clear</button>
+        </div>
+      {/if}
+
       {#if visibleDocs.length === 0}
         <div class="empty">No documents in this category.</div>
       {:else if viewMode === 'list'}
@@ -759,16 +1152,29 @@
           {#each groups as g (g.label)}
             <div class="glbl">{g.label} · {g.docs.length}</div>
             <div class="lh">
-              <div>Title</div><div>Lang</div><div>Pages</div><div>Used</div><div>Accuracy</div><div>By</div>
+              <div><input class="cbx" type="checkbox" checked={allVisibleSelected()} onclick={toggleSelAll} aria-label="Select all" /></div>
+              <button class="sh-col" onclick={() => setSort('name')}>Title{sortArrow('name')}</button>
+              <div>Lang</div>
+              <button class="sh-col" onclick={() => setSort('pages')}>Pages{sortArrow('pages')}</button>
+              <button class="sh-col" onclick={() => setSort('used')}>Used{sortArrow('used')}</button>
+              <button class="sh-col" onclick={() => setSort('acc')}>Accuracy{sortArrow('acc')}</button>
+              <div>By</div>
             </div>
             {#each g.docs as d (d.id)}
               {@const st = statusOf(d)}
               {@const acc = accuracyOf(d)}
-              <div class="lr" class:sel={panelDocId === d.id} role="button" tabindex="0"
+              <div class="lr" class:sel={panelDocId === d.id} class:checked={selIds.has(d.id)} role="button" tabindex="0"
                 onclick={() => openPanel(d)}
                 onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPanel(d); } }}>
+                <div class="cbcell">
+                  <input class="cbx" type="checkbox" checked={selIds.has(d.id)} onclick={(e) => toggleSel(d.id, e)} aria-label="Select {title(d)}" />
+                </div>
                 <div class="ti">
-                  <div class="ic" class:my={langOf(d) === 'MY'}></div>
+                  {#if d.cover_page_id}
+                    <img class="thumb" src="/api/pages/{d.cover_page_id}" alt="" loading="lazy" />
+                  {:else}
+                    <div class="ic" class:my={langOf(d) === 'MY'}></div>
+                  {/if}
                   <div class="tt">
                     <div class="nm">{title(d)}</div>
                     {#if st === 'processing' || st === 'queued'}
@@ -777,6 +1183,13 @@
                         {#if d.page_count}Processing · reading {d.pages_done ?? 0}/{d.page_count}{:else}Queued…{/if}
                       </div>
                       <div class="pb"><i style="width:{d.progress ?? 0}%"></i></div>
+                    {:else if st === 'ready_lite'}
+                      <div class="s">
+                        <span class="badge">{(d.doc_type || 'SOP').toUpperCase()}</span>
+                        {#if subLine(d)}{subLine(d)} · {/if}
+                        <span class="dot l"></span> Ready · enriching {d.pages_done ?? 0}/{d.page_count ?? '—'}
+                      </div>
+                      <div class="pb"><i class="lite" style="width:{d.progress ?? 0}%"></i></div>
                     {:else}
                       <div class="s">
                         <span class="badge">{(d.doc_type || 'SOP').toUpperCase()}</span>
@@ -793,8 +1206,12 @@
                 <span class="lang {langOf(d) === 'MY' ? 'my' : 'en'}">{langOf(d)}</span>
                 <div class="muted">{d.page_count ?? '—'}</div>
                 <div>{#if (d.used_count ?? 0) > 0}<span class="used">{d.used_count}×</span>{:else}<span class="muted">—</span>{/if}</div>
-                <div>{#if acc !== null}<span class="acc">{acc}%</span>{:else}<span class="muted">—</span>{/if}</div>
-                <div class="muted">{d.uploaded_by ?? '—'}</div>
+                <div>{#if acc !== null}<span class="acc"><span class="abar"><i style="width:{acc}%"></i></span>{acc}%</span>{:else}<span class="muted">—</span>{/if}</div>
+                <div class="muted" title={d.uploaded_by ?? ''}>{byUser(d)}</div>
+                <div class="row-actions">
+                  <button class="ra" title="Ask in chat" onclick={(e) => askDoc(d, e)}>Ask</button>
+                  <button class="ra" title="Open / inspect" onclick={(e) => { e.stopPropagation(); openPanel(d); }}>Open</button>
+                </div>
               </div>
             {/each}
           {/each}
@@ -824,6 +1241,8 @@
                     <span class="badge">{(d.doc_type || 'SOP').toUpperCase()}</span>
                     {#if st === 'processing' || st === 'queued'}
                       <span class="dot b"></span> Processing
+                    {:else if st === 'ready_lite'}
+                      <span class="dot l"></span> Ready · enriching…
                     {:else if st === 'failed' || st === 'cancelled'}
                       <span class="dot f"></span> {st}
                     {:else}
@@ -861,8 +1280,8 @@
       <h2>{proc ? title(proc.doc) : 'Loading…'}</h2>
       {#if proc}
         <div class="meta">
-          {(proc.doc.status || 'ready')} · {proc.doc.page_count ?? '—'} pages ·
-          {(folders.find((f) => f.id === proc.doc.folder_id)?.name) ?? 'Unfiled'} ·
+          {proc.doc.status === 'ready_lite' ? 'Ready · enriching' : (proc.doc.status || 'ready')} · {proc.doc.page_count ?? '—'} pages ·
+          {(folders.find((f) => f.id === proc.doc.folder_id)?.name) ?? 'No folder'} ·
           {proc.doc.uploaded_by ?? '—'}{proc.doc.lang ? ' · ' + proc.doc.lang : ''}
         </div>
       {/if}
@@ -1068,7 +1487,6 @@
             <button class="bsm" onclick={() => (moveOpen = !moveOpen)} disabled={actionBusy}>📁 Move ▾</button>
             {#if moveOpen}
               <div class="movepop">
-                <button class="mopt" onclick={() => doMove(null)}>○ Unfiled</button>
                 {#each folders as f (f.id)}
                   <button class="mopt" onclick={() => doMove(f.id)}>📁 {f.name}</button>
                 {/each}
@@ -1081,6 +1499,139 @@
     </div>
   {/if}
 </aside>
+
+<!-- ===== JOBS SLIDE-OVER (right side) ===== -->
+<div class="proc-scrim" class:open={jobsOpen} role="button" tabindex="-1" aria-label="Close jobs"
+  onclick={() => (jobsOpen = false)} onkeydown={(e) => { if (e.key === 'Escape') jobsOpen = false; }}
+  style="position:fixed;inset:0;z-index:60;border:none;background:rgba(20,18,16,.16);display:{jobsOpen ? 'block' : 'none'}"></div>
+<aside class="proc jobspanel" class:open={jobsOpen} aria-hidden={!jobsOpen}
+  style="position:fixed;top:0;right:0;width:420px;max-width:95vw;height:100vh;background:#fff;border-left:1px solid var(--line);z-index:61;display:flex;flex-direction:column;transition:transform .22s ease;transform:translateX({jobsOpen ? '0' : '100%'})">
+  {#if jobsOpen}
+    <div class="ph">
+      <div class="ph-l">
+        <div class="ph-t">{agent?.enabled ? 'Enrichment Agent' : 'Active jobs'}</div>
+        <div class="ph-s">
+          {#if agent?.enabled}
+            <span class="adot" class:paused={agent.paused}></span>
+            {agent.paused ? 'Paused' : 'Running'} · {agent.active} enriching · {agent.queued_count} queued
+          {:else}
+            {jobsCount} processing
+          {/if}
+        </div>
+      </div>
+      <div class="ph-r">
+        {#if activeJobs.length > 0}
+          <button class="stopall" disabled={stopAllBusy} onclick={stopAllJobs}>{stopAllBusy ? 'Stopping…' : '⏹ Stop all'}</button>
+        {/if}
+        <button class="ph-x" onclick={() => (jobsOpen = false)} aria-label="Close">✕</button>
+      </div>
+    </div>
+    <div class="jbody">
+      {#if agent?.enabled}
+        <!-- agent controls -->
+        <div class="actrls">
+          <button class="abtn" class:pause={!agent.paused} disabled={agentBusy} onclick={toggleAgent}>
+            {agent.paused ? '▶ Resume agent' : '⏸ Pause agent'}
+          </button>
+          <span class="aknob">Parallel
+            <input type="number" min="1" max="8" value={agent.concurrency}
+              onchange={(e) => setConcurrency(+(e.currentTarget as HTMLInputElement).value)} />
+          </span>
+        </div>
+      {/if}
+
+      {#if activeJobs.length === 0}
+        <div class="jempty">✓ All caught up — nothing processing right now.</div>
+      {:else}
+        {#if agent?.enabled}<div class="jsec">Working now</div>{/if}
+        {#each activeJobs as d (d.id)}
+          {@const lite = (d.status || '').toLowerCase() === 'ready_lite'}
+          <div class="jrow" role="button" tabindex="0" onclick={() => openJob(d)}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openJob(d); } }}>
+            <div class="jr-top">
+              <span class="jr-name" title={d.name}>📄 {parseDocName(d.name).title || d.name}</span>
+              <span class="jr-pct">{jobPct(d)}%</span>
+              {#if agent?.enabled && lite}
+                <button class="jr-stop" onclick={(e) => skipEnrich(d, e)} title="Accept as-is, stop enriching">Skip</button>
+              {:else}
+                <button class="jr-stop" disabled={stoppingIds.has(d.id)} onclick={(e) => stopJob(d, e)} title="Stop this job">
+                  {stoppingIds.has(d.id) ? 'Stopping…' : '⏹ Stop'}
+                </button>
+              {/if}
+            </div>
+            <div class="jr-bar"><i class:lite style="width:{jobPct(d)}%"></i></div>
+            <div class="jr-sub">{lite && agent?.enabled ? 'answerable now · enriching in background' : jobStage(d)}{d.page_count ? ` · ${d.page_count} pages` : ''}</div>
+          </div>
+        {/each}
+      {/if}
+
+      {#if agent?.recent?.length}
+        <div class="jsec">Recently enriched</div>
+        {#each agent.recent.slice(0, 6) as r}
+          <div class="jdone"><span class="jd-i" class:fail={!r.ok}>{r.ok ? '✓' : '⚠'}</span> {parseDocName(r.name).title || r.name}</div>
+        {/each}
+      {/if}
+
+      <div class="jhint">
+        {#if agent?.enabled}
+          Upload is instant — docs are answerable immediately and the agent enriches them in the background. Survives restarts via cache.
+        {:else}
+          Tap a job to open its full processing panel. Updates live.
+        {/if}
+      </div>
+    </div>
+  {/if}
+</aside>
+
+<!-- ===== DELETE CONFIRM MODAL (double-confirm) ===== -->
+{#if delReq}
+  <div class="scrim" role="button" tabindex="-1" aria-label="Close"
+    onclick={closeDel} onkeydown={(e) => { if (e.key === 'Escape') closeDel(); }}></div>
+  <div class="delmodal" role="dialog" aria-modal="true" aria-label="Delete confirmation">
+    <div class="del-head">
+      <span class="del-ttl">{delReq.mode === 'folder' ? 'Delete folder?' : delReq.mode === 'bulk' ? `Delete ${delReq.n} document${delReq.n > 1 ? 's' : ''}?` : 'Delete document?'}</span>
+      <button class="del-x" onclick={closeDel} aria-label="Close">✕</button>
+    </div>
+    <div class="del-warn">{#if delReq.mode === 'folder'}⚠ Deletes the folder. Its documents move to All documents (un-filed) — they are NOT deleted. Cannot be undone.{:else}⚠ Permanently removes {delReq.mode === 'bulk' ? 'these documents' : 'this document'} and all derived data. Cannot be undone.{/if}</div>
+
+    {#if delReq.mode === 'folder'}
+      <div class="del-card">
+        <div class="del-name">📁 {delReq.folder.name}</div>
+        <div class="del-meta">{delReq.folder.doc_count ?? 0} document{(delReq.folder.doc_count ?? 0) === 1 ? '' : 's'} will be un-filed (kept, moved to All documents)</div>
+      </div>
+    {:else if delReq.mode === 'one'}
+      <div class="del-card">
+        <div class="del-name">📄 {delReq.doc?.name || 'document'}</div>
+        <div class="del-meta">
+          {[
+            (delReq.doc?.page_count ?? delReq.doc?.pages) ? `${delReq.doc.page_count ?? delReq.doc.pages} pages` : null,
+            (folders.find((f) => f.id === delReq.doc?.folder_id)?.name) || null,
+            (delReq.doc?.lang || '').toUpperCase() || null,
+            delReq.doc?.uploaded_by || null,
+            (delReq.doc?.used_count ?? 0) > 0 ? `used ${delReq.doc.used_count}×` : null,
+          ].filter(Boolean).join(' · ')}
+        </div>
+      </div>
+    {:else}
+      <div class="del-card"><div class="del-name">{delReq.n} selected document{delReq.n > 1 ? 's' : ''}</div></div>
+    {/if}
+
+    {#if delReq.mode !== 'folder'}<div class="del-also">Also deleted: extracted pages, Q&amp;A pairs, wiki claims, citations.</div>{/if}
+
+    <label class="del-lab">
+      {#if delReq.mode === 'bulk'}Type <b>DELETE</b> to confirm:{:else if delReq.mode === 'folder'}Type the folder name <b>{delReq.folder.name}</b> to confirm:{:else}Type the document name to confirm:{/if}
+    </label>
+    <input class="del-in" bind:value={delInput}
+      placeholder={delReq.mode === 'bulk' ? 'DELETE' : delReq.mode === 'folder' ? delReq.folder.name : (delReq.doc?.name || '')}
+      autocomplete="off" spellcheck="false"
+      onkeydown={(e) => { if (e.key === 'Enter' && delArmed) confirmDelete(); }} />
+
+    <div class="del-acts">
+      <button class="del-cancel" onclick={closeDel}>Cancel</button>
+      <button class="del-go" disabled={!delArmed || bulkBusy || actionBusy} onclick={confirmDelete}>{delReq.mode === 'folder' ? 'Delete folder' : 'Delete forever'}</button>
+    </div>
+  </div>
+{/if}
 
 <!-- ===== CREATE-FOLDER MODAL ===== -->
 {#if showFolderModal}
@@ -1190,42 +1741,86 @@
 {/if}
 
 <style>
-  :global(:root) {
-    --cream: #faf9f5; --paper: #fff; --sand: #f0eee6; --ink: #1f1e1d; --muted: #8a857c; --line: #e9e6dd;
-    --coral: #c2683f; --blue: #3f7fb0; --teal: #2f8f83; --violet: #7b6bd6; --amber: #c98a2e; --green: #3f8f5f; --red: #c0492f;
+  /* SCOPED to .src-shell — NOT :global(:root). These used to leak globally and
+     recolour the whole app beige whenever Sources loaded (Workspace stayed white).
+     Structural tokens now match app.css (white claude theme) so Sources == the rest
+     of the app; only the accent palette is local. */
+  /* these tokens are NOT global (app.css :root lacks --line/--coral/--green/--red/etc).
+     The slide-over panel + modals render OUTSIDE .src-shell, so they MUST carry the same
+     token block or their text/borders/bars collapse to white. Keep all three in sync. */
+  .src-shell, .proc, .modal, .delmodal {
+    --cream: #ffffff; --paper: #ffffff; --sand: #f9f9f8; --ink: #1a1a18; --muted: #8b8b85; --line: #e0dfda;
+    --coral: var(--brand, #d97757); --blue: #3f7fb0; --teal: #2f8f83; --violet: #7b6bd6; --amber: #c98a2e; --green: #3f8f5f; --red: #c0492f;
   }
 
   /* ===== 3-pane shell ===== */
   .src-shell { height: 100%; display: flex; min-height: 0; background: var(--cream); }
 
   /* === LEFT folder rail (persistent) === */
-  .rail { width: 228px; flex: none; background: var(--sand); border-right: 1px solid #e4e0d6; display: flex; flex-direction: column; padding: 12px 10px; overflow: auto; }
-  .rail .grp { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; padding: 8px 10px 6px; }
-  .fitem { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 9px; font-size: 13px; color: #4a463e; cursor: pointer; border: none; background: transparent; width: 100%; text-align: left; font: inherit; }
-  .fitem:hover { background: #e7e3d9; }
-  .fitem.on { background: #fff; color: var(--blue); font-weight: 600; box-shadow: inset 2px 0 0 var(--blue); }
+  /* rail matched to Workspace (.wsrail) — same width, padding, neutral pill active state */
+  .rail { width: 210px; flex: none; background: var(--sand); border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 1px; padding: 16px 11px; overflow: auto; }
+  .rail .grp { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; padding: 14px 8px 5px; }
+  .rail .grp:first-child { padding-top: 2px; }
+  .fitem { display: flex; align-items: center; gap: 9px; padding: 8px 12px; border-radius: 9px; font-size: 13.5px; font-weight: 500; color: #46443f; cursor: pointer; border: none; background: transparent; width: 100%; text-align: left; font: inherit; transition: background .14s, color .14s; }
+  .fitem:hover { background: var(--hover, #efefec); }
+  .fitem.on { background: var(--navpill); color: var(--ink); font-weight: 600; }
   .fitem .ic { width: 16px; text-align: center; flex: none; }
-  .fitem .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .fitem .n { margin-left: auto; color: var(--muted); font-size: 11px; flex: none; }
+  .fitem .fname { flex: 1; min-width: 0; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* right cluster — lock + count always pinned right; share reveals on hover/active
+     so the folder NAME gets the space the rest of the time */
+  .fitem .fmeta { flex: none; display: flex; align-items: center; gap: 4px; margin-left: 6px; }
+  .fitem .n { font-size: 11px; font-weight: 700; flex: none; color: var(--muted); background: var(--cream, #faf9f5); border: 1px solid var(--border); border-radius: 6px; padding: 0 6px; min-width: 16px; text-align: center; line-height: 17px; }
+  .fitem.on .n { color: var(--ink); }
   .fitem .lk { font-size: 10px; color: var(--amber); flex: none; }
-  .fitem .sh { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; color: var(--muted); opacity: .55; cursor: pointer; }
-  .fitem:hover .sh { opacity: 1; }
-  .fitem .sh:hover { background: #eaf2f8; color: var(--blue); opacity: 1; }
+  .fitem .sh { flex: none; display: inline-flex; align-items: center; justify-content: center;
+    width: 0; opacity: 0; overflow: hidden; height: 20px; border-radius: 6px;
+    color: var(--muted); cursor: pointer; transition: width .12s, opacity .12s; }
+  .fitem:hover .sh, .fitem.on .sh { width: 20px; opacity: .7; }
+  .fitem .sh:hover { background: var(--hover, #efefec); color: var(--ink); opacity: 1; }
+  .fitem .sh.del:hover { color: var(--red, #c0492f); }
   .rail-empty { padding: 8px 11px; color: var(--muted); font-size: 12px; }
-  .newf { margin: 8px 6px; padding: 9px; border: 1px dashed #cfc9bc; border-radius: 10px; text-align: center; color: var(--muted); font-size: 12.5px; cursor: pointer; }
-  .newf:hover { background: #e7e3d9; color: var(--blue); border-color: var(--blue); }
+  /* small ghost row directly under folders (matches .fitem height, no dashed box) */
+  .newf { display: flex; align-items: center; gap: 9px; width: 100%; margin-top: 2px; padding: 8px 12px; border: none; background: transparent; border-radius: 9px; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; text-align: left; transition: background .14s, color .14s; }
+  .newf:hover { background: var(--hover, #efefec); color: var(--ink); }
+  .newf .ic { width: 16px; text-align: center; flex: none; font-size: 14px; }
   .rail .spacer { flex: 1; }
-  .railfoot { font-size: 11px; color: var(--muted); padding: 8px 10px; border-top: 1px solid #e4e0d6; }
+  .railfoot { margin-top: auto; font-size: 11.5px; color: var(--muted); padding: 10px 8px 2px; }
 
   /* === CENTER doc list === */
-  .center { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--cream); overflow: auto; }
+  .center { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--cream); overflow-y: auto; overflow-x: hidden; position: relative; }
   .chead { display: flex; align-items: center; gap: 6px; padding: 16px 22px 10px; }
   .chead h1 { margin: 0; font-size: 18px; }
   .chead small { color: var(--muted); font-weight: 400; margin-left: 4px; font-size: 13px; }
   .up { margin-left: auto; background: var(--ink); color: #fff; border: none; border-radius: 9px; padding: 8px 13px; font-weight: 600; font-size: 13px; cursor: pointer; }
   .up:disabled { opacity: .55; cursor: default; }
+
+  /* === Add ▾ dropdown === */
+  .addwrap { margin-left: auto; position: relative; }
+  .addbtn { display: inline-flex; align-items: center; gap: 6px; background: var(--coral, var(--brand)); color: #fff; border: none; border-radius: 9px; padding: 8px 14px; font-weight: 600; font-size: 13px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .addbtn:disabled { opacity: .6; cursor: default; }
+  .addbtn .caret { font-size: 10px; opacity: .9; }
+  .addback { position: fixed; inset: 0; z-index: 40; background: transparent; border: none; cursor: default; }
+  .addmenu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 41; width: 290px; background: #fff; border: 1px solid #e9e6dd; border-radius: 14px; box-shadow: 0 14px 40px rgba(0,0,0,.16); padding: 6px; }
+  .ai { display: flex; align-items: flex-start; gap: 11px; width: 100%; text-align: left; background: none; border: none; border-radius: 9px; padding: 9px 11px; cursor: pointer; }
+  .ai:hover { background: #f6f4ee; }
+  .aic { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 7px; background: #f3efe6; color: var(--coral, var(--brand)); font-size: 15px; margin-top: 1px; }
+  .atx { display: flex; flex-direction: column; min-width: 0; }
+  .atx b { font-size: 13.5px; font-weight: 600; color: #1f1e1d; line-height: 1.3; }
+  .atx i { font-style: normal; font-size: 11.5px; color: #8a857c; margin-top: 1px; }
+  .adiv { height: 1px; background: #ede9e0; margin: 5px 8px; }
   .hidden-file { display: none; }
-  .list { margin: 0 16px 20px; background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .uptoast { display: flex; align-items: center; gap: 10px; margin: 0 22px 4px; padding: 9px 13px;
+    border-radius: 10px; font-size: 13px; font-weight: 500; animation: uptoast-in .18s ease; }
+  .uptoast.err { background: #fdecea; color: #9b2c20; border: 1px solid #f3c4bd; }
+  .uptoast.ok { background: #e9f6ee; color: #1d6b3a; border: 1px solid #bfe2cb; }
+  .uptoast span { flex: 1; }
+  .uptoast-x { background: none; border: none; cursor: pointer; color: inherit; opacity: .6; font-size: 13px; }
+  .uptoast-x:hover { opacity: 1; }
+  @keyframes uptoast-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  .list { margin: 0 16px 20px; background: #fff; border: 1px solid var(--line); border-radius: 14px; overflow-x: auto; }
+  /* keep all columns readable; if the viewport is genuinely too narrow the table
+     scrolls inside its own card instead of bleeding off-screen */
+  .list .lh, .list .lr { min-width: 560px; }
   .lr { cursor: pointer; border: none; background: transparent; width: 100%; text-align: left; font: inherit; }
   .lr:hover { background: #fcfbf8; }
   .lr.sel { background: #f3f8fc; box-shadow: inset 3px 0 0 var(--blue); }
@@ -1237,14 +1832,13 @@
   .pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 6px; justify-self: start; }
   .p-proc { background: #eaf2f8; color: var(--blue); }
   .p-ready { background: #e7f3ec; color: var(--green); }
+  .p-lite { background: #eaf6ef; color: #2f8f6a; }
   .p-fail { background: #f7e7e3; color: var(--red); }
   .p-queued { background: #fbf3e6; color: var(--amber); }
 
   .empty { padding: 40px 16px; text-align: center; color: var(--muted); font-size: 13px; }
 
   /* coral token alias (mockup uses --coral; app token is --clay = coral) */
-  :global(:root) { --coral: var(--clay); }
-
   /* === category chips === */
   .chips-row { display: flex; gap: 8px; flex-wrap: wrap; padding: 4px 22px 6px; align-items: center; }
   .chip { font-size: 12.5px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: #5a554c; cursor: pointer; font: inherit; }
@@ -1262,15 +1856,101 @@
   .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; }
   .seg button { border: none; background: none; padding: 5px 11px; font: inherit; font-size: 12.5px; cursor: pointer; color: var(--muted); }
   .seg button.on { background: var(--sand); color: var(--ink); font-weight: 600; }
-  .jobs { border: 1px solid #eccdbd; background: #fff; color: var(--coral); border-radius: 8px; padding: 5px 10px; display: flex; gap: 6px; align-items: center; }
+  .jobs { border: 1px solid var(--line); background: #fff; color: var(--muted); border-radius: 8px; padding: 5px 10px; display: flex; gap: 6px; align-items: center; font: inherit; font-size: 12.5px; cursor: pointer; }
+  .jobs:hover { background: var(--hover, #f4f3f0); }
+  .jobs.active { border-color: #eccdbd; color: var(--coral); }
+
+  /* jobs slide-over (reuses .proc chrome) */
+  .jobspanel .ph { display: flex; align-items: flex-start; justify-content: space-between; }
+  .jobspanel .ph-t { font-size: 16px; font-weight: 650; color: var(--ink); }
+  .jobspanel .ph-s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .jobspanel .ph-r { display: flex; align-items: center; gap: 8px; flex: none; }
+  .jobspanel .ph-x { border: none; background: none; font-size: 14px; color: var(--muted); cursor: pointer; padding: 4px 7px; border-radius: 8px; }
+  .jobspanel .ph-x:hover { background: var(--hover, #f1f0ec); }
+  .stopall { border: 1px solid #e7c3ba; background: #fff; color: var(--red); font: inherit; font-weight: 600; font-size: 12px; padding: 5px 11px; border-radius: 8px; cursor: pointer; }
+  .stopall:hover:not(:disabled) { background: #fbeeea; }
+  .stopall:disabled { opacity: .55; cursor: default; }
+  .jr-stop { flex: none; border: 1px solid #e7c3ba; background: #fff; color: var(--red); font: inherit; font-weight: 600; font-size: 11px; padding: 3px 9px; border-radius: 7px; cursor: pointer; }
+  .jr-stop:hover:not(:disabled) { background: #fbeeea; }
+  .jr-stop:disabled { opacity: .55; cursor: default; }
+  .jbody { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 18px; }
+  .jempty { padding: 22px 12px; font-size: 13px; color: var(--muted); }
+  .jrow { display: block; width: 100%; text-align: left; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; margin-bottom: 9px; cursor: pointer; transition: background .12s, border-color .12s; }
+  .jrow:hover { background: var(--sand); border-color: var(--muted); }
+  .jr-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .jr-name { flex: 1; font-size: 13px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .jr-pct { font-size: 11.5px; font-weight: 700; color: var(--muted); flex: none; }
+  .jr-bar { height: 5px; border-radius: 999px; background: #efece4; overflow: hidden; margin: 8px 0 6px; }
+  .jr-bar > i { display: block; height: 100%; background: var(--coral); border-radius: 999px; transition: width .3s; }
+  .jr-bar > i.lite { background: linear-gradient(90deg, #2f8f6a, #7fc9a8); }
+  .jr-sub { font-size: 11.5px; color: var(--muted); }
+  .jhint { font-size: 11px; color: var(--muted); padding: 8px 4px 0; line-height: 1.5; }
+  /* enrichment agent */
+  .adot { width: 8px; height: 8px; border-radius: 50%; background: var(--coral); display: inline-block; animation: dotpulse 1.2s ease-in-out infinite; }
+  .adot.paused { background: var(--muted); animation: none; }
+  .actrls { display: flex; align-items: center; gap: 10px; padding: 4px 2px 12px; border-bottom: 1px solid var(--line); margin-bottom: 10px; flex-wrap: wrap; }
+  .abtn { font-size: 12px; font-weight: 600; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 12px; cursor: pointer; color: var(--ink); }
+  .abtn.pause { border-color: #eccdbd; color: var(--coral); }
+  .abtn:disabled { opacity: .55; cursor: default; }
+  .aknob { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .aknob input { width: 46px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font: inherit; font-size: 12px; text-align: center; color: var(--ink); }
+  .jsec { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 700; margin: 12px 2px 8px; }
+  .jdone { font-size: 12.5px; color: var(--muted); padding: 5px 2px; display: flex; align-items: center; gap: 8px; }
+  .jd-i { color: var(--green); font-weight: 700; }
+  .jd-i.fail { color: var(--amber); }
   .tb-sort { margin-left: auto; display: flex; gap: 5px; align-items: center; }
   .tb-sort select { border: 1px solid var(--line); border-radius: 7px; background: #fff; font: inherit; font-size: 12.5px; padding: 4px 6px; color: var(--ink); cursor: pointer; }
+  .tb-search { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 4px 9px; color: var(--muted); }
+  .tb-search input { border: none; outline: none; font: inherit; font-size: 12.5px; background: none; width: 170px; color: var(--ink); }
+  .tb-clear { border: none; background: none; cursor: pointer; color: var(--muted); font-size: 11px; }
+  .tb-clear:hover { color: var(--ink); }
+
+  /* === bulk action bar === */
+  .bulkbar { display: flex; align-items: center; gap: 8px; margin: 0 16px 8px; padding: 8px 14px; background: #eef5fb; border: 1px solid #cfe0ee; border-radius: 11px; font-size: 12.5px; }
+  .bb-n { font-weight: 700; color: var(--blue); }
+  .bb-move { position: relative; }
+  .bb-btn { border: 1px solid var(--line); background: #fff; border-radius: 7px; padding: 5px 11px; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink); cursor: pointer; }
+  .bb-btn:hover { background: var(--sand); }
+  .bb-btn.danger { color: var(--red); border-color: #eccac3; }
+  .bb-btn.danger:hover { background: #fbeeeb; }
+  .bb-btn:disabled { opacity: .5; cursor: default; }
+  .bb-pop { position: absolute; top: 110%; left: 0; z-index: 5; background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.1); padding: 5px; min-width: 160px; max-height: 240px; overflow: auto; }
+  .bb-pop button { display: block; width: 100%; text-align: left; border: none; background: none; padding: 7px 10px; border-radius: 7px; font: inherit; font-size: 12.5px; cursor: pointer; color: var(--ink); }
+  .bb-pop button:hover { background: var(--sand); }
+  .bb-clear { margin-left: auto; border: none; background: none; color: var(--muted); cursor: pointer; font: inherit; font-size: 12px; }
+  .bb-clear:hover { color: var(--ink); text-decoration: underline; }
+
+  /* === folder summary strip === */
+  .sumstrip { display: flex; align-items: center; gap: 10px; padding: 2px 22px 8px; font-size: 12px; color: #6b675e; }
+  .sumstrip b { color: var(--ink); font-weight: 700; }
+  .sumstrip i { width: 1px; height: 11px; background: var(--line); display: inline-block; }
+  .sumstrip .enr { display: flex; align-items: center; gap: 6px; color: #2f8f6a; font-weight: 600; }
+
+  /* === empty-state dropzone + drag overlay === */
+  .dropzone { margin: 16px 22px; padding: 48px 20px; border: 2px dashed #d3cdbf; border-radius: 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; color: var(--muted); cursor: pointer; background: #fdfdfb; transition: border-color .15s, background .15s; }
+  .dropzone:hover { border-color: var(--blue); background: #f5f9fc; color: var(--blue); }
+  .dz-ttl { font-size: 14px; font-weight: 600; color: var(--ink); }
+  .dz-sub { font-size: 12px; }
+  .dropmask { position: absolute; inset: 0; z-index: 20; background: rgba(63,127,176,.08); backdrop-filter: blur(1px); display: grid; place-items: center; pointer-events: none; }
+  .dropcard { background: #fff; border: 2px dashed var(--blue); border-radius: 18px; padding: 30px 44px; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--blue); box-shadow: 0 12px 40px rgba(0,0,0,.12); }
+  .dropttl { font-size: 16px; font-weight: 700; }
+  .dropsub { font-size: 12.5px; color: var(--muted); }
 
   /* === rich list === */
   .glbl { padding: 11px 16px 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
   .glbl.pad { padding: 11px 22px 6px; }
-  .list .lh, .list .lr { display: grid; grid-template-columns: 1fr 56px 56px 58px 78px 70px; align-items: center; gap: 8px; padding: 11px 16px; border-bottom: 1px solid var(--line); }
+  .list .lh, .list .lr { display: grid; grid-template-columns: 26px 1fr 56px 56px 58px 78px 70px; align-items: center; gap: 8px; padding: 11px 16px; border-bottom: 1px solid var(--line); position: relative; }
   .list .lh { color: var(--muted); font-size: 10.5px; text-transform: uppercase; font-weight: 600; }
+  .sh-col { background: none; border: none; padding: 0; font: inherit; font-size: 10.5px; text-transform: uppercase; font-weight: 600; color: var(--muted); cursor: pointer; text-align: left; }
+  .sh-col:hover { color: var(--ink); }
+  .cbcell { display: flex; align-items: center; }
+  .cbx { width: 15px; height: 15px; cursor: pointer; accent-color: var(--blue); margin: 0; }
+  .lr.checked { background: #eef5fb; }
+  .thumb { width: 26px; height: 30px; border-radius: 6px; object-fit: cover; object-position: top; border: 1px solid #dde6ee; flex: none; }
+  .row-actions { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: flex; gap: 6px; opacity: 0; transition: opacity .12s; background: linear-gradient(90deg, transparent, #fcfbf8 22%); padding-left: 28px; }
+  .lr:hover .row-actions { opacity: 1; }
+  .ra { font-size: 11.5px; font-weight: 600; border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 7px; padding: 4px 9px; cursor: pointer; }
+  .ra:hover { background: var(--hover, #f4f3f0); border-color: var(--muted); }
   .list .lr:last-child { border-bottom: none; }
   .ti { display: flex; align-items: center; gap: 9px; min-width: 0; }
   .ti .ic { width: 26px; height: 30px; border-radius: 6px; background: #eef2f6; border: 1px solid #dde6ee; flex: none; }
@@ -1281,11 +1961,17 @@
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; flex: none; }
   .dot.b { background: var(--blue); }
   .dot.f { background: var(--red); }
+  .dot.l { background: #2f8f6a; animation: dotpulse 1.2s ease-in-out infinite; }
+  @keyframes dotpulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  .pb i.lite { background: linear-gradient(90deg, #2f8f6a, #7fc9a8); }
   .lang { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 5px; justify-self: start; }
   .lang.en { background: #eaf2f8; color: var(--blue); }
   .lang.my { background: #fbf3e6; color: var(--amber); }
-  .used { color: var(--coral); font-weight: 600; }
-  .acc { color: var(--green); font-weight: 600; }
+  /* metrics = ink (data, not alarm); color reserved for status dot + brand */
+  .used { color: var(--ink); font-weight: 600; }
+  .acc { color: var(--ink); font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+  .acc .abar { width: 26px; height: 4px; border-radius: 999px; background: var(--line, #e7e3d9); overflow: hidden; flex: none; }
+  .acc .abar > i { display: block; height: 100%; background: var(--green); border-radius: 999px; }
 
   /* === cards view === */
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 12px; padding: 4px 22px 16px; }
@@ -1350,9 +2036,9 @@
   .enr .x { margin-left: auto; color: var(--muted); font-size: 11px; }
 
   /* log */
-  .log { font: 11.5px/1.7 ui-monospace, Menlo, monospace; max-height: 170px; overflow: auto; background: #fbfaf7; border-radius: 8px; padding: 8px 10px; }
+  .log { font: 11.5px/1.7 ui-monospace, Menlo, monospace; max-height: 170px; overflow: auto; background: #fbfaf7; border-radius: 8px; padding: 8px 10px; color: var(--ink, #1a1a18); }
   .ln { display: flex; gap: 8px; }
-  .ln .ts { color: #b8b2a6; flex: none; }
+  .ln .ts { color: #8a857a; flex: none; }
   .tg { font-weight: 700; flex: none; width: 56px; }
   .c-render { color: var(--violet); }
   .c-vision { color: var(--blue); }
@@ -1366,9 +2052,9 @@
   .rtab { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 11px; font: inherit; font-size: 12px; font-weight: 600; color: #4a463e; cursor: pointer; }
   .rtab:hover { background: var(--sand); }
   .rtab.on { background: var(--blue); border-color: var(--blue); color: #fff; }
-  .rcontent { font-size: 13px; }
+  .rcontent { font-size: 13px; color: var(--ink, #1a1a18); }
   .readlist { display: flex; flex-direction: column; gap: 6px; }
-  .rrow { padding: 7px 10px; background: #fbfaf7; border: 1px solid var(--line); border-radius: 8px; line-height: 1.45; }
+  .rrow { padding: 7px 10px; background: #fbfaf7; border: 1px solid var(--line); border-radius: 8px; line-height: 1.45; color: var(--ink, #1a1a18); }
   .readmd { white-space: pre-wrap; word-break: break-word; font: 12px/1.6 ui-monospace, Menlo, monospace; background: #fbfaf7; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; max-height: 60vh; overflow: auto; margin: 0; }
   .chips2 { display: flex; flex-wrap: wrap; gap: 6px; }
   .chip2 { background: #eaf2f8; color: var(--blue); border-radius: 999px; padding: 4px 11px; font-size: 12px; font-weight: 600; }
@@ -1411,6 +2097,29 @@
 
   /* ── create / share modals ── */
   .scrim { position: fixed; inset: 0; background: rgba(31, 30, 29, .32); z-index: 80; border: none; }
+
+  /* delete confirm modal (double-confirm) — literal colors: renders OUTSIDE .src-shell so scoped tokens are unavailable */
+  .delmodal { position: fixed; z-index: 81; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(460px, calc(100vw - 32px)); background: #fff; border: 1px solid #e7e3d9; border-radius: 16px; padding: 18px 20px 16px; box-shadow: 0 20px 60px rgba(0,0,0,.22); }
+  .del-head { display: flex; align-items: center; justify-content: space-between; }
+  .del-ttl { font-size: 16px; font-weight: 650; color: #1a1a18; }
+  .del-x { border: none; background: none; font-size: 14px; color: #8a857c; cursor: pointer; padding: 4px 7px; border-radius: 8px; }
+  .del-x:hover { background: #f1f0ec; }
+  .del-warn { margin: 10px 0 14px; font-size: 12.5px; line-height: 1.5; color: #c0492f; }
+  .del-card { background: #f9f9f8; border: 1px solid #e7e3d9; border-radius: 11px; padding: 11px 13px; }
+  .del-name { font-size: 13.5px; font-weight: 600; color: #1a1a18; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .del-meta { font-size: 11.5px; color: #8a857c; margin-top: 3px; line-height: 1.4; }
+  .del-also { font-size: 11.5px; color: #8a857c; margin: 12px 0 14px; line-height: 1.5; }
+  .del-lab { display: block; font-size: 12.5px; color: #1a1a18; margin-bottom: 6px; }
+  .del-lab b { font-weight: 700; }
+  .del-in { width: 100%; box-sizing: border-box; border: 1px solid #e7e3d9; border-radius: 9px; padding: 9px 11px; font: inherit; font-size: 13px; color: #1a1a18; background: #fff; outline: none; }
+  .del-in:focus { border-color: #c0492f; }
+  .del-acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; align-items: center; }
+  .del-cancel { border: 1px solid #e7e3d9; background: #fff; color: #1a1a18; font: inherit; font-weight: 600; font-size: 13px; padding: 8px 16px; border-radius: 9px; cursor: pointer; }
+  .del-cancel:hover { background: #f4f3f0; }
+  .del-go { border: none; background: #c0492f; color: #fff; font: inherit; font-weight: 600; font-size: 13px; padding: 8px 16px; border-radius: 9px; cursor: pointer; }
+  .del-go:disabled { background: #e7c3ba; color: #fff; cursor: not-allowed; }
+  .del-go:not(:disabled):hover { background: #a93e28; }
+
   .modal { position: fixed; z-index: 81; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(440px, calc(100vw - 32px)); background: var(--paper); border: 1px solid var(--line); border-radius: 16px; padding: 20px 22px 18px; }
   .modal h2 { margin: 0 0 16px; font-size: 17px; font-weight: 650; color: var(--ink); }
   .modal .row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }

@@ -38,6 +38,16 @@ services:
       # run `docker compose --profile worker up -d` so the dedicated worker ingests
       # instead, keeping heavy vision/PageIndex off the API's GIL.
       INGEST_IN_API: ${INGEST_IN_API:-1}
+      # Deferred enrichment: upload runs phase-1 only (instant answerable); the
+      # Enrichment Agent runs phase-2 in the background, ENRICH_CONCURRENCY at a time.
+      DEFER_ENRICH: ${DEFER_ENRICH:-0}
+      ENRICH_CONCURRENCY: ${ENRICH_CONCURRENCY:-2}
+      # Eval Agent: nightly offline answer-quality scoring (separate from runtime).
+      EVAL_ENABLED: ${EVAL_ENABLED:-0}
+      EVAL_HOUR: ${EVAL_HOUR:-2}
+      EVAL_CONCURRENCY: ${EVAL_CONCURRENCY:-2}
+      EVAL_QUESTIONS_PER_DOC: ${EVAL_QUESTIONS_PER_DOC:-8}
+      EVAL_JUDGE_MODEL: ${EVAL_JUDGE_MODEL:-}
       DATABASE_URL: postgresql://docsensei:docsensei@db:5432/docsensei
       DB_POOL_MIN: ${DB_POOL_MIN:-2}
       DB_POOL_MAX: ${DB_POOL_MAX:-20}
@@ -49,6 +59,7 @@ services:
       SHAREPOINT_CLIENT_SECRET: ${SHAREPOINT_CLIENT_SECRET:-}
       SHAREPOINT_SYNC_ENABLED: ${SHAREPOINT_SYNC_ENABLED:-0}
       SHAREPOINT_SYNC_INTERVAL_H: ${SHAREPOINT_SYNC_INTERVAL_H:-6}
+      CONNECTOR_SP_ENABLED: ${CONNECTOR_SP_ENABLED:-0}
       INGEST_MODEL: ${INGEST_MODEL:-openrouter/google/gemini-3.1-flash-lite}
       CHAT_MODEL: ${CHAT_MODEL:-google/gemini-3.1-flash-lite}
       API_KEY: ${API_KEY:-}
@@ -66,6 +77,9 @@ services:
       TYPE_AWARE_COMPILE: ${TYPE_AWARE_COMPILE:-1}
       ENTITY_INDEX: ${ENTITY_INDEX:-1}
       ENTITY_RETRIEVE: ${ENTITY_RETRIEVE:-1}
+      SEMANTIC_CONTRADICTION: ${SEMANTIC_CONTRADICTION:-0}
+      CONTRADICTION_MODEL: ${CONTRADICTION_MODEL:-}
+      BITEMPORAL: ${BITEMPORAL:-0}
       ENTITY_FILL_MAX: ${ENTITY_FILL_MAX:-3}
       KB_LINT: ${KB_LINT:-1}
       DOC_STALE_DAYS: ${DOC_STALE_DAYS:-365}

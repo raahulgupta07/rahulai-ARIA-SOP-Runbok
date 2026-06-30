@@ -178,6 +178,64 @@ def graph_data(limit: int = 300) -> dict:
             "edges": [{"src": e["s"], "dst": e["d"], "rel": e["rel"]} for e in edges]}
 
 
+def graph_for_pages(page_ids: list[int], hops: int = 1, limit: int = 120) -> dict:
+    """Answer-scoped entity subgraph for the Sources drawer: the REAL knowledge
+    graph (same {nodes,edges} shape as graph_data) but limited to the entities
+    mentioned in the cited pages' docs, expanded `hops` along typed entity_edge so
+    the answer's concepts show their immediate neighbourhood. Fail-soft → {}."""
+    if not page_ids:
+        return {"nodes": [], "edges": []}
+    hops = max(0, min(hops, 3))
+    try:
+        with get_conn() as c:
+            # cited pages -> their docs -> seed entities mentioned in those docs
+            seed = c.execute(
+                "SELECT DISTINCT m.entity_id FROM entity_mention m "
+                "WHERE m.doc_id IN (SELECT doc_id FROM pages WHERE id = ANY(%s))",
+                (page_ids,)).fetchall()
+            ent_ids = {r["entity_id"] for r in seed}
+            if not ent_ids:
+                return {"nodes": [], "edges": []}
+            # expand along typed edges up to `hops` (keeps the local neighbourhood)
+            frontier = set(ent_ids)
+            for _ in range(hops):
+                if not frontier:
+                    break
+                nbr = c.execute(
+                    "SELECT src_entity AS s, dst_entity AS d FROM entity_edge "
+                    "WHERE src_entity = ANY(%s) OR dst_entity = ANY(%s)",
+                    (list(frontier), list(frontier))).fetchall()
+                new = {r["s"] for r in nbr} | {r["d"] for r in nbr}
+                frontier = new - ent_ids
+                ent_ids |= new
+                if len(ent_ids) >= limit:
+                    break
+            # cap for drawer readability, but ALWAYS keep the seed entities
+            seedset = {r["entity_id"] for r in seed}
+            if len(ent_ids) > limit:
+                keep = list(seedset)[:limit]
+                for e in ent_ids:
+                    if len(keep) >= limit:
+                        break
+                    if e not in seedset:
+                        keep.append(e)
+                ent_ids = set(keep)
+            edges = c.execute(
+                "SELECT src_entity AS s, dst_entity AS d, rel FROM entity_edge "
+                "WHERE src_entity = ANY(%s) AND dst_entity = ANY(%s)",
+                (list(ent_ids), list(ent_ids))).fetchall()
+            nodes = c.execute(
+                "SELECT e.id, e.name, e.kind, "
+                "(SELECT count(*) FROM entity_mention m WHERE m.entity_id=e.id) AS docs "
+                "FROM entities e WHERE e.id = ANY(%s)", (list(ent_ids),)).fetchall()
+        seedset = {r["entity_id"] for r in seed}
+        return {"nodes": [{**dict(n), "seed": n["id"] in seedset} for n in nodes],
+                "edges": [{"src": e["s"], "dst": e["d"], "rel": e["rel"]} for e in edges]}
+    except Exception as e:
+        print(f"[graphrag] graph_for_pages failed (non-fatal): {e!r}")
+        return {"nodes": [], "edges": []}
+
+
 # ───────────────────────── #3 entity profile ─────────────────────────
 def resolve_entity(name: str) -> int | None:
     if not name:

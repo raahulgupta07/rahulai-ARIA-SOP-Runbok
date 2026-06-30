@@ -251,7 +251,7 @@ def search_pages(query: str, k: int | None = None,
             WHERE p.text ILIKE '%%' || term || '%%') AS hits
     FROM pages p JOIN docs d ON d.id = p.doc_id
          LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no, q
-    WHERE d.status = 'ready' AND (
+    WHERE d.status IN ('ready','ready_lite') AND (
           p.tsv @@ q.tsq
        OR p.text ILIKE ANY (SELECT '%%' || t || '%%' FROM unnest(%(ilike)s::text[]) t)
        OR EXISTS (SELECT 1 FROM nodes n WHERE n.doc_id = p.doc_id
@@ -297,7 +297,7 @@ def search_pages(query: str, k: int | None = None,
                 "m.md AS page_md "
                 "FROM pages p JOIN docs d ON d.id = p.doc_id "
                 "LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no "
-                "WHERE p.doc_id = (SELECT max(id) FROM docs dd WHERE status='ready' "
+                "WHERE p.doc_id = (SELECT max(id) FROM docs dd WHERE status IN ('ready','ready_lite') "
                 "  AND (%(sectors)s::bigint[] IS NULL OR dd.sector_id = ANY(%(sectors)s))) "
                 + _SEC +
                 "ORDER BY p.page_no LIMIT %(k)s",
@@ -388,7 +388,7 @@ def search_pages(query: str, k: int | None = None,
                         "m.md AS page_md "
                         "FROM pages p JOIN docs d ON d.id = p.doc_id "
                         "LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no, q "
-                        "WHERE d.status = 'ready' AND p.doc_id = ANY(%(docs)s) " + _SEC +
+                        "WHERE d.status IN ('ready','ready_lite') AND p.doc_id = ANY(%(docs)s) " + _SEC +
                         "ORDER BY p.doc_id, (ts_rank(p.tsv, q.tsq) + "
                         "0.3 * similarity(left(p.text,2000), %(raw)s)) DESC, p.page_no",
                         {"tsq": tsq, "raw": raw, "docs": cand, "sectors": sectors, "folders": folders},
@@ -422,7 +422,7 @@ def search_pages(query: str, k: int | None = None,
                             "m.md AS page_md "
                             "FROM pages p JOIN docs d ON d.id = p.doc_id "
                             "LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no, q "
-                            "WHERE d.status = 'ready' AND p.doc_id = ANY(%(docs)s) " + _SEC +
+                            "WHERE d.status IN ('ready','ready_lite') AND p.doc_id = ANY(%(docs)s) " + _SEC +
                             "ORDER BY p.doc_id, (ts_rank(p.tsv, q.tsq) + "
                             "0.3 * similarity(left(p.text,2000), %(raw)s)) DESC, p.page_no",
                             {"tsq": tsq, "raw": raw, "docs": nbr, "sectors": sectors, "folders": folders}).fetchall()

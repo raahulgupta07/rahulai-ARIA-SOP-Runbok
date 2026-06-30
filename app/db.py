@@ -633,6 +633,56 @@ CREATE TABLE IF NOT EXISTS kb_conflict (
 );
 CREATE INDEX IF NOT EXISTS idx_kb_conflict_status ON kb_conflict(status);
 
+-- ---- Phase 1 (Karpathy wiki): atomic claims extracted per doc ----
+-- One row per asserted fact: <entity> <attribute> = <value> at a page. The
+-- contradiction pass matches new claims against existing ones on (entity_key,
+-- attribute) and LLM-confirms real value conflicts.
+CREATE TABLE IF NOT EXISTS doc_claims (
+    id          BIGSERIAL PRIMARY KEY,
+    doc_id      BIGINT REFERENCES docs(id) ON DELETE CASCADE,
+    page_no     INT,
+    page_id     BIGINT,
+    entity      TEXT NOT NULL,        -- display form, e.g. "Access"
+    entity_key  TEXT NOT NULL,        -- normalized (lower, ws-collapsed) for matching
+    attribute   TEXT NOT NULL,        -- value | threshold | setting | code | path | ...
+    value       TEXT NOT NULL,        -- the asserted value, e.g. "2"
+    raw         TEXT,                 -- source sentence/snippet for provenance
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_doc_claims_match ON doc_claims(entity_key, attribute);
+CREATE INDEX IF NOT EXISTS idx_doc_claims_doc ON doc_claims(doc_id);
+
+-- Phase 2 (temporal): bi-temporal supersession. A claim is "live" until a conflict
+-- is resolved against it — then superseded_at is stamped (invalidate, don't delete),
+-- so history stays queryable ("what was the rule before the change").
+ALTER TABLE doc_claims ADD COLUMN IF NOT EXISTS valid_from TIMESTAMPTZ DEFAULT now();
+ALTER TABLE doc_claims ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMPTZ;
+ALTER TABLE doc_claims ADD COLUMN IF NOT EXISTS superseded_by_doc BIGINT;
+ALTER TABLE doc_claims ADD COLUMN IF NOT EXISTS supersede_reason TEXT;
+
+-- ---- Phase 1: semantic contradictions between a NEW doc and EXISTING docs ----
+CREATE TABLE IF NOT EXISTS claim_conflict (
+    id          BIGSERIAL PRIMARY KEY,
+    entity      TEXT NOT NULL,
+    entity_key  TEXT NOT NULL,
+    attribute   TEXT NOT NULL,
+    doc_a       BIGINT,               -- the NEW doc
+    page_a      INT,
+    value_a     TEXT,
+    claim_a     BIGINT,               -- doc_claims id (new)
+    doc_b       BIGINT,               -- the EXISTING doc
+    page_b      INT,
+    value_b     TEXT,
+    claim_b     BIGINT,               -- doc_claims id (existing)
+    severity    TEXT,                 -- value_mismatch | ...
+    detail      TEXT,                 -- LLM one-line explanation
+    status      TEXT NOT NULL DEFAULT 'pending',  -- pending|kept_new|kept_old|both|dismissed
+    resolved_by TEXT,
+    resolved_at TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_claim_conflict_status ON claim_conflict(status);
+
 -- ---- procedure chaining (Phase 5): doc A must be done before doc B ----
 CREATE TABLE IF NOT EXISTS doc_dependency (
     id          BIGSERIAL PRIMARY KEY,
@@ -685,6 +735,81 @@ CREATE TABLE IF NOT EXISTS ingest_log (
     step   TEXT,
     msg    TEXT,
     level  TEXT DEFAULT 'info'
+);
+
+-- ============================================================================
+-- Eval Agent (app/eval_agent.py) — offline answer-quality scoring.
+-- Golden questions per doc, LLM-judged, rolled up into per-doc health.
+-- ============================================================================
+
+-- golden questions for a doc. kind: positive (answer is in doc) | negative
+-- (NOT in doc → agent must refuse) | adversarial (false premise → must correct).
+-- source: auto (LLM-generated at first eval) | human (curated).
+CREATE TABLE IF NOT EXISTS eval_question (
+    id           BIGSERIAL PRIMARY KEY,
+    doc_id       BIGINT REFERENCES docs(id) ON DELETE CASCADE,
+    question     TEXT NOT NULL,
+    expected     TEXT,                       -- expected answer (positive) / expected behaviour (neg/adv)
+    kind         TEXT NOT NULL DEFAULT 'positive',
+    source       TEXT NOT NULL DEFAULT 'auto',
+    active       BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at   TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_evalq_doc ON eval_question(doc_id) WHERE active;
+
+-- one row per eval pass (nightly or forced). Scopes a run's results together.
+CREATE TABLE IF NOT EXISTS eval_run (
+    id           BIGSERIAL PRIMARY KEY,
+    trigger      TEXT NOT NULL DEFAULT 'nightly',   -- nightly | manual
+    judge_model  TEXT,
+    status       TEXT NOT NULL DEFAULT 'running',   -- running | done | failed
+    n_docs       INT DEFAULT 0,
+    n_total      INT DEFAULT 0,
+    n_pass       INT DEFAULT 0,
+    n_fail       INT DEFAULT 0,
+    n_partial    INT DEFAULT 0,
+    score_pct    REAL,
+    started_at   TIMESTAMPTZ DEFAULT now(),
+    finished_at  TIMESTAMPTZ
+);
+
+-- one row per (run, question): what the agent answered + how the judge scored it.
+CREATE TABLE IF NOT EXISTS eval_result (
+    id            BIGSERIAL PRIMARY KEY,
+    run_id        BIGINT REFERENCES eval_run(id) ON DELETE CASCADE,
+    doc_id        BIGINT,
+    question_id   BIGINT,
+    question      TEXT,
+    kind          TEXT,
+    expected      TEXT,
+    got           TEXT,                       -- agent's actual answer
+    verdict       TEXT,                       -- pass | partial | fail
+    judge_score   REAL,                       -- 0..1
+    judge_reason  TEXT,
+    grounded      BOOLEAN,                    -- answer claims found in retrieved pages
+    refused       BOOLEAN,                    -- agent said "not in doc"
+    retrieved_n   INT,                        -- # pages retrieved for this Q
+    created_at    TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_evalr_run ON eval_result(run_id);
+CREATE INDEX IF NOT EXISTS idx_evalr_doc ON eval_result(doc_id);
+
+-- rolling per-doc health, upserted after each doc is scored. Dashboard reads THIS.
+CREATE TABLE IF NOT EXISTS doc_health (
+    doc_id        BIGINT PRIMARY KEY REFERENCES docs(id) ON DELETE CASCADE,
+    last_run_id   BIGINT,
+    score_pct     REAL,
+    prev_score    REAL,                       -- previous run's score (for delta)
+    n_total       INT DEFAULT 0,
+    n_pass        INT DEFAULT 0,
+    n_fail        INT DEFAULT 0,
+    n_partial     INT DEFAULT 0,
+    grounded_pct  REAL,
+    halluc_count  INT DEFAULT 0,              -- negatives the agent answered (should've refused)
+    neg_total     INT DEFAULT 0,
+    neg_caught    INT DEFAULT 0,
+    needs_review  BOOLEAN DEFAULT FALSE,
+    evaluated_at  TIMESTAMPTZ
 );
 
 -- ---- usage analytics rollup (per user, per day) — scale to 10k+ users ----

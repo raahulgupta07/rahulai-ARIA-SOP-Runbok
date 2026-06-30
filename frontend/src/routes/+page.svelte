@@ -6,6 +6,7 @@
   import Lightbox from '$lib/Lightbox.svelte';
   import Burst from '$lib/Burst.svelte';
   import BrainGraph from '$lib/BrainGraph.svelte';
+  import KgMini from '$lib/KgMini.svelte';
   import { pickNode } from '$lib/dashutil';
   import { parseDocName } from '$lib/docname';
   import { convs, activeConvId, newChatSignal, reloadConvs } from '$lib/chatstore';
@@ -16,7 +17,7 @@
 
   type Src = { page_id: number; doc_id?: number; doc_name: string; page_no: number; image_url: string; has_image?: boolean };
   type Step = { label: string; detail?: string; state?: string };
-  type Msg = { role: 'user' | 'bot'; text: string; pages?: Src[]; loading?: boolean; follows?: string[]; steps?: Step[]; thinking?: boolean; stepsOpen?: boolean; stopped?: boolean; vote?: 'up' | 'down'; copied?: boolean; shared?: boolean; streaming?: boolean; t0?: number; thoughtMs?: number; q?: string; blind?: boolean; nearest?: string | null; related?: any[]; messageId?: number; tokens?: { in: number; out: number; total: number }; cost?: number; grounded?: boolean; citedN?: number; accuracy?: number | null; checking?: boolean; servedQaId?: number | null };
+  type Msg = { role: 'user' | 'bot'; text: string; pages?: Src[]; loading?: boolean; follows?: string[]; steps?: Step[]; thinking?: boolean; stepsOpen?: boolean; stopped?: boolean; vote?: 'up' | 'down'; copied?: boolean; shared?: boolean; streaming?: boolean; t0?: number; thoughtMs?: number; q?: string; blind?: boolean; nearest?: string | null; related?: any[]; messageId?: number; tokens?: { in: number; out: number; total: number }; cost?: number; grounded?: boolean; citedN?: number; accuracy?: number | null; checking?: boolean; servedQaId?: number | null; citations?: boolean };
   type Conv = { id: number; title: string; updated_at: string };
 
   let activeId = $state<number | null>(null);
@@ -126,6 +127,7 @@
         m.tokens = obj.tokens;
         m.cost = obj.cost;
         m.grounded = !!obj.grounded;
+        m.citations = obj.citations !== false;     // per-deployment citation toggle
         m.servedQaId = obj.served_qa_id ?? null;   // set when answer came from Q&A cache
         m.citedN = obj.cited_n ?? (obj.pages || []).length;
         messages = messages;
@@ -330,6 +332,7 @@
   let sourcesDrawer = $state<{ groups: SrcGroup[] } | null>(null);
   let sourcesBusy = $state(false);
   let provGraph = $state<any>(null);   // provenance mini-map for the sources drawer
+  let kgGraph = $state<any>(null);     // real answer-scoped entity subgraph (preferred)
   let sourcesFocus = $state<number | null>(null);
   async function openSourcesSummary(m: Msg, focusPid?: number) {
     if (!m.pages || !m.pages.length) return;
@@ -338,7 +341,10 @@
     sourcesBusy = true;
     sourcesDrawer = { groups: [] };
     provGraph = null;
+    kgGraph = null;
     sourcesFocus = focusPid ?? null;
+    // real entity subgraph first; provenance graph is the fallback when no entities
+    api.answerKg(pids).then((g: any) => { if (g.nodes?.length) kgGraph = g; }).catch(() => {});
     api.answerGraph(pids).then((g: any) => { if (g.nodes?.length) provGraph = g; }).catch(() => {});
     try {
       const r = await fetch(`${api.base}/answer/sources?ids=${encodeURIComponent(ids)}`, { headers: authHeaders() });
@@ -351,7 +357,7 @@
       sourcesBusy = false;
     }
   }
-  function closeSourcesSummary() { sourcesDrawer = null; provGraph = null; }
+  function closeSourcesSummary() { sourcesDrawer = null; provGraph = null; kgGraph = null; }
   // open the existing single-page viewer for a group's pages, focused on page_no
   function openGroupPage(g: SrcGroup, page_no: number) {
     const list: Src[] = g.pages.map((p) => ({
@@ -536,7 +542,12 @@
     </div>
 
     <div class="ssbody">
-      {#if provGraph && provGraph.nodes?.length}
+      {#if kgGraph && kgGraph.nodes?.length}
+        <div class="mb-3">
+          <div class="text-[10.5px] uppercase tracking-wide mb-1.5" style="color:var(--muted)">How this answer connects</div>
+          <KgMini data={kgGraph} height={220} onpick={() => goto('/workspace')} />
+        </div>
+      {:else if provGraph && provGraph.nodes?.length}
         <div class="mb-3">
           <div class="text-[10.5px] uppercase tracking-wide mb-1.5" style="color:var(--muted)">How this answer connects</div>
           <div style="height:200px; border-radius:12px; overflow:hidden">
@@ -726,25 +737,21 @@
                     </div>
                   {/if}
                   {#if m.pages && m.pages.length}
-                    <div class="srccard mt-4">
-                      <div class="srccard-h">
-                        <span class="srccard-ttl">{m.pages.length} source{m.pages.length === 1 ? '' : 's'}</span>
-                        <button class="srccard-all" onclick={() => openSourcesSummary(m)}>View all →</button>
-                      </div>
-                      <div class="srccard-list">
-                        {#each m.pages.slice(0, 4) as p, i}
-                          <button class="srcchip2" onclick={() => openSourcesSummary(m, p.page_id)} title="{shortDoc(p.doc_name)} · page {p.page_no}">
-                            <span class="srcchip2-n">{i + 1}</span>
-                            <span class="srcchip2-meta">
-                              <span class="srcchip2-doc">{shortDoc(p.doc_name)}</span>
-                              <span class="srcchip2-pg">page {p.page_no}</span>
-                            </span>
-                          </button>
+                    <!-- Perplexity-style overlapping source circles → drawer -->
+                    <div class="srcstack mt-4" role="button" tabindex="0" title="View sources"
+                      onclick={() => openSourcesSummary(m)}
+                      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSourcesSummary(m); } }}>
+                      <span class="srcstack-circles">
+                        {#each m.pages.slice(0, 5) as p, i}
+                          <span class="srccirc" style="z-index:{10 - i}"
+                            title="{shortDoc(p.doc_name)} · page {p.page_no}">{i + 1}</span>
                         {/each}
-                        {#if m.pages.length > 4}
-                          <button class="srcchip2 more" onclick={() => openSourcesSummary(m)}>+{m.pages.length - 4} more</button>
+                        {#if m.pages.length > 5}
+                          <span class="srccirc more" style="z-index:1">+{m.pages.length - 5}</span>
                         {/if}
-                      </div>
+                      </span>
+                      <span class="srcstack-lab">{m.pages.length} source{m.pages.length === 1 ? '' : 's'}</span>
+                      <svg class="srcstack-arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
                     </div>
                   {/if}
 
@@ -784,13 +791,15 @@
                         {#if !m.streaming && m.tokens}<span class="dot">·</span><span class="tnum" title="prompt {m.tokens.in} + output {m.tokens.out}">{fmtTokens(m.tokens.total)} tokens</span>{/if}
                         {#if !m.streaming && m.cost != null}<span class="dot">·</span><span class="tnum">${m.cost.toFixed(4)}</span>{/if}
                         {#if !m.streaming && m.thoughtMs}<span class="dot">·</span><span class="tnum">{(m.thoughtMs / 1000).toFixed(1)}s</span>{/if}
-                        {#if !m.streaming && m.text && !m.grounded}<span class="dot">·</span><span class="unsourced">unsourced</span>{/if}
-                        {#if !m.streaming && m.accuracy != null}
-                          <span class="dot">·</span>
-                          <span class="acc-chip" style="background:{m.accuracy >= 80 ? '#e8f3ec' : m.accuracy >= 60 ? '#fbf1df' : '#fbe9e6'}; color:{m.accuracy >= 80 ? '#3f8f5f' : m.accuracy >= 60 ? '#a9742a' : '#c0492f'}" title="share of cited pages that actually back the answer">{m.accuracy}% accurate</span>
-                        {:else if !m.streaming && m.messageId && m.grounded}
-                          <span class="dot">·</span>
-                          <button class="acc-link" disabled={m.checking} onclick={() => checkAccuracy(m)}>{m.checking ? 'checking…' : 'check accuracy'}</button>
+                        {#if m.citations !== false}
+                          {#if !m.streaming && m.text && !m.grounded}<span class="dot">·</span><span class="unsourced">unsourced</span>{/if}
+                          {#if !m.streaming && m.accuracy != null}
+                            <span class="dot">·</span>
+                            <span class="acc-chip" style="background:{m.accuracy >= 80 ? '#e8f3ec' : m.accuracy >= 60 ? '#fbf1df' : '#fbe9e6'}; color:{m.accuracy >= 80 ? '#3f8f5f' : m.accuracy >= 60 ? '#a9742a' : '#c0492f'}" title="share of cited pages that actually back the answer">{m.accuracy}% accurate</span>
+                          {:else if !m.streaming && m.messageId && m.grounded}
+                            <span class="dot">·</span>
+                            <button class="acc-link" disabled={m.checking} onclick={() => checkAccuracy(m)}>{m.checking ? 'checking…' : 'check accuracy'}</button>
+                          {/if}
                         {/if}
                       </div>
                     </div>
@@ -928,7 +937,30 @@
     overflow-wrap: anywhere;
   }
 
-  /* source strip → one tidy card with document chips */
+  /* Perplexity-style overlapping source circles */
+  .srcstack {
+    display: inline-flex; align-items: center; gap: 9px;
+    padding: 5px 13px 5px 9px; border: 1px solid var(--border);
+    border-radius: 999px; background: #fff; cursor: pointer;
+    transition: border-color .14s, box-shadow .14s, transform .12s;
+  }
+  .srcstack:hover { border-color: #d9c3b6; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+  .srcstack-circles { display: flex; align-items: center; }
+  .srccirc {
+    width: 25px; height: 25px; border-radius: 50%; display: grid; place-items: center;
+    font-size: 10.5px; font-weight: 700; color: #fff;
+    background: linear-gradient(135deg, var(--brand, #d97757), #e0a183);
+    border: 2px solid #fff; margin-left: -9px; transition: transform .12s, box-shadow .12s;
+  }
+  .srccirc:first-child { margin-left: 0; }
+  .srccirc.more { background: #efece6; color: #6b675e; }
+  .srcstack:hover .srccirc { transform: translateY(-1px); }
+  .srccirc:hover { transform: translateY(-3px); box-shadow: 0 3px 8px rgba(0,0,0,.18); z-index: 20; }
+  .srcstack-lab { font-size: 12.5px; color: #5a554c; font-weight: 600; }
+  .srcstack-arrow { color: var(--muted); flex: none; }
+  .srcstack:hover .srcstack-arrow { color: var(--clay); }
+
+  /* source strip → one tidy card with document chips (legacy, kept for ref) */
   .srccard {
     border: 1px solid var(--border);
     border-radius: 12px;

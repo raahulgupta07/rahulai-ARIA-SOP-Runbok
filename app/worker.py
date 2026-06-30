@@ -44,15 +44,21 @@ def _claim() -> dict | None:
 
 def _resolve_src(row: dict):
     """Locate the source file for a claimed doc. Prefer the storage inbox key;
+    if the doc already ingested once its file was moved inbox→processed, so also
+    check there (makes retry / boot-sweep resume work on completed docs); finally
     fall back to the legacy uploads dir by filename."""
+    from pathlib import Path
+    from .config import PROCESSED_DIR
+
     key = row.get("storage_key")
     if key:
         p = storage.inbox_path(key)
         if p.exists():
             return p
+        moved = Path(PROCESSED_DIR) / key      # ingest succeeded before → file moved here
+        if moved.exists():
+            return moved
     # legacy / synchronous uploads
-    from pathlib import Path
-
     legacy = Path(UPLOADS_DIR) / (row.get("name") or "")
     return legacy
 
@@ -67,7 +73,14 @@ def _run_one(row: dict) -> None:
     try:
         if not src or not src.exists():
             raise FileNotFoundError(f"source file missing for doc {doc_id}: {src}")
-        process_doc(doc_id, src, name, should_cancel=should_cancel)
+        from .config import DEFER_ENRICH
+        res = process_doc(doc_id, src, name, should_cancel=should_cancel, defer_enrich=DEFER_ENRICH)
+        if res and res.get("deferred"):
+            # phase-1 only: leave it 'ready_lite' (answerable). The Enrichment Agent
+            # runs phase-2 and flips it to 'ready'. Don't move the source out yet —
+            # the agent needs it; it gets moved when enrichment completes.
+            print(f"[worker] doc {doc_id} answerable · handed to Enrichment Agent · {name}")
+            return
         with get_conn() as conn:
             conn.execute(
                 "UPDATE docs SET status = 'ready', progress = 100, "
@@ -95,18 +108,40 @@ def _run_one(row: dict) -> None:
     except Exception as e:
         msg = f"{type(e).__name__}: {e}"
         print(f"[worker] doc {doc_id} FAILED: {msg}\n{traceback.format_exc()}")
-        log_ingest(doc_id, "failed", f"✗ failed: {msg[:160]}", level="error")
-        try:
-            from .ingest import _log_event
-            _log_event(doc_id, "failed", f"ingest failed: {msg[:300]}")
-        except Exception:
-            pass
+        # Two-phase ingest: if PHASE 1 already landed text pages (doc reached
+        # 'ready_lite' = answerable), a PHASE 2 failure (vision/compile/enrichers)
+        # must NOT nuke a usable doc. Keep it 'ready' (text-only) + note the error.
         with get_conn() as conn:
-            conn.execute(
-                "UPDATE docs SET status = 'failed', error = %s, updated_at = now() WHERE id = %s",
-                (msg[:500], doc_id),
-            )
-        _move(row, "failed")
+            npg = conn.execute(
+                "SELECT count(*) AS n FROM pages WHERE doc_id = %s", (doc_id,)
+            ).fetchone()["n"]
+        if npg > 0:
+            log_ingest(doc_id, "ready", "✓ text-usable (enrichment incomplete)", level="warn")
+            try:
+                from .ingest import _log_event
+                _log_event(doc_id, "ready", f"enrichment incomplete: {msg[:300]}")
+            except Exception:
+                pass
+            with get_conn() as conn:
+                conn.execute(
+                    "UPDATE docs SET status = 'ready', progress = 100, "
+                    "error = %s, ready_at = %s, updated_at = now() WHERE id = %s",
+                    (f"enrichment incomplete: {msg[:400]}", _now(), doc_id),
+                )
+            _move(row, "processed")
+        else:
+            log_ingest(doc_id, "failed", f"✗ failed: {msg[:160]}", level="error")
+            try:
+                from .ingest import _log_event
+                _log_event(doc_id, "failed", f"ingest failed: {msg[:300]}")
+            except Exception:
+                pass
+            with get_conn() as conn:
+                conn.execute(
+                    "UPDATE docs SET status = 'failed', error = %s, updated_at = now() WHERE id = %s",
+                    (msg[:500], doc_id),
+                )
+            _move(row, "failed")
     finally:
         kill.clear_doc(doc_id)
 
@@ -141,12 +176,24 @@ def _loop(idx: int) -> None:
 
 
 def boot_sweep() -> None:
-    """Requeue docs left 'processing' by a worker that died mid-job."""
+    """Requeue docs orphaned by a worker/API that died mid-job. Two cases:
+      • 'processing'  — phase 1 was interrupted.
+      • 'ready_lite'  — phase 1 finished (doc is answerable) but phase 2
+        (vision/compile/enrichers) was interrupted by a restart and nothing
+        is carrying it across the process boundary, so it would hang forever.
+    process_doc is rerun-safe (it DELETEs pages/nodes before each phase), so a
+    requeue cleanly re-runs from the top. A genuinely-failed phase 2 is marked
+    'ready' (not 'ready_lite') by _loop's except handler, so it's never swept."""
+    from .config import DEFER_ENRICH
+    # In deferred mode 'ready_lite' is a valid resting state (answerable, awaiting
+    # the Enrichment Agent) — don't requeue those, the agent owns them. Only sweep
+    # 'processing' orphans. In classic mode sweep both.
+    statuses = "('processing')" if DEFER_ENRICH else "('processing', 'ready_lite')"
     try:
         with get_conn() as conn:
             n = conn.execute(
-                "UPDATE docs SET status = 'queued', progress = 0, pages_done = 0 "
-                "WHERE status = 'processing'"
+                f"UPDATE docs SET status = 'queued', progress = 0, pages_done = 0 "
+                f"WHERE status IN {statuses}"
             ).rowcount
         if n:
             print(f"[worker] boot sweep requeued {n} stuck doc(s)")

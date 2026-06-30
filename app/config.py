@@ -18,6 +18,30 @@ API_KEY = os.getenv("API_KEY", "")  # if set, required via X-API-Key header
 # never share the API's GIL → uploads + HTTP stay snappy). Default 1 = single-container.
 INGEST_IN_API = os.getenv("INGEST_IN_API", "1") == "1"
 
+# DEFER_ENRICH: split ingest into two lanes. The upload worker runs only PHASE 1
+# (render + text → answerable in seconds), then the Enrichment Agent daemon
+# (app/enrich_agent.py) claims the 'ready_lite' doc later and runs PHASE 2
+# (vision/tree/compile/enrichers), throttled to ENRICH_CONCURRENCY at a time.
+# Default 0 = classic inline (phase 1 + 2 in one go).
+DEFER_ENRICH = os.getenv("DEFER_ENRICH", "0") == "1"
+ENRICH_CONCURRENCY = max(1, int(os.getenv("ENRICH_CONCURRENCY", "2")))
+ENRICH_POLL_SECONDS = float(os.getenv("ENRICH_POLL_SECONDS", "3"))
+
+# ── Eval Agent (app/eval_agent.py) ──────────────────────────────────────────────
+# Offline answer-quality scoring. Runs as a background daemon, separate from
+# upload/answer — NO runtime cost. Each 'ready' doc gets golden questions
+# (positive = answer-from-doc, negative = should-refuse, adversarial = false-premise),
+# the agent answers them, an LLM judge grades each → per-doc score + corpus health.
+# Triggered nightly at EVAL_HOUR (server local time) and on-demand (force "Run now").
+EVAL_ENABLED = os.getenv("EVAL_ENABLED", "0") == "1"
+EVAL_HOUR = max(0, min(23, int(os.getenv("EVAL_HOUR", "2"))))         # nightly run hour, 0-23
+EVAL_CONCURRENCY = max(1, int(os.getenv("EVAL_CONCURRENCY", "2")))    # docs scored in parallel
+EVAL_POLL_SECONDS = float(os.getenv("EVAL_POLL_SECONDS", "30"))       # clock-check cadence
+EVAL_QUESTIONS_PER_DOC = max(2, int(os.getenv("EVAL_QUESTIONS_PER_DOC", "8")))  # golden Qs auto-gen
+# Judge / question-gen model. Empty → falls back to CHAT_MODEL (the valid live
+# chat model). Use a cheap fast model here (judging is high-volume).
+EVAL_JUDGE_MODEL = os.getenv("EVAL_JUDGE_MODEL", "")
+
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "postgresql://docsensei:docsensei@localhost:5436/docsensei",
@@ -83,6 +107,18 @@ TYPE_AWARE_COMPILE = os.getenv("TYPE_AWARE_COMPILE", "1") == "1"
 # ENTITY_INDEX: at ingest, extract recurring entities (codes/menus/systems/screens)
 #   into the cross-doc entity index. Phase 3.
 ENTITY_INDEX = os.getenv("ENTITY_INDEX", "1") == "1"
+# SEMANTIC_CONTRADICTION (Karpathy-wiki Phase 1): at ingest, extract atomic claims
+#   and LLM-compare each against existing shared-entity claims → real value
+#   conflicts go to a review queue (claim_conflict). Default OFF.
+SEMANTIC_CONTRADICTION = os.getenv("SEMANTIC_CONTRADICTION", "0") == "1"
+# BITEMPORAL (Phase 2): resolving a contradiction supersedes the losing claim
+#   (invalidate-don't-delete) and promotes the winning value to an active fact so
+#   answers follow the decision. Default OFF.
+BITEMPORAL = os.getenv("BITEMPORAL", "0") == "1"
+# leave empty by default → contradiction._model() falls back to COMPILE_MODEL/
+# CHAT_MODEL (the valid live chat model). Do NOT default to INGEST_MODEL — it can
+# carry an 'openrouter/…' prefix the chat client rejects.
+CONTRADICTION_MODEL = os.getenv("CONTRADICTION_MODEL", "")
 # ENTITY_RETRIEVE: expand retrieval across docs that share an entity named in the
 #   question (cross-doc recall). ENTITY_FILL_MAX caps the extra pages pulled in.
 ENTITY_RETRIEVE = os.getenv("ENTITY_RETRIEVE", "1") == "1"
@@ -211,6 +247,10 @@ EMBED_PRUNE_ENABLED = os.getenv("EMBED_PRUNE_ENABLED", "0") == "1"
 EMBED_VISITOR_TTL_DAYS = int(os.getenv("EMBED_VISITOR_TTL_DAYS", "90"))
 EMBED_EVENT_TTL_DAYS = int(os.getenv("EMBED_EVENT_TTL_DAYS", "60"))
 EMBED_PRUNE_INTERVAL_H = int(os.getenv("EMBED_PRUNE_INTERVAL_H", "24"))
+
+# ---- unified SharePoint connector (push / device-code / app-only) ----
+# Gates the connector daemon. Default OFF; turn on in dev/.env.
+CONNECTOR_SP_ENABLED = os.getenv("CONNECTOR_SP_ENABLED", "0") == "1"
 
 _DEFAULT_SECRET = "dev-docsensei-change-me"
 

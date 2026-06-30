@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Deferred Enrichment Agent — flow mockup</title>
+<style>
+  :root{
+    --cream:#ffffff; --paper:#fff; --sand:#f9f9f8; --ink:#1a1a18; --muted:#8b8b85;
+    --line:#e7e3d9; --coral:#d97757; --green:#3f8f5f; --amber:#c98a2e; --blue:#3f7fb0; --red:#c0492f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--sand);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:26px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 22px}
+  .grid{display:grid;gap:18px;max-width:1100px}
+  .card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:18px 20px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 14px}
+  /* lane diagram */
+  .lanes{display:grid;grid-template-columns:1fr;gap:14px}
+  .lane{border:1px solid var(--line);border-radius:13px;padding:14px 16px;position:relative;background:#fff}
+  .lane.fast{border-color:#cfe6d6;background:linear-gradient(0deg,#f5fbf7,#fff)}
+  .lane.agent{border-color:#eccdbd;background:linear-gradient(0deg,#fdf6f1,#fff)}
+  .lane .tag{position:absolute;top:-10px;left:14px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:7px;background:#fff;border:1px solid var(--line)}
+  .lane.fast .tag{color:var(--green);border-color:#cfe6d6}
+  .lane.agent .tag{color:var(--coral);border-color:#eccdbd}
+  .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .step{display:flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--line);border-radius:9px;padding:7px 11px;font-size:12.5px;font-weight:600}
+  .step .ico{width:18px;height:18px;display:grid;place-items:center;border-radius:5px;background:#f3efe6;font-size:12px}
+  .step.done .ico{background:#e6f3ec;color:var(--green)}
+  .step.run .ico{background:#fbeee7;color:var(--coral)}
+  .step.wait{color:var(--muted)}
+  .arr{color:var(--muted);font-weight:700}
+  .ms{font-size:11px;color:var(--muted);font-weight:600;margin-left:4px}
+  .pill{font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px}
+  .pill.lite{background:#e6f3ec;color:var(--green)}
+  .pill.enrich{background:#fbeee7;color:var(--coral)}
+  .pill.ready{background:#eef2f6;color:var(--blue)}
+  /* doc list mock */
+  .doc{display:flex;align-items:center;gap:12px;padding:11px 12px;border:1px solid var(--line);border-radius:12px;margin-bottom:9px}
+  .doc .thumb{width:30px;height:36px;border-radius:6px;background:#eef2f6;border:1px solid #dde6ee;flex:none}
+  .doc .n{font-weight:600}
+  .doc .meta{font-size:11.5px;color:var(--muted)}
+  .bar{height:5px;border-radius:999px;background:#efece4;overflow:hidden;margin-top:6px;width:220px}
+  .bar>i{display:block;height:100%;border-radius:999px}
+  .bar>i.lite{background:linear-gradient(90deg,#2f8f6a,#7fc9a8)}
+  .bar>i.full{background:var(--coral)}
+  .spacer{flex:1}
+  .ask{font-size:11.5px;font-weight:600;border:1px solid var(--line);background:#fff;border-radius:7px;padding:4px 10px;color:var(--ink)}
+  /* agent panel */
+  .agentpanel{display:grid;grid-template-columns:1fr;gap:10px}
+  .ap-head{display:flex;align-items:center;gap:9px}
+  .ap-dot{width:9px;height:9px;border-radius:50%;background:var(--coral);animation:pulse 1.2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  .ap-job{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:11px;padding:10px 12px}
+  .ap-job .jn{font-weight:600;font-size:13px}
+  .ap-job .js{font-size:11.5px;color:var(--muted)}
+  .knobs{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .knob{border:1px solid var(--line);border-radius:11px;padding:11px 13px;background:var(--sand)}
+  .knob .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:700}
+  .knob .v{font-size:18px;font-weight:700;margin-top:3px}
+  .knob .h{font-size:11px;color:var(--muted);margin-top:2px}
+  .note{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.55}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:6px}
+  .legend b{color:var(--ink)}
+  .t{display:flex;align-items:center;gap:8px;margin:2px 0}
+  .t .dotg{width:8px;height:8px;border-radius:50%}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  td .g{color:var(--green);font-weight:600}
+  td .c{color:var(--coral);font-weight:600}
+</style>
+</head>
+<body>
+<h1>Deferred Enrichment Agent</h1>
+<p class="sub">Upload returns instantly · doc answerable in seconds · a background agent enriches later, throttled + resumable.</p>
+
+<div class="grid">
+
+  <!-- 1. TWO LANES -->
+  <div class="card">
+    <h2>The two lanes</h2>
+    <div class="lanes">
+
+      <div class="lane fast">
+        <span class="tag">LANE 1 · UPLOAD (instant, blocking nothing)</span>
+        <div class="row">
+          <div class="step done"><span class="ico">⬆</span>save to inbox<span class="ms">50ms</span></div>
+          <span class="arr">→</span>
+          <div class="step done"><span class="ico">🗄</span>queue row<span class="ms">5ms</span></div>
+          <span class="arr">→</span>
+          <div class="step done"><span class="ico">📄</span>render + text<span class="ms">3–8s</span></div>
+          <span class="arr">→</span>
+          <div class="step done"><span class="ico">✓</span>ANSWERABLE</div>
+          <span class="pill lite">ready_lite</span>
+        </div>
+        <div class="note">User sees “uploaded · answerable” in seconds. Chat + search work now. 0 LLM calls in this lane.</div>
+      </div>
+
+      <div class="lane agent">
+        <span class="tag">LANE 2 · ENRICHMENT AGENT (later, background daemon)</span>
+        <div class="row">
+          <div class="step run"><span class="ico">👁</span>vision</div>
+          <span class="arr">→</span>
+          <div class="step wait"><span class="ico">🌳</span>tree</div>
+          <span class="arr">→</span>
+          <div class="step wait"><span class="ico">📝</span>compile wiki</div>
+          <span class="arr">→</span>
+          <div class="step wait"><span class="ico">🧠</span>enrichers ×8</div>
+          <span class="arr">→</span>
+          <div class="step wait"><span class="ico">★</span>fully ready</div>
+          <span class="pill ready">ready</span>
+        </div>
+        <div class="note">Agent claims <b>ready_lite</b> docs on its own schedule — throttled, retried, resume-cached. Restart-safe: picks up where it left off in ~20s, never from page 1.</div>
+      </div>
+
+    </div>
+    <div class="legend">
+      <span class="t"><span class="dotg" style="background:var(--green)"></span> done</span>
+      <span class="t"><span class="dotg" style="background:var(--coral)"></span> running now</span>
+      <span class="t"><span class="dotg" style="background:var(--muted)"></span> queued</span>
+    </div>
+  </div>
+
+  <!-- 2. WHAT THE USER SEES (Sources list) -->
+  <div class="card">
+    <h2>What the user sees — Sources list (right after upload)</h2>
+    <div class="doc">
+      <div class="thumb"></div>
+      <div>
+        <div class="n">New Site Creation</div>
+        <div class="meta"><span class="pill lite">answerable</span> · enriching in background 14/22</div>
+        <div class="bar"><i class="lite" style="width:64%"></i></div>
+      </div>
+      <div class="spacer"></div>
+      <button class="ask">Ask</button>
+    </div>
+    <div class="doc">
+      <div class="thumb"></div>
+      <div>
+        <div class="n">User Creation &amp; Disable</div>
+        <div class="meta"><span class="pill ready">ready</span> · fully enriched · 22 pages</div>
+        <div class="bar"><i class="full" style="width:100%"></i></div>
+      </div>
+      <div class="spacer"></div>
+      <button class="ask">Ask</button>
+    </div>
+    <div class="note">Upload feels instant. “Answerable” the moment phase-1 lands; the green bar fills as the agent enriches in the background. No blocking spinner.</div>
+  </div>
+
+  <!-- 3. THE AGENT PANEL -->
+  <div class="card">
+    <h2>Enrichment Agent — status panel</h2>
+    <div class="agentpanel">
+      <div class="ap-head"><span class="ap-dot"></span><b>Agent running</b> · 1 enriching · 3 queued · throttle 2 concurrent</div>
+      <div class="ap-job">
+        <div style="flex:1">
+          <div class="jn">📄 New Site Creation</div>
+          <div class="js">vision 14/22 · then tree → compile → enrichers</div>
+          <div class="bar"><i class="full" style="width:64%"></i></div>
+        </div>
+        <span class="pill enrich">enriching</span>
+      </div>
+      <div class="ap-job">
+        <div style="flex:1">
+          <div class="jn">📄 Store Setup SOP</div>
+          <div class="js">waiting for a free slot</div>
+        </div>
+        <span class="pill" style="background:#eef2f6;color:var(--muted)">queued</span>
+      </div>
+    </div>
+    <div class="knobs" style="margin-top:12px">
+      <div class="knob"><div class="k">Concurrency</div><div class="v">2</div><div class="h">docs enriched in parallel</div></div>
+      <div class="knob"><div class="k">Schedule</div><div class="v">immediate</div><div class="h">or: off-peak / every N min</div></div>
+      <div class="knob"><div class="k">Retry</div><div class="v">resume</div><div class="h">cached, ~20s not 2min</div></div>
+    </div>
+  </div>
+
+  <!-- 4. SPEED LEVERS -->
+  <div class="card">
+    <h2>Speed levers</h2>
+    <table>
+      <tr><th>Lever</th><th>What</th><th>Effect</th></tr>
+      <tr><td>Dedicated worker container</td><td><code>INGEST_IN_API=0</code> + run <code>worker</code></td><td><span class="g">API never blocks · many docs parallel</span></td></tr>
+      <tr><td>Agent concurrency</td><td><code>ENRICH_CONCURRENCY=2–4</code></td><td><span class="g">more docs enriched at once</span></td></tr>
+      <tr><td>Per-page parallelism</td><td><code>VISION_WORKERS / COMPILE_WORKERS</code></td><td><span class="g">faster per-doc phase-2</span></td></tr>
+      <tr><td>Resume cache (built)</td><td>reuse vision/tree/wiki</td><td><span class="c">restart/retry ~20s, not 2min</span></td></tr>
+      <tr><td>Throttle / schedule</td><td>off-peak enrich window</td><td><span class="g">smooth LLM cost, no bursts</span></td></tr>
+    </table>
+    <div class="note">Phase-1 (answerable) stays instant always. All the slow LLM work moves to the agent lane, where it can be parallelized, throttled, or scheduled — without ever making the user wait on upload.</div>
+  </div>
+
+</div>
+</body>
+</html>

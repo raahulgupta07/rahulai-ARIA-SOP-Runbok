@@ -38,7 +38,8 @@
   // route nav (Mission Control vs Graph)
   const ADMIN_NAV = [
     { href: '/dashboard', label: 'Mission Control', exact: true },
-    { href: '/dashboard/graph', label: 'Graph' }
+    { href: '/dashboard/graph', label: 'Graph' },
+    { href: '/dashboard/contradictions', label: 'Contradictions' }
   ];
   const USER_NAV = [
     { href: '/dashboard', label: 'Mission Control', exact: true },

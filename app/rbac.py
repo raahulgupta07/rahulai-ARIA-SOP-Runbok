@@ -24,7 +24,18 @@ import os
 
 from .db import get_conn
 
-RBAC_ENABLED: bool = os.getenv("RBAC_ENABLED", "0") == "1"
+RBAC_ENABLED: bool = os.getenv("RBAC_ENABLED", "0") == "1"   # env default (fallback)
+
+
+def rbac_enabled() -> bool:
+    """Effective RBAC switch — DB runtime config (super-admin UI) OVER the env
+    default, so multi-tenant access can be turned on/off live with no restart.
+    Fail-soft to the env value if config can't be read."""
+    try:
+        from . import appcfg
+        return appcfg.get_rbac_enabled()
+    except Exception:
+        return RBAC_ENABLED
 
 # legacy single-tenant admin == super-admin; new explicit role also honoured
 _SUPER_ROLES = {"admin", "superadmin"}
@@ -113,7 +124,7 @@ def allowed_sectors(user: dict | None) -> list[int] | None:
 
     OFF (flag) or super-admin or All-Access member => None (everything).
     Otherwise => [their sector] (possibly empty list = sees nothing)."""
-    if not RBAC_ENABLED:
+    if not rbac_enabled():
         return None
     if is_superadmin(user) or _in_all_access(user and user.get("id")):
         return None
@@ -123,11 +134,28 @@ def allowed_sectors(user: dict | None) -> list[int] | None:
 
 def can_write(user: dict | None, sector_id: int | None) -> bool:
     """May this user upload / edit / delete a doc in `sector_id`?"""
-    if not RBAC_ENABLED:
+    if not rbac_enabled():
         return bool(user) and user.get("role") in (_SUPER_ROLES | {"sector_admin"})
     if is_superadmin(user):
         return True
     return is_sector_admin(user) and _sector_id(user) == sector_id
+
+
+def can_delete_doc(user: dict | None, doc: dict | None) -> bool:
+    """May this user DELETE this document? Ownership rule:
+      - super-admin                    → yes (any doc)
+      - the uploader (docs.uploaded_by == user email) → yes (own doc)
+      - sector/folder admin of the doc's sector       → yes (can_write)
+    `doc` must carry `uploaded_by` + `sector_id`. Anyone else → no."""
+    if not user or not doc:
+        return False
+    if is_superadmin(user):
+        return True
+    email = (user.get("email") or "").strip().lower()
+    owner = (doc.get("uploaded_by") or "").strip().lower()
+    if email and owner and email == owner:
+        return True
+    return can_write(user, doc.get("sector_id"))
 
 
 def allowed_folders(user: dict | None) -> list[int] | None:
@@ -137,7 +165,7 @@ def allowed_folders(user: dict | None) -> list[int] | None:
       - access_mode='sector'   => same sector as the user
       - access_mode='specific' => the user is listed, or in a listed group
     """
-    if not RBAC_ENABLED:
+    if not rbac_enabled():
         return None
     if is_superadmin(user) or _in_all_access(user and user.get("id")):
         return None

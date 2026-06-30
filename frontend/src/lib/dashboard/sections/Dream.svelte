@@ -67,7 +67,7 @@
     <div class="cardhead">
       <span class="ct">Knowledge graph — what the agent knows</span>
       {#if linkedTonight > 0}<span class="badge">{linkedTonight} doc(s) linked last run</span>{/if}
-      <button class="mlink" onclick={() => wsItem.set('brain-graph')}>open full graph →</button>
+      <button class="mlink" onclick={() => wsItem.set('graphrag')}>open full graph →</button>
     </div>
     <div class="gwrap">
       {#if brainData && (brainData.nodes?.length ?? 0) > 0}
