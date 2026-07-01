@@ -23,6 +23,15 @@ def _issue(u: dict) -> dict:
     if u["role"] == "pending":
         raise HTTPException(status_code=403, detail="account awaiting admin approval")
     store.touch_login(u["id"])
+    # multi-tenant: on EVERY login ensure the user's sector = their email domain
+    # (idempotent — assign_user_sector only fills a NULL sector). Backfills users
+    # created before RBAC was on. Gated on rbac_enabled; fail-soft.
+    try:
+        from .. import rbac
+        if rbac.rbac_enabled():
+            rbac.assign_user_sector(u["id"], u["email"])
+    except Exception as e:
+        print(f"[rbac] login sector assign skipped: {e!r}")
     return {"token": make_token(u), "user": _public(u)}
 
 
