@@ -11,7 +11,7 @@
   import { areaOpt, donutOpt, heatmapOpt, C } from '$lib/charts';
 
   let me = $state<User | null>(auth.cachedUser());
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
 
   // Admin cockpit data (new endpoint)
   let c = $state<any>(null);

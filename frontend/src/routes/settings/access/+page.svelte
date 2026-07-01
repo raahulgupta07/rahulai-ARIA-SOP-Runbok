@@ -4,7 +4,7 @@
 
   // reactive admin gate (super-admin only) — cachedUser() is null at cold init
   let me = $state<any>(auth.cachedUser());
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
 
   let err = $state('');
   let loading = $state(true);
@@ -23,7 +23,7 @@
     rbacBusy = false;
   }
 
-  const ROLES = ['user', 'sector_admin', 'admin'];
+  const ROLES = ['user', 'sector_admin', 'admin', 'superadmin'];
 
   // normalize: backend may return a bare array OR {users:[...]} / {sectors:[...]} etc.
   function arr(x: any, key: string): any[] {
@@ -125,6 +125,18 @@
   async function removeMember(g: any, uid: number) {
     try { await api.adminRemoveMember(g.id, uid); await load(); }
     catch (e: any) { alert(e?.message || 'Failed'); }
+  }
+
+  // ---- per-group feature access (which tabs members may use) ----
+  const FEATURES = ['chat', 'sources', 'workspace', 'eval', 'wiki'];
+  async function toggleFeature(g: any, feat: string) {
+    const cur = new Set(g.features || []);
+    if (cur.has(feat)) cur.delete(feat); else cur.add(feat);
+    const next = FEATURES.filter((f) => cur.has(f));
+    const prev = g.features;
+    g.features = next; groups = [...groups];
+    try { const r = await api.adminSetGroupFeatures(g.id, next); if ((r as any)?.features) { g.features = (r as any).features; groups = [...groups]; } }
+    catch (e: any) { g.features = prev; groups = [...groups]; alert(e?.message || 'Failed'); }
   }
 
   function memberIds(g: any): number[] {
@@ -284,6 +296,17 @@
                   <option value="">+ Add member…</option>
                   {#each nonMembers(g) as u}<option value={u.id}>{u.email}{u.sector_id != null ? ` · ${sectorName(u.sector_id)}` : ''}</option>{/each}
                 </select>
+              </div>
+
+              <div style="display:flex;align-items:center;flex-wrap:wrap;gap:14px;margin-top:11px;padding-top:11px;border-top:1px solid var(--border,#e0dfda);">
+                <span style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;">Features members can use</span>
+                {#each FEATURES as f}
+                  <label style="display:inline-flex;align-items:center;gap:5px;font-size:12.5px;cursor:pointer;">
+                    <input type="checkbox" checked={(g.features || []).includes(f)} onchange={() => toggleFeature(g, f)} />
+                    <span>{f === 'workspace' ? 'workspace + dashboard' : f}</span>
+                  </label>
+                {/each}
+                {#if !(g.features || []).length}<span style="font-size:11.5px;color:var(--muted);font-style:italic;">all enabled (no restriction)</span>{/if}
               </div>
             </div>
           {/each}

@@ -210,3 +210,41 @@ def can_create_sector(user: dict | None) -> bool:
 def user_write_sector(user: dict | None) -> int | None:
     """The sector a write (upload) lands in for this user (their own sector)."""
     return user and user.get("sector_id")
+
+
+# ---- per-group feature access (which tabs a user may use) ----
+ALL_FEATURES = ["chat", "sources", "workspace", "eval", "wiki"]
+
+
+def user_features(user: dict | None) -> list[str]:
+    """Effective app features (tabs) this user may use.
+      - admin / superadmin  -> everything
+      - else: UNION of features across the user's groups that DEFINE features;
+              if the user is in no feature-defining group -> ALL (unrestricted until
+              an admin puts them in a restricting group). Fail-open on error.
+    """
+    if is_superadmin(user):
+        return list(ALL_FEATURES)
+    uid = user and user.get("id")
+    if not uid:
+        return list(ALL_FEATURES)
+    try:
+        with get_conn() as c:
+            rows = c.execute(
+                "SELECT g.features FROM user_groups ug JOIN groups g ON g.id = ug.group_id "
+                "WHERE ug.user_id = %s AND g.features IS NOT NULL",
+                (uid,),
+            ).fetchall()
+        if not rows:
+            return list(ALL_FEATURES)
+        feats = set()
+        for r in rows:
+            for f in (r["features"] or []):
+                feats.add(f)
+        return [f for f in ALL_FEATURES if f in feats]
+    except Exception:
+        return list(ALL_FEATURES)
+
+
+def has_feature(user: dict | None, feature: str) -> bool:
+    return feature in user_features(user)

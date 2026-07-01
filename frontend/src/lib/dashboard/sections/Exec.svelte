@@ -7,7 +7,7 @@
 
   let me = $state(auth.cachedUser());
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
   let e = $state<any>(null);
   let roi = $state<any>(null);
   let saving = $state(false);

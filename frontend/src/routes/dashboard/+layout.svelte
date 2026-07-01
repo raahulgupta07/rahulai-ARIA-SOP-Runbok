@@ -9,7 +9,7 @@
 
   let { children } = $props();
   let me = $state<User | null>(auth.cachedUser());
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
   onMount(() => startLive());   // open the SSE push stream for live dashboards
 

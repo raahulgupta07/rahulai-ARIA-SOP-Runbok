@@ -7,7 +7,7 @@
 
   let me = $state(auth.cachedUser());
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
   let p = $state<any>(null);
   let vf = $state<any>(null);          // citation-accuracy / trust report
   let running = $state(false);

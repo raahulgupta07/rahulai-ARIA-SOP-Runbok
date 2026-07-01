@@ -6,7 +6,7 @@
 
   let me = $state(auth.cachedUser());
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
 
   // ── last-good data kept across refetches (no skeleton thrash) ──
   let vit = $state<any>(null);          // SYSTEM + ERRORS source

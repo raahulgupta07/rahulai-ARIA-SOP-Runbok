@@ -7,7 +7,7 @@
 
   let me = $state(auth.cachedUser());
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
   let view = $state<'brain' | 'people'>('brain');
   let brainData = $state<any>(null);
   let peopleData = $state<any>(null);

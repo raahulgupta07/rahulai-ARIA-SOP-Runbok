@@ -22,7 +22,7 @@
   import Brain from '../brain/+page.svelte';
 
   let me = $state<User | null>(auth.cachedUser());
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
 
   const COMP: Record<string, any> = {

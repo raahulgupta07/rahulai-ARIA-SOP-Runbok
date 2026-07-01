@@ -806,6 +806,9 @@ export const api = {
   async adminDeleteGroup(id: number) {
     return jsonOrThrow(await fetch(`${BASE}/admin/groups/${id}`, { method: 'DELETE', headers: headers(false) }));
   },
+  async adminSetGroupFeatures(gid: number, features: string[]) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/groups/${gid}/features`, { method: 'PUT', headers: headers(), body: JSON.stringify({ features }) }));
+  },
   async adminAddMember(gid: number, uid: number) {
     return jsonOrThrow(await fetch(`${BASE}/admin/groups/${gid}/members/${uid}`, { method: 'POST', headers: headers(false) }));
   },

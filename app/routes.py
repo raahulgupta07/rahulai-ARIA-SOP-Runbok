@@ -592,6 +592,11 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
         from . import ingest_control as kill
         _t0_req = time.monotonic()
         yield json.dumps({"type": "meta", "conversation_id": conv_id}) + "\n"
+        # per-group feature gate: chat must be enabled for this user's access group
+        if not rbac.has_feature(user, "chat"):
+            yield json.dumps({"type": "token", "v": "Chat isn't enabled for your access group. Ask an admin."}) + "\n"
+            yield json.dumps({"type": "done", "pages": [], "title": None}) + "\n"
+            return
         if kill.chat_stopped():           # master stop active — refuse fast
             yield json.dumps({"type": "token", "v": "⏸ Assistant is paused by an admin. Try again shortly."}) + "\n"
             yield json.dumps({"type": "done", "pages": [], "title": None}) + "\n"
@@ -3616,7 +3621,9 @@ def brain_search(q: str = "", type: str = "all"):
 
 
 def _require_superadmin(user: dict) -> None:
-    if not rbac.is_superadmin(user):
+    # strict top tier: only 'superadmin' (the env first user) — an 'admin' sees all
+    # sectors but cannot create sectors / toggle multi-tenant / manage the top config.
+    if (user or {}).get("role") != "superadmin":
         raise HTTPException(status_code=403, detail="Super-admin only.")
 
 
@@ -3694,6 +3701,18 @@ def admin_groups_delete(gid: int, user: dict = Depends(current_user)):
     _require_superadmin(user)
     from . import admin_rbac
     return {"ok": admin_rbac.delete_group(gid)}
+
+
+@router.put("/admin/groups/{gid}/features", dependencies=[Depends(require_admin)])
+def admin_group_features(gid: int, body: dict = Body(...), user: dict = Depends(current_user)):
+    """Set which app features (tabs) a group's members may use. Super-admin only.
+    features = subset of chat|sources|workspace|eval|wiki."""
+    _require_superadmin(user)
+    from . import admin_rbac
+    try:
+        return admin_rbac.set_group_features(gid, body.get("features") or [])
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.post("/admin/groups/{gid}/members/{uid}", dependencies=[Depends(require_admin)])

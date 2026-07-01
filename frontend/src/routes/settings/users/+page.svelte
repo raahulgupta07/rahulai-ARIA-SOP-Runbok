@@ -57,7 +57,7 @@
   let pending = $derived(members.filter((u) => u.role === 'pending').length);
   let active = $derived(members.filter((u) => u.active && u.role !== 'pending').length);
   let disabled = $derived(members.filter((u) => !u.active && u.role !== 'pending').length);
-  let admins = $derived(members.filter((u) => u.role === 'admin').length);
+  let admins = $derived(members.filter((u) => (u.role === 'admin' || u.role === 'superadmin')).length);
   let shown = $derived(members.filter((u) => {
     if (filt === 'active' && !(u.active && u.role !== 'pending')) return false;
     if (filt === 'disabled' && !(!u.active && u.role !== 'pending')) return false;
@@ -124,7 +124,7 @@
     <!-- table -->
     <div class="tablewrap">
       <table>
-        <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last login</th><th></th></tr></thead>
+        <thead><tr><th>User</th><th class="c-role">Role</th><th class="c-status">Status</th><th class="c-last">Last login</th><th class="c-act"></th></tr></thead>
         <tbody>
           {#each shown as u (u.id)}
             {@const st = statusOf(u)}
@@ -141,7 +141,7 @@
               </td>
               <td>
                 <select class="rolesel" value={u.role} onchange={(e) => patch(u, { role: (e.target as HTMLSelectElement).value })} disabled={isMe} title={isMe ? "You can't change your own role" : ''}>
-                  <option value="admin">admin</option><option value="user">user</option><option value="pending">pending</option>
+                  <option value="user">user</option><option value="sector_admin">sector admin</option><option value="admin">admin</option><option value="superadmin">super admin</option><option value="pending">pending</option>
                 </select>
               </td>
               <td>
@@ -200,7 +200,7 @@
         <label class="fg"><span>Name</span><input bind:value={edit.draft.name} placeholder="Full name" /></label>
         <label class="fg"><span>Password</span><input type="password" bind:value={edit.draft.password} /></label>
         <label class="fg"><span>Role</span>
-          <select class="sel" bind:value={edit.draft.role}><option value="user">user</option><option value="admin">admin</option></select>
+          <select class="sel" bind:value={edit.draft.role}><option value="user">user</option><option value="sector_admin">sector admin</option><option value="admin">admin</option><option value="superadmin">super admin</option></select>
         </label>
       </div>
       <div class="m-foot">
@@ -239,7 +239,9 @@
 
   /* table */
   .tablewrap{border:1px solid var(--border); border-radius:13px; background:#fff; overflow:hidden;}
-  table{width:100%; border-collapse:collapse;}
+  table{width:100%; border-collapse:collapse; table-layout:fixed;}
+  .c-role{width:184px;} .c-status{width:120px;} .c-last{width:130px;} .c-act{width:60px;}
+  td{overflow:hidden; text-overflow:ellipsis;}
   th{text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); padding:12px 16px; font-weight:600; border-bottom:1px solid var(--border);}
   td{padding:12px 16px; border-top:1px solid var(--border); font-size:13px; vertical-align:middle;}
   td.muted{color:var(--muted);}

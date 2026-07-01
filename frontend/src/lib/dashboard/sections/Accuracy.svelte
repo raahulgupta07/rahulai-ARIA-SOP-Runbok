@@ -5,7 +5,7 @@
 
   let me = $state(auth.cachedUser());
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
 
   let ev = $state<any>(null);          // latest doc-eval payload {running,started_at,error,result}
   let loaded = $state(false);

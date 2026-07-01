@@ -22,7 +22,7 @@
       .catch(() => {});
   });
 
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
   let initial = $derived((me?.name || me?.email || '?').trim().charAt(0).toUpperCase());
 
   // admin-only: load member count for the Users KPI

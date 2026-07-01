@@ -9,7 +9,7 @@
 
   let me = $state(auth.cachedUser());
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
   let o = $state<any>(null);
   let dp = $state<any>(null);                 // doc performance scorecard
   let cp = $state<any>(null);                 // corpus hygiene (dup/conflict facts)

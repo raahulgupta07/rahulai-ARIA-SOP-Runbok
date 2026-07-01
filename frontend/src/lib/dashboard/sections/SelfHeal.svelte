@@ -6,7 +6,7 @@
   // reactive admin gate (cachedUser() is null at cold start → would stick on "Admin only")
   let me = $state(auth.cachedUser());
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
 
   type Doc = { doc_id: number; name: string; status: string; accuracy: number; banked: number; review_n: number };
   type LogLine = { id: number; doc_id: number; tag: string; msg: string; ts: string };

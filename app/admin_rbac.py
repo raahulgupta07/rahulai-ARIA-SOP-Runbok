@@ -162,7 +162,8 @@ def list_groups() -> list[dict]:
     try:
         with get_conn() as c:
             grows = c.execute(
-                "SELECT id, name, all_sectors FROM groups ORDER BY id DESC"
+                "SELECT id, name, all_sectors, coalesce(features, '{}') AS features "
+                "FROM groups ORDER BY id DESC"
             ).fetchall()
             mrows = c.execute(
                 "SELECT ug.group_id, u.id, u.email "
@@ -179,12 +180,60 @@ def list_groups() -> list[dict]:
                 "id": g["id"],
                 "name": g["name"],
                 "all_sectors": g["all_sectors"],
+                "features": list(g["features"] or []),
                 "member_count": len(members),
                 "members": members,
             })
         return out
     except Exception:
         return []
+
+
+# which app features (tabs) a group's members may use
+FEATURES = ["chat", "sources", "workspace", "eval", "wiki"]
+
+
+def set_group_features(group_id: int, features: list[str]) -> dict:
+    """Set the allowed feature keys for a group (validated against FEATURES)."""
+    feats = [f for f in (features or []) if f in FEATURES]
+    with get_conn() as c:
+        row = c.execute(
+            "UPDATE groups SET features = %s WHERE id = %s "
+            "RETURNING id, name, all_sectors, coalesce(features,'{}') AS features",
+            (feats, group_id),
+        ).fetchone()
+    if not row:
+        raise ValueError("group not found")
+    d = dict(row)
+    d["features"] = list(d["features"] or [])
+    return d
+
+
+# starter feature-based access groups, seeded on boot (admin can edit/delete)
+_DEFAULT_GROUPS = [
+    ("Chat only",              ["chat"]),
+    ("Staff (Chat + Sources)", ["chat", "sources", "wiki"]),
+    ("Analysts (Insights)",    ["chat", "workspace", "eval", "wiki"]),
+    ("Full access",            ["chat", "sources", "workspace", "eval", "wiki"]),
+]
+
+
+def ensure_default_groups() -> None:
+    """Seed the starter feature-based groups on boot. Idempotent + non-destructive:
+    only creates a group whose name doesn't already exist (never clobbers admin edits)."""
+    try:
+        with get_conn() as c:
+            existing = {r["name"] for r in c.execute("SELECT name FROM groups").fetchall()}
+            for name, feats in _DEFAULT_GROUPS:
+                if name in existing:
+                    continue
+                c.execute(
+                    "INSERT INTO groups (name, features) VALUES (%s, %s) "
+                    "ON CONFLICT (name) DO NOTHING",
+                    (name, [f for f in feats if f in FEATURES]),
+                )
+    except Exception as e:
+        print(f"[rbac] ensure_default_groups skipped: {e!r}")
 
 
 def delete_group(group_id: int) -> bool:

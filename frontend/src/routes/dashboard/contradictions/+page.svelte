@@ -5,7 +5,7 @@
 
   // reactive admin guard (cachedUser() is non-reactive / null on cold cache)
   let me = $state(auth.cachedUser());
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
 
   type Conflict = {

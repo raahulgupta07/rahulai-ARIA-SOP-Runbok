@@ -141,7 +141,22 @@
   let menuOpen = $state(false);
   // single source of truth for role: admin manages the knowledge base, everyone
   // else is chat-only (no Workspace/Brain/Settings, no upload/teach/edit).
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
+  // per-group feature gating for the top nav. admins see all; others see only the
+  // tabs enabled for their group. features undefined (not loaded) => fail open to all.
+  const ALL_FEAT = ['chat', 'sources', 'workspace', 'eval', 'wiki'];
+  let feats = $derived(new Set((me?.features ?? ALL_FEAT) as string[]));
+  let navList = $derived.by(() => {
+    if (isAdmin) return [...topnav, evalNav, wikiNav];
+    if (!me) return [];
+    const out: any[] = [];
+    if (feats.has('chat')) out.push(topnav[0]);       // Chat
+    if (feats.has('workspace')) out.push(topnav[1]);  // Workspace
+    if (feats.has('sources')) out.push(topnav[2]);    // Sources
+    if (feats.has('eval')) out.push(evalNav);
+    if (feats.has('wiki')) out.push(wikiNav);
+    return out;
+  });
 
   let isLogin = $derived($page.url.pathname.startsWith('/login'));  // /login + /login/admin
   let isEmbed = $derived($page.url.pathname === '/embed');  // bare iframe widget
@@ -234,7 +249,7 @@
     </a>
     <div class="w-2"></div>
     <nav class="topnav-row flex items-center gap-1">
-    {#each (isAdmin ? [...topnav, evalNav, wikiNav] : (me ? [wikiNav] : [])) as t}
+    {#each navList as t}
       {@const on = sectionActive(t.section)}
       <a href={t.href} class="flex items-center gap-2 rounded-[9px] h-9 px-3 text-[14px] transition"
          style={on ? 'background:#f0efed; color:var(--ink); font-weight:600;' : 'color:#46443f;'}

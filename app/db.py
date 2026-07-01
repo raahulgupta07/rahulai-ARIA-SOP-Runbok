@@ -288,6 +288,9 @@ CREATE TABLE IF NOT EXISTS groups (
     all_sectors BOOLEAN NOT NULL DEFAULT FALSE,  -- true = read every sector
     created_at  TIMESTAMPTZ DEFAULT now()
 );
+-- per-group feature access: which app features (tabs) members may use.
+-- NULL = no group-level feature restriction. Keys: chat|sources|workspace|eval|wiki.
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS features TEXT[];
 CREATE TABLE IF NOT EXISTS user_groups (
     user_id     BIGINT REFERENCES users(id) ON DELETE CASCADE,
     group_id    BIGINT REFERENCES groups(id) ON DELETE CASCADE,

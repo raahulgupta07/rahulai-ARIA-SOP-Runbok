@@ -60,6 +60,7 @@ def current_principal(authorization: str | None = Header(default=None)) -> dict:
 
 def require_admin(authorization: str | None = Header(default=None)) -> dict:
     user = current_user(authorization)
-    if user["role"] != "admin":
+    # admin console: both 'admin' (all-sector admin) and 'superadmin' (top) qualify
+    if user["role"] not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="admin only")
     return user

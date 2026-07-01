@@ -9,7 +9,7 @@
 
   let me = $state(auth.cachedUser());
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
   let data = $state<any>(null);
   let q = $state(''); let status = $state('all'); let role = $state(''); let authF = $state('');
   let sort = $state('questions'); let order = $state('desc'); let pg = $state(1);

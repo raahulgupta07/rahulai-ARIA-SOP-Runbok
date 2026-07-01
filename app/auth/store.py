@@ -104,13 +104,13 @@ def ensure_superadmin() -> None:
         row = conn.execute("SELECT id FROM users WHERE lower(email) = %s", (email,)).fetchone()
         if row:
             conn.execute(
-                "UPDATE users SET role='admin', active=true, password_hash=%s, auth_source='local' WHERE id=%s",
+                "UPDATE users SET role='superadmin', active=true, password_hash=%s, auth_source='local' WHERE id=%s",
                 (ph, row["id"]),
             )
         else:
             conn.execute(
                 "INSERT INTO users (email, name, role, password_hash, auth_source) "
-                "VALUES (%s,%s,'admin',%s,'local')",
+                "VALUES (%s,%s,'superadmin',%s,'local')",
                 (email, email.split("@")[0], ph),
             )
     print(f"[auth] super-admin ensured from env: {email}")
@@ -191,11 +191,11 @@ def create_user(
     password_hash: str | None = None, oauth_sub: str | None = None,
     role: str | None = None,
 ) -> dict:
-    """First user ever becomes admin (if config says so); else config default role."""
+    """First user ever becomes super-admin (if config says so); else config default role."""
     cfg = get_config()
     if role is None:
         if count_users() == 0 and cfg["first_user_admin"]:
-            role = "admin"
+            role = "superadmin"
         else:
             role = cfg["default_role"]
     with get_conn() as conn:

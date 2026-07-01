@@ -28,7 +28,7 @@
 
   let path = $derived($page.url.pathname);
   let q = $state('');
-  let visible = $derived(tabs.filter((t) => (!t.admin || me?.role === 'admin') && (!q.trim() || t.label.toLowerCase().includes(q.toLowerCase()) || t.desc.toLowerCase().includes(q.toLowerCase()))));
+  let visible = $derived(tabs.filter((t) => (!t.admin || (me?.role === 'admin' || me?.role === 'superadmin')) && (!q.trim() || t.label.toLowerCase().includes(q.toLowerCase()) || t.desc.toLowerCase().includes(q.toLowerCase()))));
   let groups = $derived([...new Set(visible.map((t) => t.group))]);
   function active(t: Tab) { return t.exact ? path === t.href : path.startsWith(t.href); }
   let current = $derived(tabs.find((t) => active(t)));

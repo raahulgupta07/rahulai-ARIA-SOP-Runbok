@@ -10,7 +10,7 @@
 
   let me = $state(auth.cachedUser());
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
 
   let o = $state<any>(null);          // dashboard admin (review counts + live)
   let audit = $state<any>(null);      // coverage_report (score/pillars/blind/stale)

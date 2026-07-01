@@ -12,7 +12,7 @@
   import { brainTeachSignal, brainFilesSignal, brainScanSignal, brainS3Signal, brainData, loadBrainData, mobileNav } from '$lib/dashstore';
   let _me = $state<any>(auth.cachedUser());
   $effect(() => { if (!_me) auth.me().then((u) => (_me = u)).catch(() => {}); });
-  let isAdmin = $derived(_me?.role === 'admin');
+  let isAdmin = $derived((_me?.role === 'admin' || _me?.role === 'superadmin'));
 
   type Doc = {
     id: number; name: string; lang: string; page_count: number; sections: number; created_at: string;

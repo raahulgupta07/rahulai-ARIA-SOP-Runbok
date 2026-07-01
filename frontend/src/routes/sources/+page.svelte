@@ -7,7 +7,7 @@
 
   // ── reactive admin/me gate (cachedUser is non-reactive → revalidate via me()) ──
   let me = $state<User | null>(auth.cachedUser());
-  let isAdmin = $derived(me?.role === 'admin');
+  let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
 
   type Folder = {
