@@ -44,11 +44,25 @@
   function editProvider(i: number) { edit = { type: 'sso', index: i, draft: { ...cfg.oidc_providers[i] } }; modalTest = ''; }
   function newDirectory() {
     edit = { type: 'ldap', index: -1, draft: { id: uid(), name: 'New directory', host: '', port: 389,
-      bind_dn: '', bind_password: '', base_dn: '', user_filter: '(sAMAccountName={username})',
-      email_attr: 'mail', name_attr: 'cn', enabled: true } };
-    modalTest = '';
+      bind_dn: '', bind_password: '', base_dn: '', username_attr: 'sAMAccountName',
+      email_attr: 'mail', name_attr: 'cn', search_filter: '', user_filter: '',
+      use_ssl: false, start_tls: false, enabled: true } };
+    modalTest = ''; advOpen = false;
   }
-  function editDirectory(i: number) { edit = { type: 'ldap', index: i, draft: { ...cfg.ldap_directories[i] } }; modalTest = ''; }
+  function editDirectory(i: number) {
+    edit = { type: 'ldap', index: i, draft: { ...cfg.ldap_directories[i] } }; modalTest = ''; advOpen = false;
+  }
+
+  // ---- LDAP modal UX: segmented TLS + advanced toggle
+  let advOpen = $state(false);
+  let secMode = $derived(edit?.type === 'ldap' && edit.draft
+    ? (edit.draft.use_ssl ? 'ldaps' : edit.draft.start_tls ? 'starttls' : 'none') : 'none');
+  function setSec(m: string) {
+    if (!edit?.draft) return;
+    edit.draft.use_ssl = m === 'ldaps';
+    edit.draft.start_tls = m === 'starttls';
+    edit.draft.port = m === 'ldaps' ? 636 : 389;
+  }
   function closeEdit() { edit = null; modalTest = ''; }
 
   // ---- mutate config ----
@@ -195,7 +209,7 @@
   <!-- ============ POPUP MODAL ============ -->
   {#if edit}
     <div class="scrim" onclick={closeEdit} role="presentation"></div>
-    <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal" role="dialog" aria-modal="true" style={edit.type === 'ldap' ? '--mw:820px' : ''}>
       <div class="m-head">
         <div class="m-ttl">{edit.index < 0 ? 'Add' : 'Configure'} {edit.type === 'sso' ? 'SSO provider' : 'LDAP / AD directory'}</div>
         <button class="m-x" onclick={closeEdit} aria-label="Close">✕</button>
@@ -223,19 +237,41 @@
           <div class="redirect">Redirect URI — register at your provider
             <code>{location.origin}/api/auth/oidc/callback</code></div>
         {:else}
-          <label class="fg"><span>Directory name</span><input bind:value={edit.draft.name} placeholder="HQ Active Directory" /></label>
-          <div class="g2">
-            <label class="fg" style="flex:2"><span>Host</span><input bind:value={edit.draft.host} placeholder="10.16.73.150" /></label>
+          <div class="sect-h">1 · Connection</div>
+          <div class="grid-conn">
+            <label class="fg"><span>Label</span><input bind:value={edit.draft.name} placeholder="HQ Active Directory" /></label>
+            <label class="fg"><span>Host</span><input bind:value={edit.draft.host} placeholder="10.16.73.150" /></label>
             <label class="fg"><span>Port</span><input type="number" bind:value={edit.draft.port} /></label>
+            <div class="fg"><span>Security</span>
+              <div class="seg">
+                <button class="segb" class:on={secMode === 'none'} onclick={() => setSec('none')}>None</button>
+                <button class="segb" class:on={secMode === 'starttls'} onclick={() => setSec('starttls')}>StartTLS</button>
+                <button class="segb" class:on={secMode === 'ldaps'} onclick={() => setSec('ldaps')}>LDAPS</button>
+              </div>
+            </div>
           </div>
-          <label class="fg"><span>Bind DN</span><input bind:value={edit.draft.bind_dn} placeholder="cn=svc,ou=Service,dc=company,dc=local" /></label>
-          <label class="fg"><span>Bind password</span><input type="password" bind:value={edit.draft.bind_password} /></label>
-          <label class="fg"><span>Base DN</span><input bind:value={edit.draft.base_dn} placeholder="dc=company,dc=local" /></label>
-          <label class="fg"><span>User filter <span class="hint">— must contain &#123;username&#125;</span></span><input bind:value={edit.draft.user_filter} /></label>
-          <div class="g2">
-            <label class="fg"><span>Email attribute</span><input bind:value={edit.draft.email_attr} /></label>
-            <label class="fg"><span>Name attribute</span><input bind:value={edit.draft.name_attr} /></label>
+
+          <div class="sect-h">2 · Service account <span class="hint">— how Aria reads the directory</span></div>
+          <div class="g2w">
+            <label class="fg"><span>Bind DN</span><input bind:value={edit.draft.bind_dn} placeholder="cn=svc,ou=Service,dc=chl,dc=local" /></label>
+            <label class="fg"><span>Base DN</span><input bind:value={edit.draft.base_dn} placeholder="dc=chl,dc=local" /></label>
           </div>
+          <label class="fg" style="max-width:340px"><span>Bind password</span><input type="password" bind:value={edit.draft.bind_password} /></label>
+
+          <div class="sect-h">3 · How users log in <span class="hint">— username OR full email both resolve automatically</span></div>
+          <div class="grid3">
+            <label class="fg"><span>Username attribute</span><input bind:value={edit.draft.username_attr} placeholder="sAMAccountName" /></label>
+            <label class="fg"><span>Email attribute</span><input bind:value={edit.draft.email_attr} placeholder="userPrincipalName" /></label>
+            <label class="fg"><span>Name attribute</span><input bind:value={edit.draft.name_attr} placeholder="cn" /></label>
+          </div>
+
+          <button class="advtog" onclick={() => (advOpen = !advOpen)}>{advOpen ? '▾' : '▸'} Advanced options</button>
+          {#if advOpen}
+            <div class="g2">
+              <label class="fg"><span>Extra search filter <span class="hint">— optional, ANDed</span></span><input bind:value={edit.draft.search_filter} placeholder="(&(objectClass=user)(userPrincipalName=*))" /></label>
+              <label class="fg"><span>Custom user filter <span class="hint">— overrides default; needs &#123;username&#125;</span></span><input bind:value={edit.draft.user_filter} placeholder="(leave blank for the smart default)" /></label>
+            </div>
+          {/if}
         {/if}
       </div>
 
@@ -312,6 +348,18 @@
   .fg input:focus{border-color:var(--clay);}
   .g2{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
 
+  /* LDAP modal redesign */
+  .sect-h{font-size:11px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); margin:16px 0 8px; padding-bottom:5px; border-bottom:1px solid var(--border);}
+  .sect-h .hint{text-transform:none; letter-spacing:0; font-weight:400;}
+  .grid-conn{display:grid; grid-template-columns:1.1fr 1.7fr .6fr 1.5fr; gap:14px; align-items:end;}
+  .grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px;}
+  .g2w{display:grid; grid-template-columns:1.6fr 1fr; gap:14px;}
+  .seg{display:flex; width:100%; border:1px solid var(--border); border-radius:9px; overflow:hidden;}
+  .segb{flex:1; height:40px; padding:0 6px; font-size:12.5px; background:#fff; border:0; border-right:1px solid var(--border); cursor:pointer; color:var(--ink);}
+  .segb:last-child{border-right:0;}
+  .segb.on{background:var(--clay); color:#fff; font-weight:600;}
+  .advtog{margin:12px 0 4px; padding:0; background:none; border:0; font-size:12.5px; font-weight:600; color:var(--clay); cursor:pointer;}
+
   .btn{height:38px; padding:0 16px; border-radius:9px; font-size:13px; font-weight:500; cursor:pointer; border:1px solid var(--border); background:#fff;}
   .btn.sm{height:34px; padding:0 13px; white-space:nowrap;}
   .btn.pri{background:var(--clay); color:#fff; border-color:var(--clay);}
@@ -322,7 +370,7 @@
 
   /* popup modal */
   .scrim{position:fixed; inset:0; background:rgba(28,26,23,.45); z-index:80;}
-  .modal{position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:81; width:min(460px,calc(100vw - 32px)); max-height:88vh; display:flex; flex-direction:column;
+  .modal{position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:81; width:min(var(--mw,460px),calc(100vw - 32px)); max-height:92vh; display:flex; flex-direction:column;
     background:#fff; border-radius:16px; box-shadow:0 24px 60px rgba(28,26,23,.32); animation:min .16s ease-out; overflow:hidden;}
   @keyframes min{from{opacity:0; transform:translate(-50%,-46%);}to{opacity:1; transform:translate(-50%,-50%);}}
   .m-head{display:flex; align-items:center; justify-content:space-between; padding:15px 20px; border-bottom:1px solid var(--border);}
@@ -341,7 +389,7 @@
 
   @media (max-width:640px){
     .mcards{grid-template-columns:1fr;}
-    .g2{grid-template-columns:1fr;}
+    .g2, .g2w, .grid3, .grid-conn{grid-template-columns:1fr;}
     .lhead{flex-direction:column;}
     .rowcard{flex-wrap:wrap;}
     .meta{flex:1 0 60%;}

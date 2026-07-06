@@ -21,8 +21,17 @@ DEFAULT_CONFIG = {
     "merge_by_email": False,
     "ldap": {
         "host": "", "port": 389, "bind_dn": "", "bind_password": "",
-        "base_dn": "", "user_filter": "(sAMAccountName={username})",
+        "base_dn": "",
+        # OpenWebUI-style (login accepts bare username OR full email/UPN):
+        #   username_attr = LDAP_ATTRIBUTE_FOR_USERNAME (AD=sAMAccountName, OpenLDAP=uid)
+        #   email_attr    = LDAP_ATTRIBUTE_FOR_MAIL
+        #   search_filter = optional extra constraint, ANDed (e.g. (memberOf=...))
+        # user_filter is legacy/optional — leave blank to use the smart default.
+        "username_attr": "sAMAccountName",
         "email_attr": "mail", "name_attr": "cn",
+        "search_filter": "", "user_filter": "",
+        # TLS: use_ssl = LDAPS (port 636); start_tls = StartTLS on 389.
+        "use_ssl": False, "start_tls": False,
     },
     "oidc": {
         "issuer": "", "client_id": "", "client_secret": "",
@@ -36,7 +45,7 @@ DEFAULT_CONFIG = {
     # directories. Each renders its own login button. The legacy single
     # `oidc`/`ldap` above is migrated into these lists on read (see helpers).
     "oidc_providers": [],   # [{id,name,provider,label,issuer,client_id,client_secret,scopes,enabled}]
-    "ldap_directories": [], # [{id,name,host,port,bind_dn,bind_password,base_dn,user_filter,email_attr,name_attr,enabled}]
+    "ldap_directories": [], # [{id,name,host,port,bind_dn,bind_password,base_dn,username_attr,email_attr,name_attr,search_filter,user_filter,use_ssl,start_tls,enabled}]
 }
 
 _SSO_DEFLABEL = {"microsoft": "Continue with Microsoft", "google": "Continue with Google",

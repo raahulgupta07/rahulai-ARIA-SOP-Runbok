@@ -211,10 +211,10 @@ def set_group_features(group_id: int, features: list[str]) -> dict:
 
 # starter feature-based access groups, seeded on boot (admin can edit/delete)
 _DEFAULT_GROUPS = [
-    ("Chat only",              ["chat"]),
-    ("Staff (Chat + Sources)", ["chat", "sources", "wiki"]),
-    ("Analysts (Insights)",    ["chat", "workspace", "eval", "wiki"]),
-    ("Full access",            ["chat", "sources", "workspace", "eval", "wiki"]),
+    # Kept simple: default user = chat-only already; add a user to "Full access"
+    # to unlock every tab. Admins create their own groups for anything in between.
+    ("Chat only",   ["chat"]),
+    ("Full access", ["chat", "sources", "workspace", "eval", "wiki"]),
 ]
 
 

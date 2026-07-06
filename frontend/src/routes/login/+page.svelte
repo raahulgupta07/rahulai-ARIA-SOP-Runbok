@@ -119,7 +119,12 @@
     if (params.get('error')) err = params.get('error') || '';
 
     if (auth.isAuthed()) { finish(); }
-    auth.config().then((c) => (cfg = c)).catch(() => {});
+    auth.config().then((c) => {
+      cfg = c;
+      // LDAP-first: when LDAP is enabled it is the PRIMARY login; local email
+      // becomes the secondary "Continue with email instead" option.
+      if (c.enable_ldap) { ldapMode = true; ldapDir = c.ldap_dirs?.[0]?.id; }
+    }).catch(() => {});
     api.version().then((d) => (ver = d)).catch(() => {});
     api.publicStats().then((s) => (stats = s)).catch(() => {});
   });
@@ -174,7 +179,7 @@
             <input class="inp" placeholder="Full name" bind:value={name} />
           {/if}
 
-          <input class="inp" bind:this={emailEl} placeholder={ldapMode ? 'Username' : 'Email'} bind:value={email}
+          <input class="inp" bind:this={emailEl} placeholder={ldapMode ? 'Username or email' : 'Email'} bind:value={email}
                  onkeydown={(e) => e.key === 'Enter' && (ldapMode ? doLdap() : doLocal())} />
 
           <div class="pwrap">
@@ -218,10 +223,12 @@
         {/if}
 
         {#if ldapMode}
-          <button class="btn" onclick={() => { ldapMode = false; ldapDir = undefined; }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/></svg>
-            Use local account
-          </button>
+          {#if cfg.enable_local}
+            <button class="btn" onclick={() => { ldapMode = false; ldapDir = undefined; }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z M4 8l8 5 8-5"/></svg>
+              Continue with email instead
+            </button>
+          {/if}
         {:else}
           {#each (cfg.ldap_dirs ?? []) as d}
             <button class="btn" onclick={() => openLdap(d.id)}>

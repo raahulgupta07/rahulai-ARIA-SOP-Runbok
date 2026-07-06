@@ -36,7 +36,7 @@ from .memory import (
     update_memory,
 )
 from .learn import maybe_learn
-from .auth.deps import current_user, require_admin, current_principal
+from .auth.deps import current_user, require_admin, require_superadmin, current_principal
 from . import embed as embed_mod
 from . import okf as okf_mod
 from .version import version_info
@@ -1254,7 +1254,7 @@ def ms_config(user: dict = Depends(require_admin)):
 
 
 @router.post("/integrations/microsoft/config")
-def ms_save_config(body: dict, user: dict = Depends(require_admin)):
+def ms_save_config(body: dict, user: dict = Depends(require_superadmin)):
     from . import sharepoint
     cfg = sharepoint.save_creds(body or {})
     audit_mod.log(user, "microsoft.config", "config", 0,
@@ -1264,7 +1264,7 @@ def ms_save_config(body: dict, user: dict = Depends(require_admin)):
 
 
 @router.post("/integrations/microsoft/secret/clear")
-def ms_clear_secret(user: dict = Depends(require_admin)):
+def ms_clear_secret(user: dict = Depends(require_superadmin)):
     from . import sharepoint
     cfg = sharepoint.clear_creds_secret()
     audit_mod.log(user, "microsoft.secret_clear", "config", 0, {})
@@ -1272,7 +1272,7 @@ def ms_clear_secret(user: dict = Depends(require_admin)):
 
 
 @router.post("/integrations/microsoft/test")
-def ms_test(user: dict = Depends(require_admin)):
+def ms_test(user: dict = Depends(require_superadmin)):
     from . import sharepoint
     return sharepoint.test_creds()
 
@@ -1291,7 +1291,7 @@ def graph_config(kind: str, user: dict = Depends(require_admin)):
 
 
 @router.post("/ingest/graph/{kind}/config")
-def graph_save_config(kind: str, body: dict, user: dict = Depends(require_admin)):
+def graph_save_config(kind: str, body: dict, user: dict = Depends(require_superadmin)):
     from . import sharepoint
     kind = _graph_kind(kind)
     cfg = sharepoint.save_config(body or {}, kind=kind)
@@ -1339,7 +1339,7 @@ def sp_get(user: dict = Depends(require_admin)):
 
 
 @router.post("/connector/sp")
-def sp_save(body: dict, user: dict = Depends(require_admin)):
+def sp_save(body: dict, user: dict = Depends(require_superadmin)):
     from . import sp_connector
     body = body or {}
     if "site_url" in body and not sp_connector.valid_site_url(body.get("site_url")):
@@ -1445,7 +1445,7 @@ def sharepoint_config(user: dict = Depends(require_admin)):
 
 
 @router.post("/ingest/sharepoint/config")
-def sharepoint_save_config(body: dict, user: dict = Depends(require_admin)):
+def sharepoint_save_config(body: dict, user: dict = Depends(require_superadmin)):
     from . import sharepoint
     cfg = sharepoint.save_config(body or {}, kind="sharepoint")
     audit_mod.log(user, "sharepoint.config", "config", 0, {"site": cfg.get("site_path")})
@@ -1479,7 +1479,7 @@ def sharepoint_import(user: dict = Depends(require_admin)):
 
 
 # ---------------- Storage config (super-admin, Settings → Storage) ----------------
-@router.get("/storage/config", dependencies=[Depends(require_admin)])
+@router.get("/storage/config", dependencies=[Depends(require_superadmin)])
 def storage_config():
     """Effective storage config (DB over env), secret masked."""
     from .appcfg import get_s3
@@ -1487,7 +1487,7 @@ def storage_config():
 
 
 @router.post("/storage/config")
-def storage_save(req: dict, user: dict = Depends(require_admin)):
+def storage_save(req: dict, user: dict = Depends(require_superadmin)):
     """Save storage config; reset the S3 client and create the bucket if needed."""
     from .appcfg import save_s3
     from . import s3client
@@ -1805,7 +1805,7 @@ def get_governance():
 
 
 @router.post("/governance")
-def save_governance(req: dict, user: dict = Depends(require_admin)):
+def save_governance(req: dict, user: dict = Depends(require_superadmin)):
     """Update the per-source approval policy (admin)."""
     from . import governance
     pol = governance.save_policy(req or {})
@@ -1821,7 +1821,7 @@ def get_features():
 
 
 @router.post("/settings/features")
-def save_features(req: dict, user: dict = Depends(require_admin)):
+def save_features(req: dict, user: dict = Depends(require_superadmin)):
     """Update feature toggles (admin). Body: {citations: bool, ...}."""
     feats = appcfg.save_features(req or {})
     audit_mod.log(user, "features.update", "config", 0, req)
@@ -1837,7 +1837,7 @@ def get_wiki_schema():
 
 
 @router.post("/settings/wiki-schema")
-def save_wiki_schema(req: dict, user: dict = Depends(require_admin)):
+def save_wiki_schema(req: dict, user: dict = Depends(require_superadmin)):
     """Update the wiki schema (admin). Body = a partial schema patch."""
     schema = appcfg.save_wiki_schema(req or {})
     audit_mod.log(user, "wiki_schema.update", "config", 0, req)
@@ -1852,7 +1852,7 @@ def get_persona():
 
 
 @router.post("/settings/persona")
-def save_persona(req: dict, user: dict = Depends(require_admin)):
+def save_persona(req: dict, user: dict = Depends(require_superadmin)):
     """Save the persona (admin). Body = a partial persona patch. Bumps version."""
     p = appcfg.save_persona(req or {})
     audit_mod.log(user, "persona.update", "config", 0, {"version": p.get("version")})
@@ -3627,13 +3627,13 @@ def _require_superadmin(user: dict) -> None:
         raise HTTPException(status_code=403, detail="Super-admin only.")
 
 
-@router.get("/admin/rbac", dependencies=[Depends(require_admin)])
+@router.get("/admin/rbac", dependencies=[Depends(require_superadmin)])
 def admin_rbac_get():
     """Current multi-tenant RBAC switch (DB runtime config over the env default)."""
     return {"enabled": appcfg.get_rbac_enabled()}
 
 
-@router.post("/admin/rbac", dependencies=[Depends(require_admin)])
+@router.post("/admin/rbac", dependencies=[Depends(require_superadmin)])
 def admin_rbac_set(body: dict = Body(...), user: dict = Depends(current_user)):
     """Turn multi-tenant access (sectors + folders) on/off live — no restart.
     Super-admin only. When OFF the app is single-tenant (everyone sees all)."""
@@ -3644,20 +3644,20 @@ def admin_rbac_set(body: dict = Body(...), user: dict = Depends(current_user)):
     return {"enabled": on}
 
 
-@router.get("/admin/sectors", dependencies=[Depends(require_admin)])
+@router.get("/admin/sectors", dependencies=[Depends(require_superadmin)])
 def admin_sectors_list():
     from . import admin_rbac
     return {"sectors": admin_rbac.list_sectors()}
 
 
-@router.post("/admin/sectors", dependencies=[Depends(require_admin)])
+@router.post("/admin/sectors", dependencies=[Depends(require_superadmin)])
 def admin_sectors_create(body: dict = Body(...), user: dict = Depends(current_user)):
     _require_superadmin(user)
     from . import admin_rbac
     return admin_rbac.create_sector(body.get("name", ""), body.get("label"))
 
 
-@router.delete("/admin/sectors/{sid}", dependencies=[Depends(require_admin)])
+@router.delete("/admin/sectors/{sid}", dependencies=[Depends(require_superadmin)])
 def admin_sectors_delete(sid: int, user: dict = Depends(current_user)):
     _require_superadmin(user)
     from . import admin_rbac
@@ -3673,7 +3673,7 @@ def admin_users_list(limit: int = 500):
     return {"users": admin_rbac.list_users(limit)}
 
 
-@router.patch("/admin/users/{uid}", dependencies=[Depends(require_admin)])
+@router.patch("/admin/users/{uid}", dependencies=[Depends(require_superadmin)])
 def admin_users_set(uid: int, body: dict = Body(...), user: dict = Depends(current_user)):
     _require_superadmin(user)
     from . import admin_rbac
@@ -3683,27 +3683,27 @@ def admin_users_set(uid: int, body: dict = Body(...), user: dict = Depends(curre
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/admin/groups", dependencies=[Depends(require_admin)])
+@router.get("/admin/groups", dependencies=[Depends(require_superadmin)])
 def admin_groups_list():
     from . import admin_rbac
     return {"groups": admin_rbac.list_groups()}
 
 
-@router.post("/admin/groups", dependencies=[Depends(require_admin)])
+@router.post("/admin/groups", dependencies=[Depends(require_superadmin)])
 def admin_groups_create(body: dict = Body(...), user: dict = Depends(current_user)):
     _require_superadmin(user)
     from . import admin_rbac
     return admin_rbac.create_group(body.get("name", ""), bool(body.get("all_sectors")))
 
 
-@router.delete("/admin/groups/{gid}", dependencies=[Depends(require_admin)])
+@router.delete("/admin/groups/{gid}", dependencies=[Depends(require_superadmin)])
 def admin_groups_delete(gid: int, user: dict = Depends(current_user)):
     _require_superadmin(user)
     from . import admin_rbac
     return {"ok": admin_rbac.delete_group(gid)}
 
 
-@router.put("/admin/groups/{gid}/features", dependencies=[Depends(require_admin)])
+@router.put("/admin/groups/{gid}/features", dependencies=[Depends(require_superadmin)])
 def admin_group_features(gid: int, body: dict = Body(...), user: dict = Depends(current_user)):
     """Set which app features (tabs) a group's members may use. Super-admin only.
     features = subset of chat|sources|workspace|eval|wiki."""

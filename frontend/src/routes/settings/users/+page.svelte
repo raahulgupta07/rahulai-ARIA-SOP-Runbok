@@ -141,7 +141,7 @@
               </td>
               <td>
                 <select class="rolesel" value={u.role} onchange={(e) => patch(u, { role: (e.target as HTMLSelectElement).value })} disabled={isMe} title={isMe ? "You can't change your own role" : ''}>
-                  <option value="user">user</option><option value="sector_admin">sector admin</option><option value="admin">admin</option><option value="superadmin">super admin</option><option value="pending">pending</option>
+                  <option value="user">user</option><option value="admin">admin</option><option value="superadmin">super admin</option><option value="pending">pending</option>
                 </select>
               </td>
               <td>
@@ -200,7 +200,7 @@
         <label class="fg"><span>Name</span><input bind:value={edit.draft.name} placeholder="Full name" /></label>
         <label class="fg"><span>Password</span><input type="password" bind:value={edit.draft.password} /></label>
         <label class="fg"><span>Role</span>
-          <select class="sel" bind:value={edit.draft.role}><option value="user">user</option><option value="sector_admin">sector admin</option><option value="admin">admin</option><option value="superadmin">super admin</option></select>
+          <select class="sel" bind:value={edit.draft.role}><option value="user">user</option><option value="admin">admin</option><option value="superadmin">super admin</option></select>
         </label>
       </div>
       <div class="m-foot">

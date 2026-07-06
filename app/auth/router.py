@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from . import store
 from .. import notify
 from .security import hash_password, verify_password, make_token
-from .deps import current_user, require_admin
+from .deps import current_user, require_admin, require_superadmin
 from .ldap_auth import ldap_login, ldap_test, LdapError
 from .oidc import auth_url, exchange, redirect_uri, OidcError, consume_state
 
@@ -177,7 +177,7 @@ def me(user: dict = Depends(current_user)):
 
 # ================= admin =================
 @router.get("/admin/users")
-def admin_list_users(_: dict = Depends(require_admin)):
+def admin_list_users(_: dict = Depends(require_superadmin)):
     return {"users": store.list_users()}
 
 
@@ -189,7 +189,7 @@ class AdminCreate(BaseModel):
 
 
 @router.post("/admin/users")
-def admin_create(body: AdminCreate, _: dict = Depends(require_admin)):
+def admin_create(body: AdminCreate, _: dict = Depends(require_superadmin)):
     if store.get_by_email(body.email):
         raise HTTPException(status_code=409, detail="email already exists")
     u = store.create_user(
@@ -209,7 +209,7 @@ class UserPatch(BaseModel):
 
 
 @router.patch("/admin/users/{uid}")
-def admin_patch(uid: int, body: UserPatch, admin: dict = Depends(require_admin)):
+def admin_patch(uid: int, body: UserPatch, admin: dict = Depends(require_superadmin)):
     if uid == admin["id"] and (body.role and body.role != "admin" or body.active is False):
         raise HTTPException(status_code=400, detail="cannot demote or disable yourself")
     prev = store.get_by_id(uid)
@@ -231,7 +231,7 @@ def admin_patch(uid: int, body: UserPatch, admin: dict = Depends(require_admin))
 
 
 @router.delete("/admin/users/{uid}")
-def admin_delete(uid: int, admin: dict = Depends(require_admin)):
+def admin_delete(uid: int, admin: dict = Depends(require_superadmin)):
     if uid == admin["id"]:
         raise HTTPException(status_code=400, detail="cannot delete yourself")
     if not store.delete_user(uid):
@@ -241,15 +241,15 @@ def admin_delete(uid: int, admin: dict = Depends(require_admin)):
 
 # ---- auth config (admin sees + edits everything incl. secrets) ----
 @router.get("/admin/auth-config")
-def admin_get_config(_: dict = Depends(require_admin)):
+def admin_get_config(_: dict = Depends(require_superadmin)):
     return store.get_config()
 
 
 @router.put("/admin/auth-config")
-def admin_save_config(body: dict, _: dict = Depends(require_admin)):
+def admin_save_config(body: dict, _: dict = Depends(require_superadmin)):
     return store.save_config(body)
 
 
 @router.post("/admin/auth-config/test-ldap")
-def admin_test_ldap(body: dict, _: dict = Depends(require_admin)):
+def admin_test_ldap(body: dict, _: dict = Depends(require_superadmin)):
     return ldap_test(body)

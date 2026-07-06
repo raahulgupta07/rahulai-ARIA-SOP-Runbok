@@ -23,7 +23,7 @@
     rbacBusy = false;
   }
 
-  const ROLES = ['user', 'sector_admin', 'admin', 'superadmin'];
+  const ROLES = ['user', 'admin', 'superadmin'];
 
   // normalize: backend may return a bare array OR {users:[...]} / {sectors:[...]} etc.
   function arr(x: any, key: string): any[] {
@@ -293,9 +293,10 @@
 
               <div class="addmem">
                 <select class="sel" onchange={(e) => { addMember(g, (e.target as HTMLSelectElement).value); (e.target as HTMLSelectElement).value=''; }}>
-                  <option value="">+ Add member…</option>
-                  {#each nonMembers(g) as u}<option value={u.id}>{u.email}{u.sector_id != null ? ` · ${sectorName(u.sector_id)}` : ''}</option>{/each}
+                  <option value="">+ Add an existing user to this group…</option>
+                  {#each nonMembers(g) as u}<option value={u.id}>{u.name || u.email} · {u.role}</option>{/each}
                 </select>
+                <div class="addmem-hint">Pick a user to grant them this group's tabs. Users aren't added automatically.</div>
               </div>
 
               <div style="display:flex;align-items:center;flex-wrap:wrap;gap:14px;margin-top:11px;padding-top:11px;border-top:1px solid var(--border,#e0dfda);">
@@ -321,6 +322,7 @@
 
 <style>
   .wrap{max-width:1100px;}
+  .addmem-hint{font-size:11px; color:var(--muted); margin-top:5px;}
   .ttlsub{font-size:12.5px; color:var(--muted); margin-top:3px; margin-bottom:18px;}
   .gate{font-size:14px; color:var(--muted); background:#fff; border:1px solid var(--border); border-radius:13px; padding:24px; text-align:center;}
   .errbar{font-size:13px; color:#b03a22; background:#fbeae6; border:1px solid #e6bdb2; border-radius:10px; padding:9px 13px; margin-bottom:14px;}

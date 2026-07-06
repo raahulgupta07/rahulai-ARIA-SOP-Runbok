@@ -220,14 +220,15 @@ def user_features(user: dict | None) -> list[str]:
     """Effective app features (tabs) this user may use.
       - admin / superadmin  -> everything
       - else: UNION of features across the user's groups that DEFINE features;
-              if the user is in no feature-defining group -> ALL (unrestricted until
-              an admin puts them in a restricting group). Fail-open on error.
+              if the user is in no feature-defining group -> CHAT ONLY (secure
+              default; an admin grants more by adding them to a group). Fail
+              CLOSED to chat-only on error.
     """
     if is_superadmin(user):
         return list(ALL_FEATURES)
     uid = user and user.get("id")
     if not uid:
-        return list(ALL_FEATURES)
+        return ["chat"]
     try:
         with get_conn() as c:
             rows = c.execute(
@@ -236,14 +237,15 @@ def user_features(user: dict | None) -> list[str]:
                 (uid,),
             ).fetchall()
         if not rows:
-            return list(ALL_FEATURES)
+            return ["chat"]
         feats = set()
         for r in rows:
             for f in (r["features"] or []):
                 feats.add(f)
-        return [f for f in ALL_FEATURES if f in feats]
+        # never lock a user out entirely — chat is always available
+        return [f for f in ALL_FEATURES if f in feats] or ["chat"]
     except Exception:
-        return list(ALL_FEATURES)
+        return ["chat"]
 
 
 def has_feature(user: dict | None, feature: str) -> bool:

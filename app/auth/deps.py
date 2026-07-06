@@ -64,3 +64,14 @@ def require_admin(authorization: str | None = Header(default=None)) -> dict:
     if user["role"] not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="admin only")
     return user
+
+
+def require_superadmin(authorization: str | None = Header(default=None)) -> dict:
+    """Top-tier only. Gates the whole Settings surface (auth config incl. LDAP/OIDC
+    secrets, storage creds, RBAC toggle, sectors/groups, user role assignment,
+    governance/persona/features). Plain 'admin' can use every app page but NOT
+    Settings, so these config mutations must be superadmin-only."""
+    user = current_user(authorization)
+    if user["role"] != "superadmin":
+        raise HTTPException(status_code=403, detail="super-admin only")
+    return user

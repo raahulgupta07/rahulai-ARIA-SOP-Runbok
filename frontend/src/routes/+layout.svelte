@@ -141,13 +141,18 @@
   let menuOpen = $state(false);
   // single source of truth for role: admin manages the knowledge base, everyone
   // else is chat-only (no Workspace/Brain/Settings, no upload/teach/edit).
+  // three tiers: superadmin (everything incl Settings) · admin (all app pages but
+  // NOT Settings) · user (chat + whatever their group grants).
+  let isSuperadmin = $derived(me?.role === 'superadmin');
   let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
   // per-group feature gating for the top nav. admins see all; others see only the
-  // tabs enabled for their group. features undefined (not loaded) => fail open to all.
+  // tabs enabled for their group. features undefined (not loaded) => chat-only.
   const ALL_FEAT = ['chat', 'sources', 'workspace', 'eval', 'wiki'];
-  let feats = $derived(new Set((me?.features ?? ALL_FEAT) as string[]));
+  let feats = $derived(new Set((me?.features ?? ['chat']) as string[]));
+  // topnav = [Chat, Workspace, Sources, Settings]; Settings is superadmin-only
+  let appTabs = $derived([topnav[0], topnav[1], topnav[2], evalNav, wikiNav]);
   let navList = $derived.by(() => {
-    if (isAdmin) return [...topnav, evalNav, wikiNav];
+    if (isAdmin) return isSuperadmin ? [...appTabs, topnav[3]] : appTabs;
     if (!me) return [];
     const out: any[] = [];
     if (feats.has('chat')) out.push(topnav[0]);       // Chat
@@ -169,7 +174,9 @@
   // chat-only users can't reach admin areas even by typing the URL
   $effect(() => {
     if (isLogin || isEmbed || isShare || !me) return;
-    if (!isAdmin && (/^\/(workspace|settings|brain|sources|eval)/.test($page.url.pathname))) goto('/');
+    // Settings is superadmin-only; the other admin areas allow plain admin too.
+    if (/^\/settings/.test($page.url.pathname) && !isSuperadmin) { goto('/'); return; }
+    if (!isAdmin && (/^\/(workspace|brain|sources|eval)/.test($page.url.pathname))) goto('/');
   });
 
   // primary nav — Chat is implicit (New chat + history), so only sections here
@@ -281,7 +288,7 @@
             <div class="absolute right-0 top-full mt-1.5 w-48 rounded-xl border shadow-lg py-1.5 z-50" style="background:var(--paper); border-color:var(--border)"
                  role="presentation" onmouseleave={() => (menuOpen = false)}>
               <div class="px-3 py-1.5 text-[11px]" style="color:var(--muted)">{me.email}</div>
-              {#if isAdmin}<a href="/settings" onclick={() => (menuOpen = false)} class="block px-3 py-2 text-[13.5px] hover:bg-[#ece9e0]" style="color:#46443f">Settings</a>{/if}
+              {#if isSuperadmin}<a href="/settings" onclick={() => (menuOpen = false)} class="block px-3 py-2 text-[13.5px] hover:bg-[#ece9e0]" style="color:#46443f">Settings</a>{/if}
               <button onclick={logout} class="w-full text-left px-3 py-2 text-[13.5px] hover:bg-[#ece9e0]" style="color:#46443f">Sign out</button>
             </div>
           {/if}
@@ -373,7 +380,7 @@
        normal users have just Chat, so a tab bar is pointless ===== -->
   {#if me && isAdmin}
     <nav class="botbar">
-      {#each bottomnav as t}
+      {#each bottomnav.filter((t) => t.section !== '/settings' || isSuperadmin) as t}
         {@const on = sectionActive(t.section)}
         <a href={t.href} class="botbar-item" class:on>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={t.d}/></svg>

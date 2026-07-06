@@ -1,0 +1,62 @@
+# "Behind my own reverse proxy" stack (Nginx Proxy Manager / external nginx).
+#
+#   NPM (TLS, on another host/container) ──http──▶ app  (published on APP_PORT)
+#                                                  worker (ingest + daemons)
+#                                                  db (postgres 17)
+#
+# No built-in nginx / certbot here — YOUR proxy terminates HTTPS and forwards to
+# http://THIS_SERVER_IP:${APP_PORT}. Generated + started by:  sudo bash install.sh
+# (choose "behind my own proxy"). APP_PORT is the HOST port you pick.
+
+services:
+  db:
+    image: postgres:17
+    command: ["postgres", "-c", "max_connections=${PG_MAX_CONNECTIONS:-200}"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-docsensei}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docsensei}
+      POSTGRES_DB: ${POSTGRES_DB:-docsensei}
+    volumes:
+      - docsensei_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-docsensei} -d ${POSTGRES_DB:-docsensei}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      args:
+        BUILD_SHA: ${BUILD_SHA:-prod}
+        BUILD_DATE: ${BUILD_DATE:-}
+    image: cityagentdocsensei-app
+    command: ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8077 --proxy-headers --forwarded-allow-ips='*' --workers ${WEB_CONCURRENCY:-4}"]
+    env_file: .env.prod
+    ports:
+      - "${APP_PORT:-8082}:8077"     # ← YOUR proxy points here
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./documents:/app/documents
+    restart: unless-stopped
+
+  worker:
+    image: cityagentdocsensei-app
+    command: ["python", "-m", "app.worker_main"]
+    env_file: .env.prod
+    environment:
+      VISION_WORKERS: ${WORKER_VISION_WORKERS:-12}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./documents:/app/documents
+    restart: unless-stopped
+
+volumes:
+  docsensei_pg:
