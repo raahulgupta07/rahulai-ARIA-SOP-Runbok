@@ -51,10 +51,31 @@ CHAT_MODEL=google/gemini-3.1-flash-lite
 INGEST_MODEL=openrouter/google/gemini-3.1-flash-lite
 ```
 
-### 3. Build + start (⚠ ALWAYS pass `--env-file .env.prod`)
+### 3. Build + start
+
+**Option A — bundled Nginx Proxy Manager (a web UI for HTTPS, recommended).**
+Brings up app + db + worker **+ NPM**. Your engineer configures the domain + cert by
+clicking in a web panel — no config files.
+```bash
+docker compose -f docker-compose.with-npm.yml --env-file .env.prod up -d --build
+```
+Then open the NPM admin UI: **`http://SERVER_IP:81`** (login `admin@example.com` /
+`changeme`, it forces a change). Add a Proxy Host:
+- Domain `itsm.yourco.com` · Forward **http** · host **`app`** · port **8077** · Websockets ON
+- **SSL** tab → request a Let's Encrypt cert · Force SSL
+- **Advanced** tab → paste the streaming config below.
+
+NPM listens on **80 / 443 / 81** — open those in the firewall; the app itself is not
+exposed to the host (NPM reaches it internally as `app:8077`).
+
+**Option B — bring your own proxy** (you already run NPM/nginx elsewhere). Publishes
+the app on a host port only:
 ```bash
 docker compose -f docker-compose.npm.yml --env-file .env.prod up -d --build
 ```
+App → `http://SERVER_IP:8082`; point your existing proxy at it.
+
+> **⚠ ALWAYS pass `--env-file .env.prod`** on every compose command (both options).
 > **Why `--env-file .env.prod` is mandatory:** without it, Docker Compose reads its
 > default `.env` and the **db** container falls back to the password `docsensei`
 > while the app uses yours → `password authentication failed`. Always include it.

@@ -1,0 +1,87 @@
+# All-in-one stack WITH Nginx Proxy Manager (web UI for HTTPS).
+#
+#   internet ─80/443─▶ nginx-proxy-manager (GUI on :81) ──▶ app:8077
+#                                                            worker, db
+#
+# The engineer configures HTTPS by clicking in the NPM web UI (no config files).
+# The app is NOT published to a host port — NPM reaches it internally over the
+# docker network as http://app:8077.
+#
+# Start:
+#   cp .env.prod.example .env.prod      # fill it in (openssl rand -hex 32 for JWT)
+#   docker compose -f docker-compose.with-npm.yml --env-file .env.prod up -d --build
+#
+# Then open the NPM UI:  http://SERVER_IP:81   (login admin@example.com / changeme)
+#   → Hosts → Proxy Hosts → Add:
+#       Domain      = itsm.yourco.com
+#       Forward     = http · host "app" · port 8077   · Websockets ON
+#       SSL tab     = request a new Let's Encrypt cert · Force SSL
+#       Advanced    = proxy_buffering off; proxy_read_timeout 3600s;
+#                     proxy_send_timeout 3600s; client_max_body_size 512m;
+#   (DNS A record itsm.yourco.com -> server IP, and open ports 80/443/81.)
+
+services:
+  db:
+    image: postgres:17
+    command: ["postgres", "-c", "max_connections=${PG_MAX_CONNECTIONS:-200}"]
+    env_file: .env.prod          # POSTGRES_* read here so the password always matches
+    volumes:
+      - docsensei_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U docsensei -d docsensei"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      args:
+        BUILD_SHA: ${BUILD_SHA:-prod}
+        BUILD_DATE: ${BUILD_DATE:-}
+    image: cityagentdocsensei-app
+    command: ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8077 --proxy-headers --forwarded-allow-ips='*' --workers ${WEB_CONCURRENCY:-4}"]
+    env_file: .env.prod
+    expose:
+      - "8077"                   # internal only — NPM proxies to app:8077
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./documents:/app/documents
+    restart: unless-stopped
+
+  worker:
+    image: cityagentdocsensei-app
+    command: ["python", "-m", "app.worker_main"]
+    env_file: .env.prod
+    environment:
+      VISION_WORKERS: ${WORKER_VISION_WORKERS:-12}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./documents:/app/documents
+    restart: unless-stopped
+
+  # Nginx Proxy Manager — the web UI your engineer uses to add the domain + HTTPS
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:latest
+    ports:
+      - "80:80"        # HTTP + ACME challenge
+      - "443:443"      # HTTPS
+      - "81:81"        # admin web UI  (http://SERVER_IP:81)
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  docsensei_pg:
+  npm_data:
+  npm_letsencrypt:
