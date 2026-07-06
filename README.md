@@ -1,5 +1,116 @@
 # City Agent Aria
 
+**Aria** (*Agent for Runbooks & IT Assistance*) is a bilingual (English + Burmese)
+AI assistant over your company SOPs / runbooks / policies. It reads your documents
+(text **and** screenshots), answers questions **with the source page**, and keeps
+improving itself. Vectorless RAG (PageIndex + Postgres full-text — **no embeddings,
+no GPU**), vision page-reading at ingest, multi-method auth (local / LDAP / SSO),
+per-user chat history, streaming answers. Packaged as **one Docker image + Postgres**.
+
+---
+
+## 🚀 Install (AWS / any Linux box)
+
+One command. It installs Docker, generates secrets, builds, and starts everything.
+
+```bash
+sudo bash install.sh
+```
+
+It asks a few questions, then you're live. There are **two modes**:
+
+### Mode 1 — Behind your own reverse proxy (Nginx Proxy Manager / nginx)  ← recommended
+You already run NPM (or nginx) for HTTPS. The installer just runs the app on a host
+port; your proxy adds TLS.
+
+It asks: **super-admin email**, **super-admin password (your choice)**,
+**OpenRouter API key**, **host port** (default `8082`), **public URL**.
+Internal secrets (JWT, DB password) are auto-generated.
+
+Then in **Nginx Proxy Manager → Proxy Hosts → Add**:
+- **Domain**: `aria.yourco.com`
+- **Forward**: scheme `http` · host = the server's IP · port = the host port you chose
+- **Websockets Support**: ON
+- **SSL** tab: request a Let's Encrypt cert · **Force SSL** · HTTP/2
+- **Advanced** tab — paste this (chat streaming hangs without it):
+  ```nginx
+  proxy_buffering off;
+  proxy_read_timeout 3600s;
+  proxy_send_timeout 3600s;
+  client_max_body_size 512m;
+  ```
+
+### Mode 2 — Built-in nginx + automatic HTTPS (Let's Encrypt)
+No external proxy. The installer serves HTTPS itself.
+It asks: **domain**, **email**, **OpenRouter key**, **super-admin email + password**.
+Requires: a DNS **A record** for the domain → this server, and ports **80 + 443** open.
+
+**AWS Security Group:** open inbound **80 + 443** (Mode 2) or your host port + 80/443 on the NPM host (Mode 1).
+
+---
+
+## 🔐 Roles & access
+
+Three simple tiers — set a user's **role** in **Settings → Users**:
+
+| Role | Sees |
+|---|---|
+| **user** | Chat only (default). Grant more tabs via a group (below). |
+| **admin** | All app pages (Workspace, Sources, Eval, Wiki) — **but not Settings**. |
+| **super admin** | Everything, including Settings. |
+
+**Groups** (**Settings → Access → Groups**) grant extra tabs to normal users:
+- **Chat only** — just chat
+- **Full access** — every tab
+
+Add a `user` to *Full access* to unlock all tabs for them, or create your own group
+with any mix of `chat / sources / workspace / eval / wiki`. A `user` in no group is
+chat-only. (Admins/super-admins ignore groups — they see everything.)
+
+---
+
+## 🪪 LDAP / Active Directory login
+
+**Settings → Authentication → LDAP → + Add directory.** Fields (OpenWebUI-style):
+
+| Field | Example (AD) |
+|---|---|
+| Host / Port | `10.16.73.150` / `389` (or `636` for LDAPS) |
+| Security | None · StartTLS · **LDAPS** |
+| Bind DN / password | `cn=svc,ou=Service,dc=chl,dc=local` |
+| Base DN | `dc=chl,dc=local` |
+| Username attribute | `sAMAccountName` |
+| Email attribute | `userPrincipalName` |
+
+**Users sign in with EITHER their username OR their full email** — both resolve
+automatically. When LDAP is enabled it becomes the **primary** login form; local
+accounts move to "Continue with email instead". Use the **Extra search filter**
+(Advanced) to restrict logins, e.g. `(memberOf=cn=staff,ou=groups,dc=chl,dc=local)`.
+
+---
+
+## ⬆️ Upgrade (data-safe)
+
+When a new version ships:
+
+```bash
+sudo bash update.sh
+```
+
+It backs up the database, pulls the new code, rebuilds, and recreates the app —
+**your data is preserved** (Postgres volume + page images survive; the schema
+auto-migrates on boot). A dated backup lands in `backups/` for rollback.
+
+## 🛠 Manage
+
+```bash
+docker compose -f docker-compose.npm.yml ps          # status  (or docker-compose.prod.yml for Mode 2)
+docker compose -f docker-compose.npm.yml logs -f app  # live logs
+docker compose -f docker-compose.npm.yml restart      # restart
+```
+
+---
+
 ## What's new (2026-06-23) — Eval Agent: nightly answer-quality scoring
 A background **Eval Agent** continuously measures how good the assistant's answers
 are — automatically, with no thumbs-up/down from users and no cost at upload or
