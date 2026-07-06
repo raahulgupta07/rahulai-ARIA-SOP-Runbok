@@ -116,12 +116,12 @@ chmod 600 .env.prod
 
 # ---- build ----
 say "Building the app image (first build ~5-10 min)"
-BUILD_SHA="$(date +%s | sha1sum | cut -c1-7)" BUILD_DATE="$(date +%F)" $DC -f "$COMPOSE" build
+BUILD_SHA="$(date +%s | sha1sum | cut -c1-7)" BUILD_DATE="$(date +%F)" $DC -f "$COMPOSE" --env-file .env.prod build
 
 # ---- start ----
 if [ "$MODE" = npm ]; then
   say "Starting app on host port ${APP_PORT}"
-  $DC -f "$COMPOSE" up -d
+  $DC -f "$COMPOSE" --env-file .env.prod up -d
 else
   # (built-in nginx path: bootstrap http → cert → swap to https — see prod compose)
   say "Starting core services (http bootstrap)"
@@ -132,20 +132,20 @@ server { listen 80; server_name ${DOMAIN}; client_max_body_size 512m;
   location /.well-known/acme-challenge/ { root /var/www/certbot; }
   location / { proxy_pass http://aria_app; proxy_set_header Host \$host; proxy_set_header X-Forwarded-Proto \$scheme; proxy_buffering off; proxy_read_timeout 3600s; proxy_http_version 1.1; } }
 EOF
-  $DC -f "$COMPOSE" up -d db app worker nginx
+  $DC -f "$COMPOSE" --env-file .env.prod up -d db app worker nginx
   say "Requesting HTTPS certificate for ${DOMAIN}"
-  $DC -f "$COMPOSE" run --rm --entrypoint certbot certbot certonly --webroot -w /var/www/certbot \
+  $DC -f "$COMPOSE" --env-file .env.prod run --rm --entrypoint certbot certbot certonly --webroot -w /var/www/certbot \
       -d "${DOMAIN}" --email "${EMAIL}" --agree-tos --no-eff-email --non-interactive \
     || die "Cert failed — check DNS A record for ${DOMAIN} points here and ports 80/443 are open."
   sed "s/__DOMAIN__/${DOMAIN}/g" deploy/nginx.ssl.tmpl > deploy/nginx.active.conf
-  $DC -f "$COMPOSE" exec -T nginx nginx -s reload
-  $DC -f "$COMPOSE" up -d certbot
+  $DC -f "$COMPOSE" --env-file .env.prod exec -T nginx nginx -s reload
+  $DC -f "$COMPOSE" --env-file .env.prod up -d certbot
 fi
 
 # ---- wait ----
 say "Waiting for the app"
 for i in $(seq 1 60); do
-  if $DC -f "$COMPOSE" exec -T app python -c "import urllib.request;urllib.request.urlopen('http://localhost:8077/api/version')" >/dev/null 2>&1; then echo "  app up"; break; fi
+  if $DC -f "$COMPOSE" --env-file .env.prod exec -T app python -c "import urllib.request;urllib.request.urlopen('http://localhost:8077/api/version')" >/dev/null 2>&1; then echo "  app up"; break; fi
   sleep 3; [ "$i" = 60 ] && die "app did not start — check: $DC -f $COMPOSE logs app"
 done
 

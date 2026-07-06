@@ -22,7 +22,7 @@ DC="docker compose"
 # pick the compose file that's actually running (npm or built-in nginx)
 COMPOSE="${COMPOSE:-}"
 if [ -z "$COMPOSE" ]; then
-  if $DC -f docker-compose.npm.yml ps -q app >/dev/null 2>&1 && [ -n "$($DC -f docker-compose.npm.yml ps -q app 2>/dev/null)" ]; then
+  if $DC -f docker-compose.npm.yml --env-file .env.prod ps -q app >/dev/null 2>&1 && [ -n "$($DC -f docker-compose.npm.yml --env-file .env.prod ps -q app 2>/dev/null)" ]; then
     COMPOSE=docker-compose.npm.yml
   else
     COMPOSE=docker-compose.prod.yml
@@ -33,7 +33,7 @@ say "Using $COMPOSE"
 # 1) backup the database first (safety)
 say "Backing up the database"
 TS="$(date +%Y%m%d_%H%M%S)"; mkdir -p backups
-$DC -f "$COMPOSE" exec -T db pg_dump -U docsensei -Fc docsensei > "backups/db_${TS}.dump" \
+$DC -f "$COMPOSE" --env-file .env.prod exec -T db pg_dump -U docsensei -Fc docsensei > "backups/db_${TS}.dump" \
   && echo "  saved backups/db_${TS}.dump" || echo "  (backup skipped — db not up yet)"
 
 # 2) pull the new code (if this is a git checkout)
@@ -41,15 +41,15 @@ if [ -d .git ]; then say "Pulling latest code"; git pull --ff-only || echo "  (g
 
 # 3) rebuild + recreate app + worker (db + volumes untouched)
 say "Rebuilding the image"
-BUILD_SHA="$(date +%s | sha1sum | cut -c1-7)" BUILD_DATE="$(date +%F)" $DC -f "$COMPOSE" build app
+BUILD_SHA="$(date +%s | sha1sum | cut -c1-7)" BUILD_DATE="$(date +%F)" $DC -f "$COMPOSE" --env-file .env.prod build app
 say "Restarting app + worker (data preserved, schema auto-migrates)"
-$DC -f "$COMPOSE" up -d --force-recreate app worker
+$DC -f "$COMPOSE" --env-file .env.prod up -d --force-recreate app worker
 
 # 4) wait + report version
 say "Waiting for the app"
 for i in $(seq 1 40); do
-  if $DC -f "$COMPOSE" exec -T app python -c "import urllib.request;urllib.request.urlopen('http://localhost:8077/api/version')" >/dev/null 2>&1; then
-    V="$($DC -f "$COMPOSE" exec -T app python -c "import urllib.request,json;print(json.load(urllib.request.urlopen('http://localhost:8077/api/version'))['version'])" 2>/dev/null)"
+  if $DC -f "$COMPOSE" --env-file .env.prod exec -T app python -c "import urllib.request;urllib.request.urlopen('http://localhost:8077/api/version')" >/dev/null 2>&1; then
+    V="$($DC -f "$COMPOSE" --env-file .env.prod exec -T app python -c "import urllib.request,json;print(json.load(urllib.request.urlopen('http://localhost:8077/api/version'))['version'])" 2>/dev/null)"
     printf '\n\033[1;32m✓ Upgraded — now running v%s\033[0m\n' "$V"
     printf '  Backup: backups/db_%s.dump   ·   Rollback: restore that dump if needed.\n\n' "$TS"; exit 0
   fi

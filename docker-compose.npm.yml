@@ -12,10 +12,10 @@ services:
   db:
     image: postgres:17
     command: ["postgres", "-c", "max_connections=${PG_MAX_CONNECTIONS:-200}"]
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-docsensei}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-docsensei}
-      POSTGRES_DB: ${POSTGRES_DB:-docsensei}
+    # read POSTGRES_* straight from .env.prod so the DB password ALWAYS matches
+    # what the app connects with (an `environment:` block with ${VAR:-default}
+    # would fall back to 'docsensei' at initdb and break auth forever).
+    env_file: .env.prod
     volumes:
       - docsensei_pg:/var/lib/postgresql/data
     healthcheck:
