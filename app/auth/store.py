@@ -9,7 +9,10 @@ PUBLIC_COLS = "id, email, name, role, auth_source, active, created_at, last_logi
 # defaults merged UNDER whatever the admin saved in auth_config.data
 DEFAULT_CONFIG = {
     "enable_local": True,
-    "enable_signup": True,
+    # Open self-registration is OFF by default (production/internal-tool safe):
+    # users come from LDAP/SSO or are created by an admin. A super-admin can turn
+    # it on in Settings → Authentication for public signup.
+    "enable_signup": False,
     "enable_ldap": False,
     "enable_oidc": False,
     "default_role": "user",          # user | pending | admin
