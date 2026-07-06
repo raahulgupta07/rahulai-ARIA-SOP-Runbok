@@ -45,6 +45,11 @@ services:
     restart: unless-stopped
 
   worker:
+    build:
+      context: .
+      args:
+        BUILD_SHA: ${BUILD_SHA:-prod}
+        BUILD_DATE: ${BUILD_DATE:-}
     image: cityagentdocsensei-app
     command: ["python", "-m", "app.worker_main"]
     env_file: .env.prod
