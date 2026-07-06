@@ -9,9 +9,100 @@ per-user chat history, streaming answers. Packaged as **one Docker image + Postg
 
 ---
 
-## 🚀 Install (AWS / any Linux box)
+## 🚀 Install — Manual (Docker, do it yourself)
 
-One command. It installs Docker, generates secrets, builds, and starts everything.
+Full control, no script. You run Docker yourself and put **your own** reverse proxy
+(Nginx Proxy Manager / nginx / Caddy) in front for HTTPS. Requires Docker +
+`docker compose` v2 already installed.
+
+### 1. Get the code
+```bash
+git clone https://github.com/raahulgupta07/rahulai-ARIA-SOP-Runbok.git
+cd rahulai-ARIA-SOP-Runbok
+```
+
+### 2. Create `.env.prod` (secrets + config)
+```bash
+cp .env.prod.example .env.prod
+nano .env.prod        # fill in the values below
+```
+Set these (generate the two secrets with `openssl rand -hex 32`):
+```ini
+APP_ENV=production
+PUBLIC_URL=https://itsm.yourco.com          # your domain (for links; not routing)
+CORS_ALLOW_ORIGINS=
+
+OPENROUTER_API_KEY=sk-or-xxxxxxxx
+JWT_SECRET=<paste: openssl rand -hex 32>     # 64 chars
+
+SUPERADMIN_EMAIL=admin@yourco.com
+SUPERADMIN_PASSWORD=<your password>
+
+# DB — the password here must match the db container (same file, so it will)
+DATABASE_URL=postgresql://docsensei:<pick-a-db-pass>@db:5432/docsensei
+POSTGRES_USER=docsensei
+POSTGRES_PASSWORD=<pick-a-db-pass>           # same value as in DATABASE_URL
+POSTGRES_DB=docsensei
+
+APP_PORT=8082                                # host port your proxy will forward to
+INGEST_IN_API=0
+STORAGE=local
+CHAT_MODEL=google/gemini-3.1-flash-lite
+INGEST_MODEL=openrouter/google/gemini-3.1-flash-lite
+```
+
+### 3. Build + start (⚠ ALWAYS pass `--env-file .env.prod`)
+```bash
+docker compose -f docker-compose.npm.yml --env-file .env.prod up -d --build
+```
+> **Why `--env-file .env.prod` is mandatory:** without it, Docker Compose reads its
+> default `.env` and the **db** container falls back to the password `docsensei`
+> while the app uses yours → `password authentication failed`. Always include it.
+
+### 4. Verify
+```bash
+docker compose -f docker-compose.npm.yml --env-file .env.prod ps        # all Up (db healthy)
+curl -s http://localhost:8082/api/version                               # prints the version
+docker compose -f docker-compose.npm.yml --env-file .env.prod logs -f app   # watch logs
+```
+The app now runs at **`http://SERVER_IP:8082`**.
+
+### 5. HTTPS — put your own proxy in front
+Point your **Nginx Proxy Manager / nginx** at `http://SERVER_IP:8082`:
+- Domain `itsm.yourco.com` · Forward **http** · host `SERVER_IP` · port **8082** · Websockets ON
+- SSL: Let's Encrypt cert · Force SSL
+- **Advanced / custom config (required, or chat streaming hangs):**
+  ```nginx
+  proxy_buffering off;
+  proxy_read_timeout 3600s;
+  proxy_send_timeout 3600s;
+  client_max_body_size 512m;
+  ```
+- DNS: A record `itsm.yourco.com` → `SERVER_IP`; open ports **80 + 443** on the proxy host.
+
+### Restart / stop / logs
+```bash
+docker compose -f docker-compose.npm.yml --env-file .env.prod restart
+docker compose -f docker-compose.npm.yml --env-file .env.prod down          # stop (keeps data)
+docker compose -f docker-compose.npm.yml --env-file .env.prod down -v        # stop + WIPE database
+```
+
+### Upgrade later (manual, data-safe)
+```bash
+docker compose -f docker-compose.npm.yml --env-file .env.prod exec -T db \
+  pg_dump -U docsensei -Fc docsensei > backup_$(date +%F).dump    # backup first
+git pull
+docker compose -f docker-compose.npm.yml --env-file .env.prod up -d --build --force-recreate app worker
+```
+Your data persists (Postgres volume + `./data`); the schema auto-migrates on boot.
+
+---
+
+## 🚀 Install — Scripted (optional shortcut)
+
+Prefer one command? `install.sh` does steps 1–4 for you (installs Docker, generates
+secrets, builds, starts). Two modes: **NPM** (like the manual path above) or
+**built-in nginx + auto HTTPS**.
 
 ```bash
 sudo bash install.sh
