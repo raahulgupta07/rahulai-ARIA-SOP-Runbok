@@ -1032,6 +1032,8 @@ class FolderBody(BaseModel):
     parent_id: int | None = None            # nest under another folder; None = top level
     access_mode: str = "sector"             # sector | specific | org
     principals: list[FolderPrincipal] = []  # only for access_mode='specific'
+    color: str | None = None                # hex like '#c2683f' (optional)
+    icon: str | None = None                 # short emoji like '📊' (optional)
 
 
 class FolderPatch(BaseModel):
@@ -1039,6 +1041,8 @@ class FolderPatch(BaseModel):
     parent_id: int | None = None            # move under a new parent (None = to top level)
     move: bool = False                      # set true to actually apply parent_id (else ignored)
     is_expanded: bool | None = None         # persist tree open/closed state
+    color: str | None = None                # '' clears to NULL; None = leave unchanged
+    icon: str | None = None                 # '' clears to NULL; None = leave unchanged
 
 
 MAX_FOLDER_DEPTH = 6                          # guard against pathological nesting
@@ -1057,8 +1061,15 @@ def list_folders(user: dict = Depends(current_user)):
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT f.id, f.name, f.sector_id, f.parent_id, f.is_expanded, f.access_mode, "
+            "f.color, f.icon, "
             "s.label AS sector_label, "
             "(SELECT count(*) FROM docs d WHERE d.folder_id = f.id) AS doc_count, "
+            # subtree_count: docs in this folder PLUS every descendant folder
+            "(SELECT count(*) FROM docs d WHERE d.folder_id IN ("
+            "   WITH RECURSIVE sub(id) AS ("
+            "     SELECT f.id "
+            "     UNION ALL SELECT c.id FROM folders c JOIN sub ON c.parent_id = sub.id"
+            "   ) SELECT id FROM sub)) AS subtree_count, "
             "(SELECT count(*) FROM folder_access fa WHERE fa.folder_id = f.id) AS access_n "
             "FROM folders f LEFT JOIN sectors s ON s.id = f.sector_id "
             "WHERE true" + _sec + " ORDER BY f.name",
@@ -1135,9 +1146,11 @@ def create_folder(body: FolderBody, user: dict = Depends(current_user)):
         if existing:
             return {"ok": True, "folder": dict(existing), "created": False}
         row = conn.execute(
-            "INSERT INTO folders (sector_id, name, access_mode, parent_id) VALUES (%s,%s,%s,%s) "
-            "RETURNING id, name, sector_id, parent_id, access_mode",
-            (sid, name, mode, body.parent_id)).fetchone()
+            "INSERT INTO folders (sector_id, name, access_mode, parent_id, color, icon) "
+            "VALUES (%s,%s,%s,%s,%s,%s) "
+            "RETURNING id, name, sector_id, parent_id, access_mode, color, icon",
+            (sid, name, mode, body.parent_id,
+             (body.color or None), (body.icon or None))).fetchone()
         if mode == "specific":
             for p in body.principals:
                 if p.type in ("user", "group"):
@@ -1242,6 +1255,10 @@ def patch_folder(fid: int, body: FolderPatch, user: dict = Depends(current_user)
         sets.append("name = %s"); args.append(nm)
     if body.is_expanded is not None:
         sets.append("is_expanded = %s"); args.append(body.is_expanded)
+    if body.color is not None:                      # '' clears to NULL
+        sets.append("color = %s"); args.append(body.color.strip() or None)
+    if body.icon is not None:                       # '' clears to NULL
+        sets.append("icon = %s"); args.append(body.icon.strip() or None)
     if body.move:                                   # explicit opt-in to reparent
         new_parent = body.parent_id
         if new_parent is not None:
@@ -1263,7 +1280,7 @@ def patch_folder(fid: int, body: FolderPatch, user: dict = Depends(current_user)
     with get_conn() as conn:
         row = conn.execute(
             f"UPDATE folders SET {', '.join(sets)} WHERE id=%s "
-            "RETURNING id, name, sector_id, parent_id, is_expanded, access_mode",
+            "RETURNING id, name, sector_id, parent_id, is_expanded, access_mode, color, icon",
             tuple(args)).fetchone()
     return {"ok": True, "folder": dict(row)}
 
@@ -2370,7 +2387,8 @@ def ingest_active():
 
 @router.get("/documents", dependencies=[Depends(require_key)])
 def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=0),
-              folder_id: int | None = Query(None), user: dict = Depends(current_user)):
+              folder_id: int | None = Query(None), deep: bool = Query(True),
+              user: dict = Depends(current_user)):
     # Paginated + bounded. Was an unbounded scan of every doc (+ per-doc
     # subqueries + a full messages-usage GROUP BY) on every poll. Returns `total`
     # so the client can page. Defaults (500/0) keep existing callers working.
@@ -2379,7 +2397,13 @@ def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=
             "      OR (d.folder_id IS NULL AND d.sector_id = ANY(%(sectors)s))) ")
     if folder_id == 0:                      # Sources: "Unfiled" (no folder)
         _sec += " AND d.folder_id IS NULL "
-    elif folder_id is not None:             # Sources: filter to one folder
+    elif folder_id is not None and deep:    # Sources: this folder + ALL descendants
+        _sec += (" AND d.folder_id IN ("
+                 "   WITH RECURSIVE sub(id) AS ("
+                 "     SELECT %(folder)s::bigint "
+                 "     UNION ALL SELECT c.id FROM folders c JOIN sub ON c.parent_id = sub.id"
+                 "   ) SELECT id FROM sub) ")
+    elif folder_id is not None:             # Sources: exact folder only (deep=false)
         _sec += " AND d.folder_id = %(folder)s "
     with get_conn() as conn:
         total = conn.execute(
@@ -2388,7 +2412,8 @@ def list_docs(limit: int = Query(500, ge=1, le=2000), offset: int = Query(0, ge=
         rows = conn.execute(
             "SELECT d.id, d.name, d.lang, d.page_count, d.created_at, d.category, "
             "d.status, d.progress, d.pages_done, d.error, d.ready_at, "
-            "d.uploaded_by, d.updated_at, d.doc_type, "
+            "d.uploaded_by, d.updated_at, d.doc_type, d.folder_id, "
+            "(SELECT fo.name FROM folders fo WHERE fo.id = d.folder_id) AS folder_name, "
             "(SELECT count(*) FROM doc_playbook pb WHERE pb.doc_id = d.id) AS has_playbook, "
             "(SELECT count(*) FROM nodes n WHERE n.doc_id = d.id) AS sections, "
             "(SELECT count(*) FROM pages p WHERE p.doc_id = d.id AND coalesce(p.vision_text,'') <> '') AS vision_pages, "

@@ -4,6 +4,7 @@
   import { parseDocName } from '$lib/docname';
   import { onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
+  import FolderStyleModal from '$lib/components/FolderStyleModal.svelte';
 
   // ── reactive admin/me gate (cachedUser is non-reactive → revalidate via me()) ──
   let me = $state<User | null>(auth.cachedUser());
@@ -14,6 +15,7 @@
     id: number; name: string; sector_id?: number | null; sector_label?: string | null; doc_count: number;
     access_mode?: 'sector' | 'specific' | 'org'; access_n?: number;
     parent_id?: number | null; is_expanded?: boolean;
+    color?: string | null; icon?: string | null; subtree_count?: number;
   };
   type Principal = { type: 'user' | 'group'; id: number; label: string };
   type Doc = {
@@ -121,6 +123,84 @@
     pickerOpen = false; pickerSearch = '';
     showFolderModal = true; ensurePrincipals();
     setTimeout(() => nameInput?.focus(), 0);
+  }
+
+  // count docs in a folder + all its subfolders (roll-up shown in the rail)
+  const countOf = (f: Folder): number => (f.subtree_count ?? f.doc_count ?? 0);
+  // full "A / B / C" breadcrumb for a folder id (used by the doc "Move to…" picker)
+  function folderPath(id: number | null): string {
+    if (id == null) return 'Unfiled';
+    const parts: string[] = []; let cur: number | null = id; let guard = 0;
+    while (cur != null && guard++ < MAX_DEPTH + 1) {
+      const f = folders.find((x) => x.id === cur); if (!f) break;
+      parts.unshift(f.name); cur = f.parent_id ?? null;
+    }
+    return parts.join(' / ') || 'Folder';
+  }
+  // every descendant id of a folder (client-side cycle guard for the move picker)
+  function descendantIds(id: number): Set<number> {
+    const out = new Set<number>(); const stack = [id];
+    while (stack.length) { const cur = stack.pop()!; for (const c of kids(cur)) { if (!out.has(c.id)) { out.add(c.id); stack.push(c.id); } } }
+    return out;
+  }
+
+  // ── include-subfolders toggle (deep doc view) ──
+  let deepDocs = $state(true);
+
+  // ── per-folder colour + icon (FolderStyleModal) ──
+  let styleOpen = $state(false);
+  let styleFolder = $state<Folder | null>(null);
+  function openStyle(f: Folder, e?: Event) { e?.stopPropagation(); styleFolder = f; styleOpen = true; }
+  async function saveStyle(v: { color: string | null; icon: string | null }) {
+    const f = styleFolder; styleOpen = false; if (!f) return;
+    const i = folders.findIndex((x) => x.id === f.id);
+    if (i >= 0) folders[i] = { ...folders[i], color: v.color, icon: v.icon };   // Svelte5: mutate by index
+    try { await api.patchFolder(f.id, { color: v.color ?? '', icon: v.icon ?? '' }); } catch { await loadFolders(); }
+  }
+
+  // ── inline rename in the rail ──
+  let renameId = $state<number | null>(null);
+  let renameVal = $state('');
+  let renameInput = $state<HTMLInputElement | null>(null);
+  function startRename(f: Folder, e?: Event) {
+    e?.stopPropagation(); renameId = f.id; renameVal = f.name;
+    setTimeout(() => { renameInput?.focus(); renameInput?.select(); }, 0);
+  }
+  async function commitRename(f: Folder) {
+    const n = renameVal.trim(); renameId = null;
+    if (!n || n === f.name) return;
+    const i = folders.findIndex((x) => x.id === f.id);
+    if (i >= 0) folders[i] = { ...folders[i], name: n };
+    try { await api.patchFolder(f.id, { name: n }); } catch { await loadFolders(); }
+  }
+
+  // ── move a folder under another (menu-based, cycle-guarded) ──
+  let fmoveOpen = $state(false);
+  let fmoveSrc = $state<Folder | null>(null);
+  let fmoveBusy = $state(false);
+  let fmoveTargets = $derived.by(() => {
+    const src = fmoveSrc; if (!src) return [] as { id: number | null; label: string }[];
+    const blocked = descendantIds(src.id); blocked.add(src.id);
+    const opts: { id: number | null; label: string }[] = [{ id: null, label: 'Top level' }];
+    for (const f of folders) {
+      if (blocked.has(f.id)) continue;
+      opts.push({ id: f.id, label: folderPath(f.id) });
+    }
+    opts.sort((a, b) => a.label.localeCompare(b.label));
+    return opts;
+  });
+  function openFolderMove(f: Folder, e?: Event) { e?.stopPropagation(); fmoveSrc = f; fmoveOpen = true; }
+  async function doFolderMove(targetId: number | null) {
+    const f = fmoveSrc; if (!f || fmoveBusy) return;
+    if ((f.parent_id ?? null) === targetId) { fmoveOpen = false; return; }
+    fmoveBusy = true;
+    try {
+      await api.patchFolder(f.id, { parent_id: targetId, move: true });
+      fmoveOpen = false; fmoveSrc = null;
+      await loadFolders();
+    } catch (err: any) {
+      flashToast(err?.message || 'Move failed (too deep or into itself)', 'err');
+    } finally { fmoveBusy = false; }
   }
 
   // ── directory import — rebuild the folder tree from webkitRelativePath ──
@@ -403,7 +483,7 @@
   async function loadDocs() {
     loadingDocs = true;
     try {
-      const r = await api.documents(selFolderId);
+      const r = await api.documents(selFolderId, deepDocs);
       let list: Doc[] = r.documents || r.docs || [];
       docs = list;
       total = r.total ?? list.length;
@@ -414,8 +494,8 @@
     }
   }
 
-  // reload the doc table whenever the selected source changes
-  $effect(() => { selected; loadDocs(); });
+  // reload the doc table whenever the selected source (or subfolder toggle) changes
+  $effect(() => { selected; deepDocs; loadDocs(); });
 
   // ── poll the LIST while any doc is queued/processing ──
   let inFlight = $derived(docs.some((d) => d.status === 'queued' || d.status === 'processing' || d.status === 'ready_lite'));
@@ -1056,20 +1136,53 @@
     {#snippet folderNode(f, depth)}
       <button class="fitem" class:on={selected === f.id} title={f.name}
         style="padding-left:{6 + depth * 13}px" onclick={() => (selected = f.id)}>
+        {#if f.color}<span class="fbar" style="background:{f.color}"></span>{/if}
         {#if kids(f.id).length}
           <span class="chev" role="button" tabindex="0" aria-label="Expand {f.name}"
             onclick={(e) => toggleExpand(f, e)}
             onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(f, e); } }}
           >{f.is_expanded ? '▾' : '▸'}</span>
         {:else}<span class="chev sp"></span>{/if}
-        <span class="ic">📁</span>
-        <span class="fname">{f.name}</span>
+        <span class="ic" style={f.color ? `color:${f.color}` : ''}>{f.icon || '📁'}</span>
+        {#if renameId === f.id}
+          <input class="renin" bind:this={renameInput} bind:value={renameVal}
+            onclick={(e) => e.stopPropagation()}
+            onblur={() => commitRename(f)}
+            onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitRename(f); } else if (e.key === 'Escape') { e.preventDefault(); renameId = null; } }} />
+        {:else}
+          <span class="fname" ondblclick={(e) => startRename(f, e)}>{f.name}</span>
+        {/if}
         <span class="fmeta">
           {#if f.access_mode === 'org'}
             <span class="lk" title="Shared with the whole organisation">🌐</span>
           {:else if f.access_mode === 'specific'}
             <span class="lk" title="Shared with specific people / groups">🔒{f.access_n ?? 0}</span>
           {/if}
+          <span class="sh" role="button" tabindex="0" title="Rename"
+            aria-label="Rename folder {f.name}"
+            onclick={(e) => startRename(f, e)}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); startRename(f); } }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path>
+            </svg>
+          </span>
+          <span class="sh" role="button" tabindex="0" title="Colour &amp; icon"
+            aria-label="Colour and icon for {f.name}"
+            onclick={(e) => openStyle(f, e)}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openStyle(f); } }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="13.5" cy="6.5" r="1.2"></circle><circle cx="17.5" cy="10.5" r="1.2"></circle><circle cx="8.5" cy="7.5" r="1.2"></circle><circle cx="6.5" cy="12.5" r="1.2"></circle>
+              <path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2-4 2.5 2.5 0 0 1 2-4h1a5 5 0 0 0 5-5c0-4-4-7-10-7Z"></path>
+            </svg>
+          </span>
+          <span class="sh" role="button" tabindex="0" title="Move folder"
+            aria-label="Move folder {f.name}"
+            onclick={(e) => openFolderMove(f, e)}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openFolderMove(f); } }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M5 12h14"></path><path d="M13 6l6 6-6 6"></path>
+            </svg>
+          </span>
           <span class="sh add" role="button" tabindex="0" title="New subfolder"
             aria-label="New subfolder in {f.name}"
             onclick={(e) => openSubfolder(f.id, e)}
@@ -1092,7 +1205,7 @@
               <polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
             </svg>
           </span>
-          <span class="n">{f.doc_count}</span>
+          <span class="n" title={kids(f.id).length ? `${f.doc_count} here · ${countOf(f)} incl. subfolders` : ''}>{countOf(f)}</span>
         </span>
       </button>
       {#if f.is_expanded}
@@ -1131,6 +1244,11 @@
     <div class="chead">
       <h1>{breadcrumb}</h1>
       <small>{total} {total === 1 ? 'document' : 'documents'}</small>
+      {#if typeof selected === 'number' && kids(selected).length}
+        <label class="subtog" title="Show documents from this folder's subfolders too">
+          <input type="checkbox" bind:checked={deepDocs} /> Include subfolders
+        </label>
+      {/if}
       {#if selected !== 'all'}
       <div class="addwrap">
         <button class="addbtn" onclick={toggleAdd} disabled={uploading} aria-haspopup="menu" aria-expanded={addOpen}>
@@ -1256,7 +1374,7 @@
             {#if bulkMoveOpen}
               <div class="bb-pop">
                 {#each folders as f (f.id)}
-                  <button onclick={() => bulkMove(f.id)}>{f.name}</button>
+                  <button onclick={() => bulkMove(f.id)}>{folderPath(f.id)}</button>
                 {/each}
               </div>
             {/if}
@@ -1611,7 +1729,7 @@
             {#if moveOpen}
               <div class="movepop">
                 {#each folders as f (f.id)}
-                  <button class="mopt" onclick={() => doMove(f.id)}>📁 {f.name}</button>
+                  <button class="mopt" onclick={() => doMove(f.id)}>📁 {folderPath(f.id)}</button>
                 {/each}
               </div>
             {/if}
@@ -1855,6 +1973,40 @@
   </div>
 {/if}
 
+<!-- ===== FOLDER COLOUR + ICON ===== -->
+<FolderStyleModal
+  open={styleOpen}
+  name={styleFolder?.name ?? ''}
+  color={styleFolder?.color ?? null}
+  icon={styleFolder?.icon ?? null}
+  onsave={saveStyle}
+  onclose={() => (styleOpen = false)}
+/>
+
+<!-- ===== MOVE FOLDER ===== -->
+{#if fmoveOpen && fmoveSrc}
+  <div class="scrim" role="button" tabindex="-1" aria-label="Close"
+    onclick={() => (fmoveOpen = false)} onkeydown={(e) => { if (e.key === 'Escape') fmoveOpen = false; }}></div>
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Move folder"
+    onkeydown={(e) => { if (e.key === 'Escape') fmoveOpen = false; }}>
+    <h2>Move “{fmoveSrc.name}”</h2>
+    <div class="parenthint">Currently in <b>{folderPath(fmoveSrc.parent_id ?? null)}</b></div>
+    <div class="movelist">
+      {#each fmoveTargets as t (t.id ?? 'root')}
+        <button class="moverow" class:cur={(fmoveSrc.parent_id ?? null) === t.id}
+          disabled={fmoveBusy} onclick={() => doFolderMove(t.id)}>
+          <span class="mic">{t.id === null ? '▚' : '📁'}</span>
+          <span class="mlab">{t.label}</span>
+          {#if (fmoveSrc.parent_id ?? null) === t.id}<span class="mcur">current</span>{/if}
+        </button>
+      {/each}
+    </div>
+    <div class="actions">
+      <button class="btn-cancel" onclick={() => (fmoveOpen = false)} disabled={fmoveBusy}>Cancel</button>
+    </div>
+  </div>
+{/if}
+
 <!-- ===== SHARE / MANAGE-ACCESS MODAL ===== -->
 {#if showShareModal && shareFolder}
   <div class="scrim" role="button" tabindex="-1" aria-label="Close"
@@ -1954,6 +2106,23 @@
     color: var(--muted); cursor: pointer; user-select: none; }
   .fitem .chev.sp { cursor: default; }
   .fitem .chev:hover { color: var(--ink); }
+  /* per-folder colour accent bar (left edge) */
+  .fitem { position: relative; }
+  .fitem .fbar { position: absolute; left: 0; top: 4px; bottom: 4px; width: 3px; border-radius: 0 3px 3px 0; flex: none; }
+  /* inline rename input (replaces .fname while editing) */
+  .renin { flex: 1; min-width: 34px; font: inherit; font-size: 13px; padding: 2px 6px; border: 1px solid var(--coral, #c2683f); border-radius: 6px; background: #fff; color: var(--ink); outline: none; }
+  /* "Include subfolders" toggle in the center header */
+  .subtog { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; margin-left: 4px; }
+  .subtog input { accent-color: var(--coral, #c2683f); }
+  /* move-folder target list */
+  .movelist { display: flex; flex-direction: column; gap: 2px; max-height: 46vh; overflow-y: auto; margin: 8px 0 4px; }
+  .moverow { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 8px 10px; border: none; background: transparent; border-radius: 8px; font: inherit; font-size: 13px; color: var(--ink); cursor: pointer; }
+  .moverow:hover:not(:disabled) { background: var(--hover, #efefec); }
+  .moverow:disabled { opacity: .5; cursor: default; }
+  .moverow.cur { color: var(--muted); }
+  .moverow .mic { flex: none; width: 16px; text-align: center; }
+  .moverow .mlab { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .moverow .mcur { flex: none; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
   .rail-empty { padding: 8px 11px; color: var(--muted); font-size: 12px; }
   /* subfolder-parent hint in the create modal */
   .parenthint { font-size: 12px; color: var(--muted); margin: -6px 0 14px; }

@@ -280,6 +280,9 @@ ALTER TABLE folders ADD COLUMN IF NOT EXISTS access_mode TEXT NOT NULL DEFAULT '
 -- removed directly. is_expanded persists the tree open/closed state per folder.
 ALTER TABLE folders ADD COLUMN IF NOT EXISTS parent_id BIGINT REFERENCES folders(id) ON DELETE SET NULL;
 ALTER TABLE folders ADD COLUMN IF NOT EXISTS is_expanded BOOLEAN NOT NULL DEFAULT false;
+-- optional per-folder presentation: color = hex like '#c2683f', icon = short emoji like '📊'
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS color TEXT;
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS icon TEXT;
 CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id);
 -- for access_mode='specific': who (a user or a group) may access this folder.
 CREATE TABLE IF NOT EXISTS folder_access (

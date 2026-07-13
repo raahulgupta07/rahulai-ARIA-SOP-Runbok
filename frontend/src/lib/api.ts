@@ -161,8 +161,13 @@ export const api = {
     return jsonOrThrow(await fetch(`${BASE}/conversations/${id}`, { method: 'DELETE', headers: headers(false) }));
   },
 
-  async documents(folderId?: number | null) {
-    const qs = (folderId === undefined || folderId === null) ? '' : `?folder_id=${folderId}`;
+  async documents(folderId?: number | null, deep = true) {
+    const p = new URLSearchParams();
+    if (folderId !== undefined && folderId !== null) {
+      p.set('folder_id', String(folderId));
+      p.set('deep', deep ? '1' : '0');   // deep = folder + all its subfolders
+    }
+    const qs = p.toString() ? `?${p}` : '';
     return jsonOrThrow(await fetch(`${BASE}/documents${qs}`, { headers: headers(false) }));
   },
 
@@ -177,6 +182,8 @@ export const api = {
       principals?: { type: 'user' | 'group'; id: number }[];
       sector_id?: number | null;
       parent_id?: number | null;
+      color?: string | null;
+      icon?: string | null;
     }
   ) {
     const body: Record<string, any> = { name };
@@ -184,6 +191,8 @@ export const api = {
     if (opts?.principals) body.principals = opts.principals;
     if (opts?.sector_id !== undefined) body.sector_id = opts.sector_id;
     if (opts?.parent_id !== undefined) body.parent_id = opts.parent_id;
+    if (opts?.color !== undefined) body.color = opts.color;
+    if (opts?.icon !== undefined) body.icon = opts.icon;
     return jsonOrThrow(await fetch(`${BASE}/folders`, { method: 'POST', headers: headers(), body: JSON.stringify(body) }));
   },
   // get-or-create a folder under a parent (idempotent); returns the folder row + `created`.
@@ -193,7 +202,7 @@ export const api = {
   // rename / move / persist expand state
   async patchFolder(
     id: number,
-    opts: { name?: string; parent_id?: number | null; move?: boolean; is_expanded?: boolean }
+    opts: { name?: string; parent_id?: number | null; move?: boolean; is_expanded?: boolean; color?: string | null; icon?: string | null }
   ) {
     return jsonOrThrow(await fetch(`${BASE}/folders/${id}`, {
       method: 'PATCH', headers: headers(), body: JSON.stringify(opts)
