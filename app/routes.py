@@ -1029,8 +1029,19 @@ class FolderPrincipal(BaseModel):
 class FolderBody(BaseModel):
     name: str
     sector_id: int | None = None
+    parent_id: int | None = None            # nest under another folder; None = top level
     access_mode: str = "sector"             # sector | specific | org
     principals: list[FolderPrincipal] = []  # only for access_mode='specific'
+
+
+class FolderPatch(BaseModel):
+    name: str | None = None
+    parent_id: int | None = None            # move under a new parent (None = to top level)
+    move: bool = False                      # set true to actually apply parent_id (else ignored)
+    is_expanded: bool | None = None         # persist tree open/closed state
+
+
+MAX_FOLDER_DEPTH = 6                          # guard against pathological nesting
 
 
 class AccessBody(BaseModel):               # share/manage access (no name needed)
@@ -1045,7 +1056,8 @@ def list_folders(user: dict = Depends(current_user)):
     _sec = " AND (%(s)s::bigint[] IS NULL OR f.sector_id = ANY(%(s)s)) "
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT f.id, f.name, f.sector_id, f.access_mode, s.label AS sector_label, "
+            "SELECT f.id, f.name, f.sector_id, f.parent_id, f.is_expanded, f.access_mode, "
+            "s.label AS sector_label, "
             "(SELECT count(*) FROM docs d WHERE d.folder_id = f.id) AS doc_count, "
             "(SELECT count(*) FROM folder_access fa WHERE fa.folder_id = f.id) AS access_n "
             "FROM folders f LEFT JOIN sectors s ON s.id = f.sector_id "
@@ -1072,26 +1084,60 @@ def list_principals(user: dict = Depends(require_admin)):
     return {"users": [dict(u) for u in users], "groups": [dict(g) for g in groups]}
 
 
+def _folder_depth(conn, fid: int) -> int:
+    """How many ancestors a folder has (top-level = 0). Bounded walk — a broken
+    parent chain can never loop past the cap."""
+    depth, cur = 0, fid
+    for _ in range(MAX_FOLDER_DEPTH + 2):
+        r = conn.execute("SELECT parent_id FROM folders WHERE id=%s", (cur,)).fetchone()
+        if not r or r["parent_id"] is None:
+            break
+        cur, depth = r["parent_id"], depth + 1
+    return depth
+
+
 @router.post("/folders")
 def create_folder(body: FolderBody, user: dict = Depends(current_user)):
-    """Create a folder + its access rule. Super-admin (any sector) or sector-admin
-    (own sector). access_mode: 'sector' (everyone in the sector), 'org' (all
-    sectors), or 'specific' (the chosen users/groups in `principals`)."""
-    sid = body.sector_id if body.sector_id is not None else rbac.user_write_sector(user)
-    if not rbac.can_write(user, sid):
-        raise HTTPException(status_code=403, detail="Not allowed to create folders.")
+    """Create a folder (or reuse an existing one with the same name under the same
+    parent — get-or-create, so a directory import can call this per path segment
+    without ever duplicating). Nest with `parent_id`; a child inherits its parent's
+    sector. Super-admin (any sector) or sector-admin (own sector). access_mode:
+    'sector' | 'org' | 'specific' (the users/groups in `principals`)."""
     name = (body.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Folder name required.")
+    parent = None
+    if body.parent_id is not None:
+        with get_conn() as conn:
+            parent = conn.execute(
+                "SELECT id, sector_id FROM folders WHERE id=%s", (body.parent_id,)).fetchone()
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent folder not found.")
+        sid = parent["sector_id"]                       # child inherits parent's sector
+    else:
+        sid = body.sector_id if body.sector_id is not None else rbac.user_write_sector(user)
+    if not rbac.can_write(user, sid):
+        raise HTTPException(status_code=403, detail="Not allowed to create folders.")
     mode = body.access_mode if body.access_mode in ("sector", "specific", "org") else "sector"
     # only a super-admin may grant org-wide (cross-sector) access
     if mode == "org" and not rbac.is_superadmin(user):
         raise HTTPException(status_code=403, detail="Only a super-admin can grant org-wide access.")
     with get_conn() as conn:
+        if parent is not None and _folder_depth(conn, parent["id"]) + 1 >= MAX_FOLDER_DEPTH:
+            raise HTTPException(status_code=400,
+                                detail=f"Folders can nest at most {MAX_FOLDER_DEPTH} levels deep.")
+        # get-or-create: same name, same parent, same sector → reuse (idempotent import)
+        existing = conn.execute(
+            "SELECT id, name, sector_id, parent_id, access_mode FROM folders "
+            "WHERE lower(name)=lower(%s) AND sector_id=%s AND parent_id IS NOT DISTINCT FROM %s "
+            "LIMIT 1",
+            (name, sid, body.parent_id)).fetchone()
+        if existing:
+            return {"ok": True, "folder": dict(existing), "created": False}
         row = conn.execute(
-            "INSERT INTO folders (sector_id, name, access_mode) VALUES (%s,%s,%s) "
-            "RETURNING id, name, sector_id, access_mode",
-            (sid, name, mode)).fetchone()
+            "INSERT INTO folders (sector_id, name, access_mode, parent_id) VALUES (%s,%s,%s,%s) "
+            "RETURNING id, name, sector_id, parent_id, access_mode",
+            (sid, name, mode, body.parent_id)).fetchone()
         if mode == "specific":
             for p in body.principals:
                 if p.type in ("user", "group"):
@@ -1099,12 +1145,12 @@ def create_folder(body: FolderBody, user: dict = Depends(current_user)):
                         "INSERT INTO folder_access (folder_id, principal_type, principal_id) "
                         "VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
                         (row["id"], p.type, p.id))
-    return {"ok": True, "folder": dict(row)}
+    return {"ok": True, "folder": dict(row), "created": True}
 
 
 def _folder_or_403(fid: int, user: dict):
     with get_conn() as conn:
-        f = conn.execute("SELECT id, name, sector_id, access_mode FROM folders WHERE id=%s",
+        f = conn.execute("SELECT id, name, sector_id, parent_id, access_mode FROM folders WHERE id=%s",
                          (fid,)).fetchone()
     if not f:
         raise HTTPException(status_code=404, detail="folder not found")
@@ -1150,18 +1196,76 @@ def folder_access_set(fid: int, body: AccessBody, user: dict = Depends(current_u
 
 @router.delete("/folders/{fid}")
 def delete_folder(fid: int, user: dict = Depends(current_user)):
-    """Delete a folder (admin / sector-admin via RBAC). Its DOCUMENTS are un-filed
-    (folder_id → NULL, moved to All documents) — never deleted; access rules drop."""
+    """Delete a folder (admin / sector-admin via RBAC). Child folders are REPARENTED
+    up to this folder's parent (nothing orphaned); this folder's own DOCUMENTS are
+    un-filed (folder_id → NULL, moved to All documents) — never deleted."""
     f = _folder_or_403(fid, user)        # 404 if missing, 403 if not allowed to manage
     with get_conn() as conn:
+        reparented = conn.execute(
+            "UPDATE folders SET parent_id = %s WHERE parent_id = %s",
+            (f.get("parent_id"), fid)).rowcount
         moved = conn.execute(
             "UPDATE docs SET folder_id = NULL WHERE folder_id = %s", (fid,)
         ).rowcount
         conn.execute("DELETE FROM folder_access WHERE folder_id = %s", (fid,))
         conn.execute("DELETE FROM folders WHERE id = %s", (fid,))
     audit_mod.log(user, "folder.delete", "folder", fid,
-                  {"name": f.get("name"), "unfiled_docs": moved})
-    return {"ok": True, "deleted": fid, "unfiled_docs": moved or 0}
+                  {"name": f.get("name"), "unfiled_docs": moved, "reparented_children": reparented})
+    return {"ok": True, "deleted": fid, "unfiled_docs": moved or 0,
+            "reparented_children": reparented or 0}
+
+
+def _descendant_ids(conn, fid: int) -> set:
+    """All folders below fid (recursive), bounded by the depth cap — used to block a
+    move that would create a cycle (a folder inside its own subtree)."""
+    seen, frontier = set(), [fid]
+    for _ in range(MAX_FOLDER_DEPTH + 2):
+        if not frontier:
+            break
+        rows = conn.execute(
+            "SELECT id FROM folders WHERE parent_id = ANY(%s)", (frontier,)).fetchall()
+        frontier = [r["id"] for r in rows if r["id"] not in seen]
+        seen.update(frontier)
+    return seen
+
+
+@router.patch("/folders/{fid}")
+def patch_folder(fid: int, body: FolderPatch, user: dict = Depends(current_user)):
+    """Rename a folder, move it under a new parent (cycle-guarded, depth-capped), or
+    persist its expand/collapse state. Only fields that are supplied change."""
+    f = _folder_or_403(fid, user)
+    sets, args = [], []
+    if body.name is not None:
+        nm = body.name.strip()
+        if not nm:
+            raise HTTPException(status_code=400, detail="Folder name cannot be empty.")
+        sets.append("name = %s"); args.append(nm)
+    if body.is_expanded is not None:
+        sets.append("is_expanded = %s"); args.append(body.is_expanded)
+    if body.move:                                   # explicit opt-in to reparent
+        new_parent = body.parent_id
+        if new_parent is not None:
+            with get_conn() as conn:
+                p = conn.execute("SELECT id, sector_id FROM folders WHERE id=%s",
+                                 (new_parent,)).fetchone()
+                if not p:
+                    raise HTTPException(status_code=404, detail="Target folder not found.")
+                if new_parent == fid or new_parent in _descendant_ids(conn, fid):
+                    raise HTTPException(status_code=400,
+                                        detail="Cannot move a folder into itself or its own subfolder.")
+                if _folder_depth(conn, new_parent) + 1 >= MAX_FOLDER_DEPTH:
+                    raise HTTPException(status_code=400,
+                                        detail=f"That would nest deeper than {MAX_FOLDER_DEPTH} levels.")
+        sets.append("parent_id = %s"); args.append(new_parent)
+    if not sets:
+        return {"ok": True, "folder": dict(f)}
+    args.append(fid)
+    with get_conn() as conn:
+        row = conn.execute(
+            f"UPDATE folders SET {', '.join(sets)} WHERE id=%s "
+            "RETURNING id, name, sector_id, parent_id, is_expanded, access_mode",
+            tuple(args)).fetchone()
+    return {"ok": True, "folder": dict(row)}
 
 
 @router.get("/ingest/scan")

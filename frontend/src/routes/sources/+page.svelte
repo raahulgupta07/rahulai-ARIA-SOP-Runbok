@@ -13,6 +13,7 @@
   type Folder = {
     id: number; name: string; sector_id?: number | null; sector_label?: string | null; doc_count: number;
     access_mode?: 'sector' | 'specific' | 'org'; access_n?: number;
+    parent_id?: number | null; is_expanded?: boolean;
   };
   type Principal = { type: 'user' | 'group'; id: number; label: string };
   type Doc = {
@@ -82,11 +83,119 @@
   }
 
   function openFolderModal() {
+    newParent = null;                       // top-level
     newName = ''; accessMode = 'sector'; picked = [];
     pickerOpen = false; pickerSearch = '';
     showFolderModal = true;
     ensurePrincipals();
     setTimeout(() => nameInput?.focus(), 0);
+  }
+
+  // ── folder tree (nesting) ──────────────────────────────────────────────
+  const MAX_DEPTH = 6;                       // matches backend MAX_FOLDER_DEPTH
+  let newParent = $state<number | null>(null);   // parent for the create-folder modal
+  // group folders by parent so the rail can render a tree
+  let childrenOf = $derived.by(() => {
+    const m = new Map<number | null, Folder[]>();
+    for (const f of folders) {
+      const p = (f.parent_id ?? null) as number | null;
+      (m.get(p) ?? m.set(p, []).get(p)!).push(f);
+    }
+    return m;
+  });
+  let topFolders = $derived(childrenOf.get(null) ?? []);
+  const kids = (id: number): Folder[] => childrenOf.get(id) ?? [];
+  const nameById = (id: number | null): string =>
+    id == null ? 'Top level' : (folders.find((f) => f.id === id)?.name ?? 'Folder');
+
+  async function toggleExpand(f: Folder, e?: Event) {
+    e?.stopPropagation();
+    const next = !f.is_expanded;
+    const i = folders.findIndex((x) => x.id === f.id);
+    if (i >= 0) folders[i] = { ...folders[i], is_expanded: next };   // Svelte5: mutate by index
+    try { await api.patchFolder(f.id, { is_expanded: next }); } catch {}
+  }
+  function openSubfolder(parentId: number, e?: Event) {
+    e?.stopPropagation();
+    newParent = parentId; newName = ''; accessMode = 'sector'; picked = [];
+    pickerOpen = false; pickerSearch = '';
+    showFolderModal = true; ensurePrincipals();
+    setTimeout(() => nameInput?.focus(), 0);
+  }
+
+  // ── directory import — rebuild the folder tree from webkitRelativePath ──
+  type ImpNode = { name: string; path: string; parentPath: string | null; files: number; exists: boolean };
+  let dirImportOpen = $state(false);
+  let dirFiles = $state<File[]>([]);
+  let dirTree = $state<ImpNode[]>([]);
+  let dirRootName = $state('');
+  let dirUnderId = $state<number | null>(null);   // "Create under" an existing folder
+  let dirBusy = $state(false);
+  let dirProgress = $state('');
+  let dirNewCount = $derived(dirTree.filter((n) => !n.exists).length);
+
+  const relOf = (f: File) => ((f as any).webkitRelativePath as string) || f.name;
+  const isJunk = (rel: string) => rel.split('/').some((s) => s.startsWith('.') || s.startsWith('~$'));
+  const dirOf = (f: File) => { const p = relOf(f).split('/'); p.pop(); return p.slice(0, MAX_DEPTH).join('/'); };
+
+  function onDirPicked(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const ok = /\.(pdf|png|jpe?g)$/i;
+    const files = Array.from(input.files ?? []).filter((f) => ok.test(f.name) && !isJunk(relOf(f)));
+    input.value = '';
+    if (!files.length) { flashToast('No PDF/PNG/JPG files in that folder', 'err'); return; }
+    // every folder path that appears in the tree, + file count per leaf dir
+    const paths = new Set<string>();
+    const fileCount = new Map<string, number>();
+    for (const f of files) {
+      const segs = relOf(f).split('/'); segs.pop();
+      const capped = segs.slice(0, MAX_DEPTH);
+      let acc = '';
+      for (const s of capped) { acc = acc ? `${acc}/${s}` : s; paths.add(acc); }
+      const leaf = capped.join('/');
+      if (leaf) fileCount.set(leaf, (fileCount.get(leaf) ?? 0) + 1);
+    }
+    dirRootName = relOf(files[0]).split('/')[0] || 'folder';
+    const existingTop = new Set(topFolders.map((f) => f.name.toLowerCase()));
+    dirTree = [...paths]
+      .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b))
+      .map((p) => {
+        const segs = p.split('/'); const name = segs[segs.length - 1];
+        const parentPath = segs.length > 1 ? segs.slice(0, -1).join('/') : null;
+        // "exists" hint is top-level only; deeper dedup is handled server-side (get-or-create)
+        const exists = parentPath === null && existingTop.has(name.toLowerCase());
+        return { name, path: p, parentPath, files: fileCount.get(p) ?? 0, exists };
+      });
+    dirFiles = files;
+    dirUnderId = typeof selected === 'number' ? selected : null;
+    dirImportOpen = true;
+  }
+
+  async function runDirImport() {
+    if (dirBusy) return;
+    dirBusy = true;
+    const pathToId = new Map<string, number>();
+    try {
+      let made = 0;
+      for (const n of dirTree) {                       // dirTree is depth-sorted (parents first)
+        const parentId = n.parentPath ? (pathToId.get(n.parentPath) ?? dirUnderId) : dirUnderId;
+        dirProgress = `Creating ${n.path}…`;
+        const r = await api.ensureFolder(n.name, parentId);
+        pathToId.set(n.path, r.folder.id);
+        if (r.created) made++;
+      }
+      let up = 0, errs = 0;
+      for (const f of dirFiles) {
+        const fid = pathToId.get(dirOf(f)) ?? dirUnderId;
+        dirProgress = `Uploading ${f.name}…`;
+        try { await api.uploadTo(f, fid); up++; } catch { errs++; }
+      }
+      dirImportOpen = false;
+      await Promise.all([loadFolders(), loadDocs()]);
+      flashToast(
+        `Imported ${up} file${up === 1 ? '' : 's'} into ${made} new folder${made === 1 ? '' : 's'}` +
+        (errs ? ` · ${errs} failed` : ''), errs ? 'err' : 'ok');
+    } finally { dirBusy = false; dirProgress = ''; }
   }
   function closeFolderModal() {
     if (creating) return;
@@ -513,8 +622,9 @@
     try {
       const principals =
         accessMode === 'specific' ? picked.map((p) => ({ type: p.type, id: p.id })) : [];
-      await api.createFolder(n, { access_mode: accessMode, principals });
+      await api.createFolder(n, { access_mode: accessMode, principals, parent_id: newParent });
       showFolderModal = false;
+      newParent = null;
       await loadFolders();
     } catch {} finally { creating = false; }
   }
@@ -943,47 +1053,60 @@
     </button>
 
     <div class="grp">Shared folders</div>
+    {#snippet folderNode(f, depth)}
+      <button class="fitem" class:on={selected === f.id} title={f.name}
+        style="padding-left:{6 + depth * 13}px" onclick={() => (selected = f.id)}>
+        {#if kids(f.id).length}
+          <span class="chev" role="button" tabindex="0" aria-label="Expand {f.name}"
+            onclick={(e) => toggleExpand(f, e)}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(f, e); } }}
+          >{f.is_expanded ? '▾' : '▸'}</span>
+        {:else}<span class="chev sp"></span>{/if}
+        <span class="ic">📁</span>
+        <span class="fname">{f.name}</span>
+        <span class="fmeta">
+          {#if f.access_mode === 'org'}
+            <span class="lk" title="Shared with the whole organisation">🌐</span>
+          {:else if f.access_mode === 'specific'}
+            <span class="lk" title="Shared with specific people / groups">🔒{f.access_n ?? 0}</span>
+          {/if}
+          <span class="sh add" role="button" tabindex="0" title="New subfolder"
+            aria-label="New subfolder in {f.name}"
+            onclick={(e) => openSubfolder(f.id, e)}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openSubfolder(f.id); } }}
+          >＋</span>
+          <span class="sh" role="button" tabindex="0" title="Share / manage access"
+            aria-label="Share folder {f.name}"
+            onclick={(e) => openShareModal(f, e)}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openShareModal(f); } }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle>
+              <line x1="8.6" y1="13.5" x2="15.4" y2="17.5"></line><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"></line>
+            </svg>
+          </span>
+          <span class="sh del" role="button" tabindex="0" title="Delete folder"
+            aria-label="Delete folder {f.name}"
+            onclick={(e) => removeFolder(f, e)}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); removeFolder(f); } }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+            </svg>
+          </span>
+          <span class="n">{f.doc_count}</span>
+        </span>
+      </button>
+      {#if f.is_expanded}
+        {#each kids(f.id) as c (c.id)}
+          {@render folderNode(c, depth + 1)}
+        {/each}
+      {/if}
+    {/snippet}
+
     {#if folders.length === 0}
       <div class="rail-empty">No folders yet.</div>
     {:else}
-      {#each folders as f (f.id)}
-        <button class="fitem" class:on={selected === f.id} title={f.name} onclick={() => (selected = f.id)}>
-          <span class="ic">📁</span>
-          <span class="fname">{f.name}</span>
-          <span class="fmeta">
-            {#if f.access_mode === 'org'}
-              <span class="lk" title="Shared with the whole organisation">🌐</span>
-            {:else if f.access_mode === 'specific'}
-              <span class="lk" title="Shared with specific people / groups">🔒{f.access_n ?? 0}</span>
-            {/if}
-            <span
-              class="sh"
-              role="button"
-              tabindex="0"
-              title="Share / manage access"
-              aria-label="Share folder {f.name}"
-              onclick={(e) => openShareModal(f, e)}
-              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openShareModal(f); } }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle>
-                <line x1="8.6" y1="13.5" x2="15.4" y2="17.5"></line><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"></line>
-              </svg>
-            </span>
-            <span
-              class="sh del"
-              role="button"
-              tabindex="0"
-              title="Delete folder"
-              aria-label="Delete folder {f.name}"
-              onclick={(e) => removeFolder(f, e)}
-              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); removeFolder(f); } }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
-              </svg>
-            </span>
-            <span class="n">{f.doc_count}</span>
-          </span>
-        </button>
+      {#each topFolders as f (f.id)}
+        {@render folderNode(f, 0)}
       {/each}
     {/if}
 
@@ -1050,7 +1173,7 @@
       <input bind:this={fileInput} type="file" multiple class="hidden-file"
         accept=".pdf,.png,.jpg,.jpeg" onchange={onFilesPicked} />
       <input bind:this={dirInput} type="file" multiple webkitdirectory class="hidden-file"
-        onchange={onFilesPicked} />
+        onchange={onDirPicked} />
     </div>
     {#if uploadToast}
       <div class="uptoast {uploadToastKind}" role="alert">
@@ -1633,13 +1756,57 @@
   </div>
 {/if}
 
+<!-- ===== DIRECTORY-IMPORT PREVIEW ===== -->
+{#if dirImportOpen}
+  <div class="scrim" role="button" tabindex="-1" aria-label="Close"
+    onclick={() => { if (!dirBusy) dirImportOpen = false; }}
+    onkeydown={(e) => { if (e.key === 'Escape' && !dirBusy) dirImportOpen = false; }}></div>
+  <div class="modal wide" role="dialog" aria-modal="true" aria-label="Import folder">
+    <h2>Import folder</h2>
+    <div class="imp-sel"><b>{dirRootName}/</b> · {dirFiles.length} file{dirFiles.length === 1 ? '' : 's'} · {dirTree.length} folder{dirTree.length === 1 ? '' : 's'}</div>
+
+    <label class="row">
+      <span class="lab">Under</span>
+      <select class="tin" bind:value={dirUnderId} disabled={dirBusy}>
+        <option value={null}>Top level</option>
+        {#each folders as f (f.id)}<option value={f.id}>{f.name}</option>{/each}
+      </select>
+    </label>
+
+    <div class="qa">Folders auto-created from the paths</div>
+    <div class="imp-tree">
+      {#each dirTree as n (n.path)}
+        <div class="imp-row" style="padding-left:{(n.path.split('/').length - 1) * 16}px">
+          <span class="ic">📁</span>
+          <span class="imp-name">{n.name}</span>
+          {#if n.files}<span class="imp-fc">{n.files} file{n.files === 1 ? '' : 's'}</span>{/if}
+          <span class="imp-badge {n.exists ? 'ex' : 'new'}">{n.exists ? '✓ exists' : '● new'}</span>
+        </div>
+      {/each}
+    </div>
+
+    <div class="imp-warn">⚠ {dirFiles.length} file{dirFiles.length === 1 ? '' : 's'} will be queued for ingest — each is a vision + compile pass (real cost).</div>
+    {#if dirBusy && dirProgress}<div class="imp-prog">{dirProgress}</div>{/if}
+
+    <div class="actions">
+      <button class="btn-cancel" onclick={() => { if (!dirBusy) dirImportOpen = false; }} disabled={dirBusy}>Cancel</button>
+      <button class="btn-create" onclick={runDirImport} disabled={dirBusy}>
+        {dirBusy ? 'Importing…' : `Create ${dirNewCount} folder${dirNewCount === 1 ? '' : 's'} · Import`}
+      </button>
+    </div>
+  </div>
+{/if}
+
 <!-- ===== CREATE-FOLDER MODAL ===== -->
 {#if showFolderModal}
   <div class="scrim" role="button" tabindex="-1" aria-label="Close"
     onclick={closeFolderModal} onkeydown={(e) => { if (e.key === 'Escape') closeFolderModal(); }}></div>
   <div class="modal" role="dialog" aria-modal="true" aria-label="New folder"
     onkeydown={(e) => { if (e.key === 'Escape') closeFolderModal(); }}>
-    <h2>New folder</h2>
+    <h2>{newParent ? 'New subfolder' : 'New folder'}</h2>
+    {#if newParent}
+      <div class="parenthint">Inside <b>{nameById(newParent)}</b></div>
+    {/if}
     <label class="row">
       <span class="lab">Name</span>
       <input bind:this={nameInput} class="tin" placeholder="HR Policies" bind:value={newName}
@@ -1775,10 +1942,38 @@
   .fitem .sh { flex: none; display: inline-flex; align-items: center; justify-content: center;
     width: 0; opacity: 0; overflow: hidden; height: 20px; border-radius: 6px;
     color: var(--muted); cursor: pointer; transition: width .12s, opacity .12s; }
-  .fitem:hover .sh, .fitem.on .sh { width: 20px; opacity: .7; }
+  /* reveal row actions on HOVER only — a selected row keeps its full name
+     visible (3 action buttons + count would otherwise squeeze a nested name to 0) */
+  .fitem:hover .sh { width: 20px; opacity: .7; }
+  .fitem .fname { min-width: 34px; }   /* never let the name collapse to nothing */
   .fitem .sh:hover { background: var(--hover, #efefec); color: var(--ink); opacity: 1; }
   .fitem .sh.del:hover { color: var(--red, #c0492f); }
+  .fitem .sh.add { font-size: 15px; font-weight: 400; line-height: 1; }
+  /* tree expand toggle — always visible; spacer keeps leaf rows aligned */
+  .fitem .chev { flex: none; width: 14px; text-align: center; font-size: 11px; line-height: 1;
+    color: var(--muted); cursor: pointer; user-select: none; }
+  .fitem .chev.sp { cursor: default; }
+  .fitem .chev:hover { color: var(--ink); }
   .rail-empty { padding: 8px 11px; color: var(--muted); font-size: 12px; }
+  /* subfolder-parent hint in the create modal */
+  .parenthint { font-size: 12px; color: var(--muted); margin: -6px 0 14px; }
+  .parenthint b { color: var(--ink); font-weight: 600; }
+  /* directory-import preview */
+  .modal.wide { width: min(560px, calc(100vw - 32px)); }
+  .imp-sel { font-size: 13px; color: var(--ink); margin: -4px 0 16px; }
+  .imp-sel b { color: var(--coral); }
+  .imp-tree { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--sand); padding: 9px 11px; margin: 4px 0 14px; }
+  .imp-row { display: flex; align-items: center; gap: 7px; font-size: 12.5px; padding: 3px 0; color: var(--ink); }
+  .imp-row .ic { flex: none; }
+  .imp-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .imp-fc { font-size: 10.5px; color: var(--muted); margin-left: 6px; flex: none; }
+  .imp-badge { margin-left: auto; flex: none; font-size: 10px; font-weight: 600; padding: 1px 8px; border-radius: 20px; }
+  .imp-badge.new { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); }
+  .imp-badge.ex { color: var(--green); background: color-mix(in srgb, var(--green) 14%, transparent); }
+  .imp-warn { font-size: 12px; color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent);
+    padding: 8px 11px; border-radius: 8px; margin-bottom: 12px; }
+  .imp-prog { font-size: 12px; color: var(--muted); margin-bottom: 10px; font-family: ui-monospace, monospace; }
   /* small ghost row directly under folders (matches .fitem height, no dashed box) */
   .newf { display: flex; align-items: center; gap: 9px; width: 100%; margin-top: 2px; padding: 8px 12px; border: none; background: transparent; border-radius: 9px; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; text-align: left; transition: background .14s, color .14s; }
   .newf:hover { background: var(--hover, #efefec); color: var(--ink); }

@@ -274,6 +274,13 @@ CREATE TABLE IF NOT EXISTS folders (
 );
 CREATE INDEX IF NOT EXISTS idx_folders_sector ON folders(sector_id);
 ALTER TABLE folders ADD COLUMN IF NOT EXISTS access_mode TEXT NOT NULL DEFAULT 'sector';
+-- nesting: a folder can live inside another (self-reference). parent_id NULL = top
+-- level. ON DELETE SET NULL is a safety net — the delete route reparents children to
+-- the grandparent explicitly; this just prevents orphaned rows if a folder is ever
+-- removed directly. is_expanded persists the tree open/closed state per folder.
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS parent_id BIGINT REFERENCES folders(id) ON DELETE SET NULL;
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS is_expanded BOOLEAN NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id);
 -- for access_mode='specific': who (a user or a group) may access this folder.
 CREATE TABLE IF NOT EXISTS folder_access (
     folder_id      BIGINT REFERENCES folders(id) ON DELETE CASCADE,

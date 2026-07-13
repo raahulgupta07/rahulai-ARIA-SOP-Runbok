@@ -176,13 +176,28 @@ export const api = {
       access_mode?: 'sector' | 'specific' | 'org';
       principals?: { type: 'user' | 'group'; id: number }[];
       sector_id?: number | null;
+      parent_id?: number | null;
     }
   ) {
     const body: Record<string, any> = { name };
     if (opts?.access_mode) body.access_mode = opts.access_mode;
     if (opts?.principals) body.principals = opts.principals;
     if (opts?.sector_id !== undefined) body.sector_id = opts.sector_id;
+    if (opts?.parent_id !== undefined) body.parent_id = opts.parent_id;
     return jsonOrThrow(await fetch(`${BASE}/folders`, { method: 'POST', headers: headers(), body: JSON.stringify(body) }));
+  },
+  // get-or-create a folder under a parent (idempotent); returns the folder row + `created`.
+  async ensureFolder(name: string, parentId: number | null) {
+    return this.createFolder(name, { parent_id: parentId });
+  },
+  // rename / move / persist expand state
+  async patchFolder(
+    id: number,
+    opts: { name?: string; parent_id?: number | null; move?: boolean; is_expanded?: boolean }
+  ) {
+    return jsonOrThrow(await fetch(`${BASE}/folders/${id}`, {
+      method: 'PATCH', headers: headers(), body: JSON.stringify(opts)
+    }));
   },
 
   // current access for a folder (preloads the Share modal)
