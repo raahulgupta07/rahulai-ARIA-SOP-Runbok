@@ -5,6 +5,7 @@
   import { onDestroy } from 'svelte';
   import { goto } from '$app/navigation';
   import FolderStyleModal from '$lib/components/FolderStyleModal.svelte';
+  import FolderIcon from '$lib/components/FolderIcon.svelte';
 
   // ── reactive admin/me gate (cachedUser is non-reactive → revalidate via me()) ──
   let me = $state<User | null>(auth.cachedUser());
@@ -1143,7 +1144,7 @@
             onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleExpand(f, e); } }}
           >{f.is_expanded ? '▾' : '▸'}</span>
         {:else}<span class="chev sp"></span>{/if}
-        <span class="ic" style={f.color ? `color:${f.color}` : ''}>{f.icon || '📁'}</span>
+        <span class="ic ficon" style={f.color ? `color:${f.color}` : ''}><FolderIcon name={f.icon || 'folder'} size={16} /></span>
         {#if renameId === f.id}
           <input class="renin" bind:this={renameInput} bind:value={renameVal}
             onclick={(e) => e.stopPropagation()}
@@ -2084,6 +2085,7 @@
   .fitem:hover { background: var(--hover, #efefec); }
   .fitem.on { background: var(--navpill); color: var(--ink); font-weight: 600; }
   .fitem .ic { width: 16px; text-align: center; flex: none; }
+  .fitem .ficon { display: inline-flex; align-items: center; justify-content: center; color: #6f6c64; }
   .fitem .fname { flex: 1; min-width: 0; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* right cluster — lock + count always pinned right; share reveals on hover/active
      so the folder NAME gets the space the rest of the time */

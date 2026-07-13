@@ -6,6 +6,8 @@
   // elements below (.scrim/.modal) so this component renders correctly no matter
   // where it's mounted. Only --brand / --navpill / --hover exist globally.
 
+  import FolderIcon from './FolderIcon.svelte';
+
   type Saved = { color: string | null; icon: string | null };
 
   let {
@@ -35,7 +37,21 @@
     { hex: '#c0492f', label: 'Red' },
     { hex: '#6b7280', label: 'Slate' },
   ];
-  const ICONS = ['📁', '📊', '🗂️', '🧾', '🗄️', '🔧', '🛒', '🏦', '📦', '📈', '⚙️', '🧩'];
+  // real line-icons (keys → FolderIcon). stored as the key string.
+  const ICONS: { key: string; label: string }[] = [
+    { key: 'folder', label: 'Folder' },
+    { key: 'chart', label: 'Chart' },
+    { key: 'archive', label: 'Archive' },
+    { key: 'doc', label: 'Document' },
+    { key: 'database', label: 'Database' },
+    { key: 'wrench', label: 'Tools' },
+    { key: 'cart', label: 'Sales' },
+    { key: 'bank', label: 'Finance' },
+    { key: 'box', label: 'Inventory' },
+    { key: 'trending', label: 'Growth' },
+    { key: 'gear', label: 'Operations' },
+    { key: 'puzzle', label: 'Integrations' },
+  ];
 
   // ── local selection state ──
   let selColor = $state<string | null>(color);
@@ -51,8 +67,8 @@
     wasOpen = open;
   });
 
-  // live-preview icon = chosen icon or default folder glyph
-  let previewIcon = $derived(selIcon || '📁');
+  // live-preview icon = chosen icon key or default folder
+  let previewIcon = $derived(selIcon || 'folder');
 
   function pickColor(hex: string | null) { selColor = hex; }
   function pickIcon(ic: string | null) { selIcon = ic; }
@@ -78,7 +94,7 @@
     <!-- live preview -->
     <div class="preview" style="--pc:{selColor || '#8b8b85'}">
       <span class="bar"></span>
-      <span class="pico" style="color:{selColor || 'var(--ink)'}">{previewIcon}</span>
+      <span class="pico" style="color:{selColor || 'var(--ink)'}"><FolderIcon name={previewIcon} size={22} /></span>
       <span class="pname">{name || 'Folder'}</span>
     </div>
 
@@ -104,10 +120,11 @@
     <div class="sect">
       <div class="lbl">Icon</div>
       <div class="icons">
-        {#each ICONS as ic (ic)}
-          <button type="button" class="ib" class:on={selIcon === ic}
-            title={ic} aria-label={'Icon ' + ic} aria-pressed={selIcon === ic}
-            onclick={() => pickIcon(ic)}>{ic}</button>
+        {#each ICONS as ic (ic.key)}
+          <button type="button" class="ib" class:on={selIcon === ic.key}
+            style={selIcon === ic.key ? `color:${selColor || 'var(--coral)'}` : ''}
+            title={ic.label} aria-label={ic.label} aria-pressed={selIcon === ic.key}
+            onclick={() => pickIcon(ic.key)}><FolderIcon name={ic.key} size={20} /></button>
         {/each}
         <button type="button" class="none" class:on={selIcon === null}
           title="Default icon" aria-pressed={selIcon === null}
