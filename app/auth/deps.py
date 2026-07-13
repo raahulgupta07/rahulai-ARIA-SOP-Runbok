@@ -66,6 +66,26 @@ def require_admin(authorization: str | None = Header(default=None)) -> dict:
     return user
 
 
+def require_content_manager(authorization: str | None = Header(default=None)) -> dict:
+    """May manage content (upload / folders / move / retag / etc.). Admin-tier OR a
+    plain user in a group that grants manage_content. Settings stays super-admin."""
+    from .. import rbac
+    user = current_user(authorization)
+    if not rbac.can_manage_content(user):
+        raise HTTPException(status_code=403, detail="content management not allowed")
+    return user
+
+
+def require_knowledge_manager(authorization: str | None = Header(default=None)) -> dict:
+    """May teach knowledge (facts / Q&A approve-edit-delete). Admin-tier OR a plain
+    user in a group that grants teach_knowledge."""
+    from .. import rbac
+    user = current_user(authorization)
+    if not rbac.can_teach(user):
+        raise HTTPException(status_code=403, detail="teaching not allowed")
+    return user
+
+
 def require_superadmin(authorization: str | None = Header(default=None)) -> dict:
     """Top-tier only. Gates the whole Settings surface (auth config incl. LDAP/OIDC
     secrets, storage creds, RBAC toggle, sectors/groups, user role assignment,

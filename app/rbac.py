@@ -250,3 +250,46 @@ def user_features(user: dict | None) -> list[str]:
 
 def has_feature(user: dict | None, feature: str) -> bool:
     return feature in user_features(user)
+
+
+# ---- group-granted content permissions (manage content / teach knowledge) ----
+def group_caps(user: dict | None) -> dict:
+    """OR of the content-permission flags across the user's groups:
+    {"manage_content": bool, "teach_knowledge": bool}. A plain 'user' in an
+    empowered group inherits these. Fail-soft to both False (no group / no uid /
+    DB error)."""
+    caps = {"manage_content": False, "teach_knowledge": False}
+    uid = user and user.get("id")
+    if not uid:
+        return caps
+    try:
+        with get_conn() as c:
+            r = c.execute(
+                "SELECT bool_or(g.manage_content) AS mc, bool_or(g.teach_knowledge) AS tk "
+                "FROM user_groups ug JOIN groups g ON g.id = ug.group_id "
+                "WHERE ug.user_id = %s",
+                (uid,),
+            ).fetchone()
+        if r:
+            caps["manage_content"] = bool(r["mc"])
+            caps["teach_knowledge"] = bool(r["tk"])
+    except Exception:
+        return {"manage_content": False, "teach_knowledge": False}
+    return caps
+
+
+def can_manage_content(user: dict | None) -> bool:
+    """May this user manage content (upload / folders / move / retag / etc.)?
+    Admin-tier (admin or superadmin) always may; a plain user may if any of their
+    groups grants manage_content."""
+    if is_superadmin(user):
+        return True
+    return group_caps(user)["manage_content"]
+
+
+def can_teach(user: dict | None) -> bool:
+    """May this user teach knowledge (facts / Q&A approve-edit-delete)? Admin-tier
+    always may; a plain user may if any of their groups grants teach_knowledge."""
+    if is_superadmin(user):
+        return True
+    return group_caps(user)["teach_knowledge"]

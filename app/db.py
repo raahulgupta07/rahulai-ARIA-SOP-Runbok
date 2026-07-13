@@ -301,6 +301,12 @@ CREATE TABLE IF NOT EXISTS groups (
 -- per-group feature access: which app features (tabs) members may use.
 -- NULL = no group-level feature restriction. Keys: chat|sources|workspace|eval|wiki.
 ALTER TABLE groups ADD COLUMN IF NOT EXISTS features TEXT[];
+-- group-granted content permissions: a plain 'user' in an empowered group may
+-- manage content (upload/folders/move/retag) and/or teach knowledge (facts/Q&A),
+-- while Settings stays super-admin-only. Both default false (secure).
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS manage_content BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS teach_knowledge BOOLEAN NOT NULL DEFAULT false;
 CREATE TABLE IF NOT EXISTS user_groups (
     user_id     BIGINT REFERENCES users(id) ON DELETE CASCADE,
     group_id    BIGINT REFERENCES groups(id) ON DELETE CASCADE,

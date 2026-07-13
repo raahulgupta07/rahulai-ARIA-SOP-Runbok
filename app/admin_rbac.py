@@ -138,23 +138,89 @@ def list_users(limit: int = 500) -> list[dict]:
 
 
 # ----------------------------------------------------------------- groups ----
-def create_group(name: str, all_sectors: bool = False) -> dict:
-    """Create-or-update a group by unique name. Returns {id,name,all_sectors}.
+# sentinel so partial-update callers can DISTINGUISH "leave unchanged" from an
+# explicit None (which clears/normalises a field).
+_UNSET = object()
 
-    ON CONFLICT(name) updates all_sectors (lets an admin flip a group to/from
-    All-Access without delete+recreate).
+
+def create_group(name: str, all_sectors: bool = False, description: str | None = None,
+                 features: list[str] | None = None, manage_content: bool = False,
+                 teach_knowledge: bool = False) -> dict:
+    """Create-or-update a group by unique name. Returns the full row.
+
+    ON CONFLICT(name) updates every supplied column (lets an admin flip a group's
+    All-Access / content-permission flags / features without delete+recreate).
+    features=None → NULL (no group-level feature restriction).
     """
     name = (name or "").strip()
     if not name:
         raise ValueError("group name required")
+    feats = None if features is None else [f for f in features if f in FEATURES]
     with get_conn() as c:
         row = c.execute(
-            "INSERT INTO groups (name, all_sectors) VALUES (%s, %s) "
-            "ON CONFLICT (name) DO UPDATE SET all_sectors=EXCLUDED.all_sectors "
-            "RETURNING id, name, all_sectors",
-            (name, bool(all_sectors)),
+            "INSERT INTO groups (name, all_sectors, description, features, "
+            "                    manage_content, teach_knowledge) "
+            "VALUES (%s,%s,%s,%s,%s,%s) "
+            "ON CONFLICT (name) DO UPDATE SET "
+            "  all_sectors=EXCLUDED.all_sectors, description=EXCLUDED.description, "
+            "  features=EXCLUDED.features, manage_content=EXCLUDED.manage_content, "
+            "  teach_knowledge=EXCLUDED.teach_knowledge "
+            "RETURNING id, name, all_sectors, description, "
+            "          coalesce(features,'{}') AS features, manage_content, teach_knowledge",
+            (name, bool(all_sectors), description, feats,
+             bool(manage_content), bool(teach_knowledge)),
         ).fetchone()
-    return dict(row)
+    d = dict(row)
+    d["features"] = list(d["features"] or [])
+    return d
+
+
+def update_group(group_id: int, *, name=_UNSET, description=_UNSET, all_sectors=_UNSET,
+                 features=_UNSET, manage_content=_UNSET, teach_knowledge=_UNSET) -> dict:
+    """Partial update of a group — only the supplied fields change. The `_UNSET`
+    sentinel lets a caller pass an explicit None (e.g. description=None to clear it,
+    features=None to drop the feature restriction) distinctly from "leave alone".
+    features is validated as a subset of ALL_FEATURES. Raises ValueError if the
+    group doesn't exist. Returns the full updated row."""
+    sets: list[str] = []
+    params: list = []
+    if name is not _UNSET:
+        nm = (name or "").strip()
+        if not nm:
+            raise ValueError("group name required")
+        sets.append("name=%s"); params.append(nm)
+    if description is not _UNSET:
+        sets.append("description=%s"); params.append(description)
+    if all_sectors is not _UNSET:
+        sets.append("all_sectors=%s"); params.append(bool(all_sectors))
+    if features is not _UNSET:
+        feats = None if features is None else [f for f in features if f in rbac.ALL_FEATURES]
+        sets.append("features=%s"); params.append(feats)
+    if manage_content is not _UNSET:
+        sets.append("manage_content=%s"); params.append(bool(manage_content))
+    if teach_knowledge is not _UNSET:
+        sets.append("teach_knowledge=%s"); params.append(bool(teach_knowledge))
+
+    with get_conn() as c:
+        if sets:
+            params.append(group_id)
+            row = c.execute(
+                f"UPDATE groups SET {', '.join(sets)} WHERE id=%s "
+                "RETURNING id, name, all_sectors, description, "
+                "          coalesce(features,'{}') AS features, manage_content, teach_knowledge",
+                tuple(params),
+            ).fetchone()
+        else:
+            row = c.execute(
+                "SELECT id, name, all_sectors, description, "
+                "       coalesce(features,'{}') AS features, manage_content, teach_knowledge "
+                "FROM groups WHERE id=%s", (group_id,),
+            ).fetchone()
+    if not row:
+        raise ValueError("group not found")
+    d = dict(row)
+    d["features"] = list(d["features"] or [])
+    return d
 
 
 def list_groups() -> list[dict]:
@@ -162,7 +228,9 @@ def list_groups() -> list[dict]:
     try:
         with get_conn() as c:
             grows = c.execute(
-                "SELECT id, name, all_sectors, coalesce(features, '{}') AS features "
+                "SELECT id, name, all_sectors, description, "
+                "       coalesce(features, '{}') AS features, "
+                "       manage_content, teach_knowledge "
                 "FROM groups ORDER BY id DESC"
             ).fetchall()
             mrows = c.execute(
@@ -180,7 +248,10 @@ def list_groups() -> list[dict]:
                 "id": g["id"],
                 "name": g["name"],
                 "all_sectors": g["all_sectors"],
+                "description": g["description"],
                 "features": list(g["features"] or []),
+                "manage_content": bool(g["manage_content"]),
+                "teach_knowledge": bool(g["teach_knowledge"]),
                 "member_count": len(members),
                 "members": members,
             })
@@ -209,29 +280,43 @@ def set_group_features(group_id: int, features: list[str]) -> dict:
     return d
 
 
-# starter feature-based access groups, seeded on boot (admin can edit/delete)
-_DEFAULT_GROUPS = [
-    # Kept simple: default user = chat-only already; add a user to "Full access"
-    # to unlock every tab. Admins create their own groups for anything in between.
-    ("Chat only",   ["chat"]),
-    ("Full access", ["chat", "sources", "workspace", "eval", "wiki"]),
+# two canonical access groups, seeded/normalised on boot (admin can edit/delete).
+# "Administrators" = every tab + full content-permission grants; "Users" = chat-only,
+# no content grants. Each is (name, features, manage_content, teach_knowledge, legacy_name)
+# where legacy_name is the pre-2026-07 group this one supersedes (renamed in place so
+# member rows survive the migration).
+_CANONICAL_GROUPS = [
+    ("Administrators", ["chat", "sources", "workspace", "eval", "wiki"], True,  True,  "Full access"),
+    ("Users",          ["chat"],                                          False, False, "Chat only"),
 ]
 
 
 def ensure_default_groups() -> None:
-    """Seed the starter feature-based groups on boot. Idempotent + non-destructive:
-    only creates a group whose name doesn't already exist (never clobbers admin edits)."""
+    """Seed/normalise the two canonical groups on boot. Migration-safe + idempotent:
+      - if the new name already exists → leave it ALONE (never clobber admin edits);
+      - else if the legacy name exists → RENAME it in place (preserves member rows)
+        and set its features + content-permission flags to the canonical values;
+      - else create it fresh.
+    Defensive (fail-soft, prints on error) like the prior impl."""
     try:
         with get_conn() as c:
             existing = {r["name"] for r in c.execute("SELECT name FROM groups").fetchall()}
-            for name, feats in _DEFAULT_GROUPS:
+            for name, feats, mc, tk, legacy in _CANONICAL_GROUPS:
+                fv = [f for f in feats if f in FEATURES]
                 if name in existing:
-                    continue
-                c.execute(
-                    "INSERT INTO groups (name, features) VALUES (%s, %s) "
-                    "ON CONFLICT (name) DO NOTHING",
-                    (name, [f for f in feats if f in FEATURES]),
-                )
+                    continue                                    # respect admin's later edits
+                if legacy in existing:                          # migrate the old group in place
+                    c.execute(
+                        "UPDATE groups SET name=%s, features=%s, manage_content=%s, "
+                        "teach_knowledge=%s WHERE name=%s",
+                        (name, fv, mc, tk, legacy),
+                    )
+                else:                                           # fresh install
+                    c.execute(
+                        "INSERT INTO groups (name, features, manage_content, teach_knowledge) "
+                        "VALUES (%s,%s,%s,%s) ON CONFLICT (name) DO NOTHING",
+                        (name, fv, mc, tk),
+                    )
     except Exception as e:
         print(f"[rbac] ensure_default_groups skipped: {e!r}")
 

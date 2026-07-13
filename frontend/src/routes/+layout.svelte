@@ -171,12 +171,22 @@
     if (!auth.isAuthed()) { goto('/login'); return; }
     if (!me) auth.me().then((u) => { me = u; if (!u) goto('/login'); });
   });
-  // chat-only users can't reach admin areas even by typing the URL
+  // group capabilities (a plain 'user' can be empowered via their group)
+  let caps = $derived(me?.capabilities ?? {});
+  let canManage = $derived(isAdmin || !!caps.manage_content);
+  let canTeach = $derived(isAdmin || !!caps.teach_knowledge);
+  // chat-only users can't reach areas their role/group doesn't grant, even by URL
   $effect(() => {
     if (isLogin || isEmbed || isShare || !me) return;
-    // Settings is superadmin-only; the other admin areas allow plain admin too.
-    if (/^\/settings/.test($page.url.pathname) && !isSuperadmin) { goto('/'); return; }
-    if (!isAdmin && (/^\/(workspace|brain|sources|eval)/.test($page.url.pathname))) goto('/');
+    const p = $page.url.pathname;
+    // Settings is superadmin-only, always.
+    if (/^\/settings/.test(p) && !isSuperadmin) { goto('/'); return; }
+    if (isAdmin) return;                                   // admin/superadmin: all app areas
+    // otherwise gate each area by the group's granted feature / capability
+    if (/^\/workspace/.test(p) && !feats.has('workspace')) { goto('/'); return; }
+    if (/^\/sources/.test(p) && !(feats.has('sources') || canManage)) { goto('/'); return; }
+    if (/^\/eval/.test(p) && !feats.has('eval')) { goto('/'); return; }
+    if (/^\/brain/.test(p) && !(feats.has('sources') || canManage || canTeach)) { goto('/'); return; }
   });
 
   // primary nav — Chat is implicit (New chat + history), so only sections here

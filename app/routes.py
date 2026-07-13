@@ -36,7 +36,8 @@ from .memory import (
     update_memory,
 )
 from .learn import maybe_learn
-from .auth.deps import current_user, require_admin, require_superadmin, current_principal
+from .auth.deps import (current_user, require_admin, require_superadmin, current_principal,
+                        require_content_manager, require_knowledge_manager)
 from . import embed as embed_mod
 from . import okf as okf_mod
 from .version import version_info
@@ -988,7 +989,9 @@ def upload(file: UploadFile = File(...), folder_id: int | None = Form(None),
         if fr is None:
             raise HTTPException(status_code=404, detail="folder not found")
         _sec = fr["sector_id"]
-    if not rbac.can_write(user, _sec):
+    # content managers (admin-tier or a plain user in an empowered group) may upload;
+    # otherwise fall back to the sector-RBAC write rule (super/sector-admin).
+    if not (rbac.can_manage_content(user) or rbac.can_write(user, _sec)):
         raise HTTPException(status_code=403, detail="Not allowed to upload documents.")
     name = file.filename or "upload"
     # duplicate guard: refuse a doc whose name already exists and is live
@@ -1127,7 +1130,7 @@ def create_folder(body: FolderBody, user: dict = Depends(current_user)):
         sid = parent["sector_id"]                       # child inherits parent's sector
     else:
         sid = body.sector_id if body.sector_id is not None else rbac.user_write_sector(user)
-    if not rbac.can_write(user, sid):
+    if not (rbac.can_manage_content(user) or rbac.can_write(user, sid)):
         raise HTTPException(status_code=403, detail="Not allowed to create folders.")
     mode = body.access_mode if body.access_mode in ("sector", "specific", "org") else "sector"
     # only a super-admin may grant org-wide (cross-sector) access
@@ -1167,7 +1170,7 @@ def _folder_or_403(fid: int, user: dict):
                          (fid,)).fetchone()
     if not f:
         raise HTTPException(status_code=404, detail="folder not found")
-    if not rbac.can_write(user, f["sector_id"]):
+    if not (rbac.can_manage_content(user) or rbac.can_write(user, f["sector_id"])):
         raise HTTPException(status_code=403, detail="Not allowed to manage this folder.")
     return f
 
@@ -1629,8 +1632,8 @@ def storage_test(req: dict | None = None, user: dict = Depends(require_admin)):
     return s3client.test_connection()
 
 
-@router.post("/documents/{doc_id}/retry", dependencies=[Depends(require_key)])
-def retry_doc(doc_id: int, user: dict = Depends(require_admin)):
+@router.post("/documents/{doc_id}/retry", dependencies=[Depends(require_content_manager)])
+def retry_doc(doc_id: int, user: dict = Depends(require_content_manager)):
     """Re-queue a failed (or stuck) document for ingest."""
     with get_conn() as conn:
         row = conn.execute(
@@ -1821,7 +1824,7 @@ def move_document(doc_id: int, body: MoveBody, user: dict = Depends(current_user
         if fr is None:
             raise HTTPException(status_code=404, detail="folder not found")
         target_sector = fr["sector_id"]
-    if not rbac.can_write(user, target_sector):
+    if not (rbac.can_manage_content(user) or rbac.can_write(user, target_sector)):
         raise HTTPException(status_code=403, detail="Not allowed to move into this folder.")
     with get_conn() as conn:
         row = conn.execute(
@@ -1832,7 +1835,7 @@ def move_document(doc_id: int, body: MoveBody, user: dict = Depends(current_user
     return {"ok": True, "id": doc_id, "folder_id": body.folder_id}
 
 
-@router.post("/documents/{doc_id}/categorize", dependencies=[Depends(require_admin)])
+@router.post("/documents/{doc_id}/categorize", dependencies=[Depends(require_content_manager)])
 def recategorize_doc(doc_id: int, user: dict = Depends(current_user)):
     """Re-run the LLM topic categorizer for one document (admin)."""
     from .categorize import categorize_doc
@@ -1841,7 +1844,7 @@ def recategorize_doc(doc_id: int, user: dict = Depends(current_user)):
     return {"ok": True, "id": doc_id, "category": cat}
 
 
-@router.post("/documents/categorize-all", dependencies=[Depends(require_admin)])
+@router.post("/documents/categorize-all", dependencies=[Depends(require_content_manager)])
 def categorize_all_docs(force: bool = False, user: dict = Depends(current_user)):
     """Backfill topic categories for all ready docs (force=re-tag already-tagged) (admin)."""
     from .categorize import categorize_all
@@ -1883,7 +1886,7 @@ def ingest_state():
             "processing": counts.get("processing", 0), "cancelled": counts.get("cancelled", 0)}
 
 
-@router.post("/documents/{doc_id}/cancel", dependencies=[Depends(require_admin)])
+@router.post("/documents/{doc_id}/cancel", dependencies=[Depends(require_content_manager)])
 def cancel_doc_route(doc_id: int, user: dict = Depends(current_user)):
     """Cancel ONE document: if queued → drop it now; if processing → signal abort."""
     from . import ingest_control as kill
@@ -1900,7 +1903,7 @@ def cancel_doc_route(doc_id: int, user: dict = Depends(current_user)):
 
 
 @router.post("/memory")
-def teach(req: MemoryRequest, user: dict = Depends(require_admin)):
+def teach(req: MemoryRequest, user: dict = Depends(require_knowledge_manager)):
     """Teach DocSensei a fact (self-learning). Recalled on every /ask.
     Status follows the governance policy for source='human' (default: auto-approve)."""
     from . import governance
@@ -2133,7 +2136,7 @@ def resolve_contradiction(cid: int, req: dict, user: dict = Depends(require_admi
 
 
 @router.post("/memory/approve-bulk")
-def approve_bulk(req: dict, user: dict = Depends(require_admin)):
+def approve_bulk(req: dict, user: dict = Depends(require_knowledge_manager)):
     """Bulk-approve pending facts: by explicit ids, or all of a source, or all."""
     ids = req.get("ids")
     source = req.get("source")
@@ -2153,8 +2156,8 @@ def approve_bulk(req: dict, user: dict = Depends(require_admin)):
     return {"ok": True, "approved": n}
 
 
-@router.post("/memory/{mem_id}/approve", dependencies=[Depends(require_key)])
-def approve_fact(mem_id: int, user: dict = Depends(require_admin)):
+@router.post("/memory/{mem_id}/approve", dependencies=[Depends(require_knowledge_manager)])
+def approve_fact(mem_id: int, user: dict = Depends(require_knowledge_manager)):
     """Approve a pending (chat-learned) fact so it counts in answers."""
     ok = set_status(mem_id, "active")
     if not ok:
@@ -2164,8 +2167,8 @@ def approve_fact(mem_id: int, user: dict = Depends(require_admin)):
     return {"ok": True, "id": mem_id, "status": "active"}
 
 
-@router.post("/memory/{mem_id}/reject", dependencies=[Depends(require_key)])
-def reject_fact(mem_id: int, user: dict = Depends(require_admin)):
+@router.post("/memory/{mem_id}/reject", dependencies=[Depends(require_knowledge_manager)])
+def reject_fact(mem_id: int, user: dict = Depends(require_knowledge_manager)):
     """Reject a pending fact (keeps the row, marks it rejected)."""
     ok = set_status(mem_id, "rejected")
     if not ok:
@@ -2179,8 +2182,8 @@ class MemoryEdit(BaseModel):
     value: str
 
 
-@router.patch("/memory/{mem_id}", dependencies=[Depends(require_key)])
-def edit_fact(mem_id: int, body: MemoryEdit, user: dict = Depends(require_admin)):
+@router.patch("/memory/{mem_id}", dependencies=[Depends(require_knowledge_manager)])
+def edit_fact(mem_id: int, body: MemoryEdit, user: dict = Depends(require_knowledge_manager)):
     """Edit a fact's key and/or value in place."""
     ok = update_memory(mem_id, body.key, body.value)
     if not ok:
@@ -2200,8 +2203,8 @@ def get_qa(status: str | None = None, limit: int = 200):
             "pending": qa_mod.pending_qa_count()}
 
 
-@router.post("/qa/{qa_id}/approve", dependencies=[Depends(require_key)])
-def approve_qa(qa_id: int, user: dict = Depends(require_admin)):
+@router.post("/qa/{qa_id}/approve", dependencies=[Depends(require_knowledge_manager)])
+def approve_qa(qa_id: int, user: dict = Depends(require_knowledge_manager)):
     """Approve a pending Q&A pair so it can serve/seed answers."""
     from . import qa as qa_mod
     if not qa_mod.set_qa_status(qa_id, "active"):
@@ -2210,8 +2213,8 @@ def approve_qa(qa_id: int, user: dict = Depends(require_admin)):
     return {"ok": True, "id": qa_id, "status": "active"}
 
 
-@router.post("/qa/{qa_id}/reject", dependencies=[Depends(require_key)])
-def reject_qa(qa_id: int, user: dict = Depends(require_admin)):
+@router.post("/qa/{qa_id}/reject", dependencies=[Depends(require_knowledge_manager)])
+def reject_qa(qa_id: int, user: dict = Depends(require_knowledge_manager)):
     """Reject a pending Q&A pair (keeps the row, marks it rejected)."""
     from . import qa as qa_mod
     if not qa_mod.set_qa_status(qa_id, "rejected"):
@@ -2221,7 +2224,7 @@ def reject_qa(qa_id: int, user: dict = Depends(require_admin)):
 
 
 @router.post("/qa/approve-bulk")
-def approve_qa_bulk(req: dict, user: dict = Depends(require_admin)):
+def approve_qa_bulk(req: dict, user: dict = Depends(require_knowledge_manager)):
     """Bulk-approve pending Q&A pairs: by explicit ids, or all pending."""
     ids = req.get("ids")
     n = 0
@@ -2242,8 +2245,8 @@ class QaEdit(BaseModel):
     answer: str | None = None
 
 
-@router.patch("/qa/{qa_id}", dependencies=[Depends(require_key)])
-def edit_qa(qa_id: int, body: QaEdit, user: dict = Depends(require_admin)):
+@router.patch("/qa/{qa_id}", dependencies=[Depends(require_knowledge_manager)])
+def edit_qa(qa_id: int, body: QaEdit, user: dict = Depends(require_knowledge_manager)):
     """Edit a Q&A pair's question and/or answer in place."""
     from . import qa as qa_mod
     if not qa_mod.update_qa(qa_id, body.question, body.answer):
@@ -2252,8 +2255,8 @@ def edit_qa(qa_id: int, body: QaEdit, user: dict = Depends(require_admin)):
     return {"ok": True, "id": qa_id}
 
 
-@router.delete("/qa/{qa_id}", dependencies=[Depends(require_key)])
-def delete_qa_pair(qa_id: int, user: dict = Depends(require_admin)):
+@router.delete("/qa/{qa_id}", dependencies=[Depends(require_knowledge_manager)])
+def delete_qa_pair(qa_id: int, user: dict = Depends(require_knowledge_manager)):
     """Delete a Q&A pair permanently."""
     from . import qa as qa_mod
     if not qa_mod.delete_qa(qa_id):
@@ -2263,7 +2266,7 @@ def delete_qa_pair(qa_id: int, user: dict = Depends(require_admin)):
 
 
 @router.post("/qa/gap-fill")
-def qa_gap_fill(user: dict = Depends(require_admin)):
+def qa_gap_fill(user: dict = Depends(require_knowledge_manager)):
     """Run one gap-driven Q&A fill pass now (Phase 3, admin). Honors the per-day
     cap; returns how many grounded pending pairs were created."""
     from . import auto_qa_gaps
@@ -2451,7 +2454,7 @@ def doc_images_list(doc_id: int):
     return {"images": doc_images.images_for(doc_id)}
 
 
-@router.post("/documents/images/backfill", dependencies=[Depends(require_admin)])
+@router.post("/documents/images/backfill", dependencies=[Depends(require_content_manager)])
 def doc_images_backfill(user: dict = Depends(current_user)):
     """Explain embedded screenshots for all ready docs from their stored PDF
     (no re-ingest). Runs in the background (vision per image is slow); poll
@@ -2714,7 +2717,7 @@ def delete_doc(doc_id: int, user: dict = Depends(current_user)):
         ).fetchone()
         if not name:
             raise HTTPException(status_code=404, detail="document not found")
-        if not rbac.can_delete_doc(user, name):
+        if not (rbac.can_delete_doc(user, name) or rbac.can_manage_content(user)):
             raise HTTPException(
                 status_code=403,
                 detail="only the uploader or an admin can delete this document")
@@ -2745,8 +2748,8 @@ def delete_doc(doc_id: int, user: dict = Depends(current_user)):
     return {"ok": True, "deleted": doc_id}
 
 
-@router.delete("/memory/{mem_id}", dependencies=[Depends(require_key)])
-def delete_memory(mem_id: int, user: dict = Depends(require_admin)):
+@router.delete("/memory/{mem_id}", dependencies=[Depends(require_knowledge_manager)])
+def delete_memory(mem_id: int, user: dict = Depends(require_knowledge_manager)):
     with get_conn() as conn:
         conn.execute("DELETE FROM memory WHERE id = %s", (mem_id,))
     audit_mod.log(user, "fact.delete", "fact", mem_id)
@@ -3822,7 +3825,31 @@ def admin_groups_list():
 def admin_groups_create(body: dict = Body(...), user: dict = Depends(current_user)):
     _require_superadmin(user)
     from . import admin_rbac
-    return admin_rbac.create_group(body.get("name", ""), bool(body.get("all_sectors")))
+    return admin_rbac.create_group(
+        body.get("name", ""), bool(body.get("all_sectors")),
+        description=body.get("description"),
+        features=body.get("features"),
+        manage_content=bool(body.get("manage_content")),
+        teach_knowledge=bool(body.get("teach_knowledge")),
+    )
+
+
+@router.patch("/admin/groups/{gid}", dependencies=[Depends(require_superadmin)])
+def admin_groups_update(gid: int, body: dict = Body(...), user: dict = Depends(current_user)):
+    """Partial-update a group (name / description / all_sectors / features /
+    manage_content / teach_knowledge). Only the keys present in the body change.
+    Super-admin only."""
+    _require_superadmin(user)
+    from . import admin_rbac
+    kw = {}
+    for k in ("name", "description", "all_sectors", "features",
+              "manage_content", "teach_knowledge"):
+        if k in body:
+            kw[k] = body[k]
+    try:
+        return admin_rbac.update_group(gid, **kw)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.delete("/admin/groups/{gid}", dependencies=[Depends(require_superadmin)])

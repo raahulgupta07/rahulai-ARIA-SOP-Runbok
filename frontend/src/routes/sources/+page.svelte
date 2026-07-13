@@ -10,6 +10,8 @@
   // ── reactive admin/me gate (cachedUser is non-reactive → revalidate via me()) ──
   let me = $state<User | null>(auth.cachedUser());
   let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
+  // a plain 'user' can be granted document management through their group
+  let canManage = $derived(isAdmin || !!me?.capabilities?.manage_content);
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
 
   type Folder = {
@@ -512,7 +514,7 @@
   onDestroy(() => { if (pollTimer) clearInterval(pollTimer); });
 
   // initial load
-  $effect(() => { if (me && isAdmin) { loadFolders(); } });
+  $effect(() => { if (me && canManage) { loadFolders(); } });
 
   // ── jobs (queued / processing / still-enriching) ──
   let activeJobs = $derived(docs.filter((d) => {
@@ -1122,8 +1124,8 @@
 
 {#if !me}
   <div class="src-shell"><div class="empty">Loading…</div></div>
-{:else if !isAdmin}
-  <div class="src-shell"><div class="empty">Admin only.</div></div>
+{:else if !canManage}
+  <div class="src-shell"><div class="empty">You don't have document access. Ask an admin to add you to a group with document management.</div></div>
 {:else}
 <div class="src-shell">
   <!-- ===== LEFT RAIL — folders (persistent) ===== -->

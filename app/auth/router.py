@@ -172,7 +172,14 @@ def oidc_callback(code: str, state: str, request: Request):
 @router.get("/auth/me")
 def me(user: dict = Depends(current_user)):
     from .. import rbac
-    return {**_public(user), "features": rbac.user_features(user)}
+    return {
+        **_public(user),
+        "features": rbac.user_features(user),
+        "capabilities": {
+            "manage_content": rbac.can_manage_content(user),
+            "teach_knowledge": rbac.can_teach(user),
+        },
+    }
 
 
 # ================= admin =================

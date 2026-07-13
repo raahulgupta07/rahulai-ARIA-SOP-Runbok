@@ -824,8 +824,19 @@ export const api = {
   async adminGroups() {
     return jsonOrThrow(await fetch(`${BASE}/admin/groups`, { headers: headers(false) }));
   },
-  async adminCreateGroup(name: string, allSectors = false) {
-    return jsonOrThrow(await fetch(`${BASE}/admin/groups`, { method: 'POST', headers: headers(), body: JSON.stringify({ name, all_sectors: allSectors }) }));
+  async adminCreateGroup(
+    body: { name: string; description?: string; all_sectors?: boolean; features?: string[]; manage_content?: boolean; teach_knowledge?: boolean } | string,
+    allSectors = false
+  ) {
+    // back-compat: adminCreateGroup('Name') still works; prefer the object form.
+    const payload = typeof body === 'string' ? { name: body, all_sectors: allSectors } : body;
+    return jsonOrThrow(await fetch(`${BASE}/admin/groups`, { method: 'POST', headers: headers(), body: JSON.stringify(payload) }));
+  },
+  async adminUpdateGroup(
+    gid: number,
+    body: { name?: string; description?: string | null; all_sectors?: boolean; features?: string[]; manage_content?: boolean; teach_knowledge?: boolean }
+  ) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/groups/${gid}`, { method: 'PATCH', headers: headers(), body: JSON.stringify(body) }));
   },
   async adminDeleteGroup(id: number) {
     return jsonOrThrow(await fetch(`${BASE}/admin/groups/${id}`, { method: 'DELETE', headers: headers(false) }));

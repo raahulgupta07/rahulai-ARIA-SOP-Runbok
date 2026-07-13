@@ -3,7 +3,11 @@ const ORIGIN = import.meta.env.VITE_API ?? 'http://127.0.0.1:8077';
 const BASE = `${ORIGIN}/api`;
 const TOKEN = 'docsensei_token';
 
-export type User = { id: number; email: string; name: string; role: string; auth_source: string };
+export type User = {
+  id: number; email: string; name: string; role: string; auth_source: string;
+  features?: string[];
+  capabilities?: { manage_content?: boolean; teach_knowledge?: boolean };
+};
 
 let cached: User | null = null;
 
