@@ -36,6 +36,12 @@
   }
 
   const srcLabel: Record<string, string> = { local: 'local', ldap: 'ldap', oidc: 'sso' };
+  // one merged-by-email row can carry several sign-in methods; fall back to the
+  // single auth_source for old rows that predate auth_methods[].
+  const methodsOf = (u: any): string[] => {
+    const m = (u.auth_methods && u.auth_methods.length ? u.auth_methods : [u.auth_source]);
+    return [...new Set(m.filter(Boolean))];
+  };
   function statusOf(u: any) {
     if (u.role === 'pending') return { t: 'Awaiting', c: '#c98a2e', dot: '#d3a13e', pending: true };
     if (!u.active) return { t: 'Disabled', c: '#9a5a4c', dot: '#cf6a4c', pending: false };
@@ -124,7 +130,7 @@
     <!-- table -->
     <div class="tablewrap">
       <table>
-        <thead><tr><th>User</th><th class="c-role">Role</th><th class="c-status">Status</th><th class="c-last">Last login</th><th class="c-act"></th></tr></thead>
+        <thead><tr><th>User</th><th class="c-id">ID</th><th class="c-login">Login</th><th class="c-role">Role</th><th class="c-status">Status</th><th class="c-last">Last login</th><th class="c-act"></th></tr></thead>
         <tbody>
           {#each shown as u (u.id)}
             {@const st = statusOf(u)}
@@ -135,8 +141,14 @@
                   <div class="av">{(u.name || u.email)[0]?.toUpperCase()}</div>
                   <div class="uinfo">
                     <div class="unm">{u.name || '—'}{#if isMe}<span class="me">you</span>{/if}</div>
-                    <div class="uem">{u.email}<span class="srctag">{srcLabel[u.auth_source] || u.auth_source}</span></div>
+                    <div class="uem">{u.email}</div>
                   </div>
+                </div>
+              </td>
+              <td class="c-id muted">#{u.id}</td>
+              <td class="c-login">
+                <div class="srcs">
+                  {#each methodsOf(u) as m}<span class="srctag" title="Signed in with {srcLabel[m] || m}">{srcLabel[m] || m}</span>{/each}
                 </div>
               </td>
               <td>
@@ -240,7 +252,8 @@
   /* table */
   .tablewrap{border:1px solid var(--border); border-radius:13px; background:#fff; overflow:hidden;}
   table{width:100%; border-collapse:collapse; table-layout:fixed;}
-  .c-role{width:184px;} .c-status{width:120px;} .c-last{width:130px;} .c-act{width:60px;}
+  .c-id{width:66px;} .c-login{width:140px;} .c-role{width:184px;} .c-status{width:120px;} .c-last{width:130px;} .c-act{width:60px;}
+  .srcs{display:flex; flex-wrap:wrap; gap:4px;}
   td{overflow:hidden; text-overflow:ellipsis;}
   th{text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); padding:12px 16px; font-weight:600; border-bottom:1px solid var(--border);}
   td{padding:12px 16px; border-top:1px solid var(--border); font-size:13px; vertical-align:middle;}

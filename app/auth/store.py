@@ -4,7 +4,7 @@ import json
 
 from ..db import get_conn
 
-PUBLIC_COLS = "id, email, name, role, auth_source, active, created_at, last_login"
+PUBLIC_COLS = "id, email, name, role, auth_source, auth_methods, active, created_at, last_login"
 
 # defaults merged UNDER whatever the admin saved in auth_config.data
 DEFAULT_CONFIG = {
@@ -116,13 +116,15 @@ def ensure_superadmin() -> None:
         row = conn.execute("SELECT id FROM users WHERE lower(email) = %s", (email,)).fetchone()
         if row:
             conn.execute(
-                "UPDATE users SET role='superadmin', active=true, password_hash=%s, auth_source='local' WHERE id=%s",
+                "UPDATE users SET role='superadmin', active=true, password_hash=%s, auth_source='local', "
+                "auth_methods = ARRAY(SELECT DISTINCT m FROM unnest(coalesce(auth_methods, ARRAY[]::text[]) || ARRAY['local']) AS m) "
+                "WHERE id=%s",
                 (ph, row["id"]),
             )
         else:
             conn.execute(
-                "INSERT INTO users (email, name, role, password_hash, auth_source) "
-                "VALUES (%s,%s,'superadmin',%s,'local')",
+                "INSERT INTO users (email, name, role, password_hash, auth_source, auth_methods) "
+                "VALUES (%s,%s,'superadmin',%s,'local',ARRAY['local'])",
                 (email, email.split("@")[0], ph),
             )
     print(f"[auth] super-admin ensured from env: {email}")
@@ -198,6 +200,65 @@ def touch_login(uid: int) -> None:
         conn.execute("UPDATE users SET last_login = now() WHERE id = %s", (uid,))
 
 
+def record_auth_method(uid: int, method: str | None) -> None:
+    """Union `method` (local|ldap|oidc) into the user's auth_methods[] — so one
+    merged-by-email row shows EVERY way that email has signed in. Fail-soft."""
+    if not method:
+        return
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE users SET auth_methods = "
+                "  ARRAY(SELECT DISTINCT m FROM unnest("
+                "    coalesce(auth_methods, ARRAY[]::text[]) || ARRAY[%s::text]) AS m) "
+                "WHERE id = %s",
+                (method, uid),
+            )
+    except Exception as e:
+        print(f"[auth] record_auth_method skipped: {e!r}")
+
+
+def add_to_users_group(uid: int, role: str | None = None, auth_source: str | None = None) -> None:
+    """Every real member auto-joins the default 'Users' group (chat-only baseline)
+    so admins see the full roster and can lift the whole floor at once. Skips
+    anonymous embed visitors. Idempotent, fail-soft. Group is NOT auto-removed on
+    role change — membership is additive, features stack."""
+    if role == "widget" or auth_source == "embed":
+        return
+    try:
+        with get_conn() as conn:
+            g = conn.execute("SELECT id FROM groups WHERE name = 'Users'").fetchone()
+            if not g:
+                return
+            conn.execute(
+                "INSERT INTO user_groups (user_id, group_id) VALUES (%s, %s) "
+                "ON CONFLICT DO NOTHING",
+                (uid, g["id"]),
+            )
+    except Exception as e:
+        print(f"[auth] add_to_users_group skipped: {e!r}")
+
+
+def backfill_auth_and_groups() -> None:
+    """Boot-time backfill (idempotent): seed auth_methods from auth_source for old
+    rows, and add every real member to the 'Users' group. Runs after group seeding."""
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE users SET auth_methods = ARRAY[auth_source] "
+                "WHERE auth_methods IS NULL AND auth_source IS NOT NULL"
+            )
+            conn.execute(
+                "INSERT INTO user_groups (user_id, group_id) "
+                "SELECT u.id, g.id FROM users u CROSS JOIN groups g "
+                "WHERE g.name = 'Users' AND u.role <> 'widget' "
+                "  AND coalesce(u.auth_source,'') <> 'embed' "
+                "ON CONFLICT DO NOTHING"
+            )
+    except Exception as e:
+        print(f"[auth] backfill_auth_and_groups skipped: {e!r}")
+
+
 def create_user(
     email: str, name: str, source: str,
     password_hash: str | None = None, oauth_sub: str | None = None,
@@ -212,10 +273,12 @@ def create_user(
             role = cfg["default_role"]
     with get_conn() as conn:
         row = conn.execute(
-            "INSERT INTO users (email, name, role, password_hash, auth_source, oauth_sub) "
-            "VALUES (%s,%s,%s,%s,%s,%s) RETURNING *",
-            (email, name or email.split("@")[0], role, password_hash, source, oauth_sub),
+            "INSERT INTO users (email, name, role, password_hash, auth_source, oauth_sub, auth_methods) "
+            "VALUES (%s,%s,%s,%s,%s,%s,ARRAY[%s]) RETURNING *",
+            (email, name or email.split("@")[0], role, password_hash, source, oauth_sub, source),
         ).fetchone()
+    # every real member auto-joins the 'Users' group (chat-only baseline)
+    add_to_users_group(row["id"], role=role, auth_source=source)
     # row-level access: assign the user's home sector from their email domain
     try:
         from .. import rbac

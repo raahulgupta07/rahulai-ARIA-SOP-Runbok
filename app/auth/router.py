@@ -17,12 +17,16 @@ def _public(u: dict) -> dict:
     return {k: u.get(k) for k in ("id", "email", "name", "role", "auth_source", "active")}
 
 
-def _issue(u: dict) -> dict:
+def _issue(u: dict, method: str | None = None) -> dict:
     if not u["active"]:
         raise HTTPException(status_code=403, detail="account disabled")
     if u["role"] == "pending":
         raise HTTPException(status_code=403, detail="account awaiting admin approval")
     store.touch_login(u["id"])
+    # record EVERY sign-in method this email used (merge-by-email shows all) +
+    # keep the user in the default 'Users' group. Both idempotent + fail-soft.
+    store.record_auth_method(u["id"], method or u.get("auth_source"))
+    store.add_to_users_group(u["id"], role=u.get("role"), auth_source=u.get("auth_source"))
     # multi-tenant: on EVERY login ensure the user's sector = their email domain
     # (idempotent — assign_user_sector only fills a NULL sector). Backfills users
     # created before RBAC was on. Gated on rbac_enabled; fail-soft.
@@ -64,7 +68,7 @@ def signup(body: Credentials):
         notify.emit("user", f"User awaiting approval · {body.email}", "", "alert")
         return {"pending": True, "user": _public(u)}
     notify.emit("user", f"New user · {body.email}", "", "info")
-    return _issue(u)
+    return _issue(u, "local")
 
 
 @router.post("/auth/login")
@@ -94,7 +98,7 @@ def login(body: Credentials):
         log_event("login_fail", email=body.email, meta={"reason": "admin-route non-admin"})
         raise HTTPException(status_code=403, detail="admin sign-in only")
     log_event("login_ok", email=u["email"], meta={"source": "local", "admin_route": body.from_admin})
-    return _issue(u)
+    return _issue(u, "local")
 
 
 # ---------------- ldap ----------------
@@ -121,7 +125,7 @@ def ldap(body: LdapCreds):
         u = store.find_or_create(info["email"], info["name"], "ldap", email_verified=True)
     except store.MergeBlocked as e:
         raise HTTPException(status_code=409, detail=str(e))
-    return _issue(u)
+    return _issue(u, "ldap")
 
 
 # ---------------- oidc / sso ----------------
@@ -164,6 +168,8 @@ def oidc_callback(code: str, state: str, request: Request):
     if not u["active"] or u["role"] == "pending":
         return RedirectResponse("/login?pending=1")
     store.touch_login(u["id"])
+    store.record_auth_method(u["id"], "oidc")
+    store.add_to_users_group(u["id"], role=u.get("role"), auth_source=u.get("auth_source"))
     # hand the token to the SPA via URL fragment (kept out of server logs)
     return RedirectResponse(f"/login#token={make_token(u)}")
 

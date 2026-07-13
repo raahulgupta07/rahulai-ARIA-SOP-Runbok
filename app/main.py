@@ -26,6 +26,7 @@ async def lifespan(app: FastAPI):
     _astore.ensure_superadmin()   # env-bootstrapped admin (signup disabled → only admin source)
     from . import admin_rbac as _arbac
     _arbac.ensure_default_groups()   # seed starter feature-based access groups (idempotent)
+    _astore.backfill_auth_and_groups()   # seed auth_methods[] + add every member to 'Users' (idempotent)
     # Background work (ingest worker + daemons) runs in ONE process only (leader).
     # When INGEST_IN_API=0 a dedicated `worker` container runs them instead, so the
     # API never shares its GIL with heavy vision/PageIndex work.

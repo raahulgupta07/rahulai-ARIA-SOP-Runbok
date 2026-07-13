@@ -312,6 +312,9 @@ CREATE TABLE IF NOT EXISTS user_groups (
     group_id    BIGINT REFERENCES groups(id) ON DELETE CASCADE,
     PRIMARY KEY (user_id, group_id)
 );
+-- every sign-in method this email has authenticated with (local|ldap|oidc).
+-- one users row per email (merge-by-email); this array shows ALL its logins.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_methods TEXT[];
 -- a user's home sector (set from email domain at signup); role gains 'sector_admin'.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS sector_id BIGINT REFERENCES sectors(id);
 -- every doc is tagged with the sector (+ folder) it belongs to.
