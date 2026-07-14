@@ -20,23 +20,23 @@ _STATE_TTL_MIN = 10
 _UA = {"User-Agent": "Mozilla/5.0 (Aria OIDC client)", "Accept": "application/json"}
 
 
-def _state_put(state: str, pid: str | None = None) -> None:
+def _state_put(state: str, pid: str | None = None, nonce: str | None = None) -> None:
     with get_conn() as conn:
-        conn.execute("INSERT INTO oidc_state (state, pid) VALUES (%s, %s) "
-                     "ON CONFLICT (state) DO NOTHING", (state, pid))
+        conn.execute("INSERT INTO oidc_state (state, pid, nonce) VALUES (%s, %s, %s) "
+                     "ON CONFLICT (state) DO NOTHING", (state, pid, nonce))
 
 
 def _state_consume(state: str):
-    """Atomically take a fresh, unexpired state (one-shot). Returns (ok, pid)."""
+    """Atomically take a fresh, unexpired state (one-shot). Returns (ok, pid, nonce)."""
     with get_conn() as conn:
         conn.execute("DELETE FROM oidc_state WHERE created_at < now() - make_interval(mins => %s)",
                      (_STATE_TTL_MIN,))
         row = conn.execute(
             "DELETE FROM oidc_state WHERE state = %s "
-            "AND created_at >= now() - make_interval(mins => %s) RETURNING pid",
+            "AND created_at >= now() - make_interval(mins => %s) RETURNING pid, nonce",
             (state, _STATE_TTL_MIN),
         ).fetchone()
-    return (bool(row), (row.get("pid") if row else None))
+    return (bool(row), (row.get("pid") if row else None), (row.get("nonce") if row else None))
 
 
 class OidcError(Exception):
@@ -44,7 +44,7 @@ class OidcError(Exception):
 
 
 def consume_state(state: str):
-    """Public one-shot state check for the callback route. Returns (ok, pid)."""
+    """Public one-shot state check for the callback route. Returns (ok, pid, nonce)."""
     return _state_consume(state)
 
 
@@ -72,21 +72,25 @@ def auth_url(provider: dict, public_url: str | None = None) -> str:
         raise OidcError("OIDC not configured")
     disc = _discover(oc["issuer"])
     state = secrets.token_urlsafe(24)
-    _state_put(state, str(oc.get("id") or ""))
+    nonce = secrets.token_urlsafe(24)
+    _state_put(state, str(oc.get("id") or ""), nonce)
     params = {
         "client_id": oc["client_id"],
         "response_type": "code",
         "scope": oc.get("scopes", "openid email profile"),
         "redirect_uri": redirect_uri(public_url),
         "state": state,
+        "nonce": nonce,
     }
     return disc["authorization_endpoint"] + "?" + urllib.parse.urlencode(params)
 
 
-def exchange(provider: dict, code: str, state: str, public_url: str | None = None) -> dict:
-    """Returns {email, name, sub}. Verifies state + id_token signature.
+def exchange(provider: dict, code: str, state: str, public_url: str | None = None,
+             expected_nonce: str | None = None) -> dict:
+    """Returns {email, name, sub}. Verifies state + id_token signature + nonce.
     `provider` MUST be the same provider the state was issued for (caller resolves
-    it from the pid returned by consume_state)."""
+    it from the pid returned by consume_state). `expected_nonce` is the nonce
+    bound to this auth attempt; the id_token's `nonce` claim must equal it."""
     oc = provider
     disc = _discover(oc["issuer"])
 
@@ -140,6 +144,11 @@ def exchange(provider: dict, code: str, state: str, public_url: str | None = Non
     cid = oc["client_id"]
     if cid not in aud_list and claims.get("azp") != cid:
         raise OidcError("id_token audience does not match client id")
+    # nonce replay protection: the id_token nonce MUST match the one we bound to
+    # this auth attempt. Only enforced when a nonce was issued (legacy in-flight
+    # states created before the nonce column stay tolerant).
+    if expected_nonce and claims.get("nonce") != expected_nonce:
+        raise OidcError("id_token nonce mismatch")
     # id_token claims first; fall back to the /userinfo endpoint if email is
     # missing (some Keycloak clients don't map email into the id_token but do
     # return it from userinfo). This mirrors Open WebUI's behaviour. userinfo

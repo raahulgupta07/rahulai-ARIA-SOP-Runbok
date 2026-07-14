@@ -154,7 +154,7 @@ def oidc_callback(code: str, state: str, request: Request):
     import urllib.parse as _url
     try:
         base = str(request.base_url).rstrip("/")
-        ok, pid = consume_state(state)
+        ok, pid, nonce = consume_state(state)
         if not ok:
             return RedirectResponse("/login?error=invalid+state")
         provider = store.oidc_provider(pid) if pid else None
@@ -164,7 +164,7 @@ def oidc_callback(code: str, state: str, request: Request):
         if provider is None:
             return RedirectResponse("/login?error=unknown+provider")
         try:
-            info = exchange(provider, code, state, public_url=base)
+            info = exchange(provider, code, state, public_url=base, expected_nonce=nonce)
         except OidcError as e:
             return RedirectResponse("/login?error=" + _url.quote(str(e)))
         try:

@@ -341,6 +341,8 @@ CREATE TABLE IF NOT EXISTS oidc_state (
 );
 -- which SSO provider this auth attempt is for (multi-provider). NULL = legacy single.
 ALTER TABLE oidc_state ADD COLUMN IF NOT EXISTS pid TEXT;
+-- OIDC nonce bound to this auth attempt; validated against the id_token claim.
+ALTER TABLE oidc_state ADD COLUMN IF NOT EXISTS nonce TEXT;
 
 -- ---- per-user chat conversations + messages ----
 CREATE TABLE IF NOT EXISTS conversations (
