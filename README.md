@@ -29,7 +29,9 @@ nano .env.prod        # fill in the values below
 Set these (generate the two secrets with `openssl rand -hex 32`):
 ```ini
 APP_ENV=production
-PUBLIC_URL=https://itsm.yourco.com          # your domain (for links; not routing)
+PUBLIC_URL=https://itsm.yourco.com          # your real domain — used for share links AND the SSO/OIDC redirect_uri.
+                                            # Put YOUR domain here (not the example). You can also set this later
+                                            # in the UI: Settings → Authentication → Public URL (UI value wins).
 CORS_ALLOW_ORIGINS=
 
 OPENROUTER_API_KEY=sk-or-xxxxxxxx
@@ -140,7 +142,7 @@ It asks: **super-admin email**, **super-admin password (your choice)**,
 Internal secrets (JWT, DB password) are auto-generated.
 
 Then in **Nginx Proxy Manager → Proxy Hosts → Add**:
-- **Domain**: `aria.yourco.com`
+- **Domain**: `itsm.yourco.com`
 - **Forward**: scheme `http` · host = the server's IP · port = the host port you chose
 - **Websockets Support**: ON
 - **SSL** tab: request a Let's Encrypt cert · **Force SSL** · HTTP/2
@@ -419,8 +421,8 @@ docker compose --profile worker up -d app worker
 # .env
 APP_ENV=production
 JWT_SECRET=<64-char random>
-PUBLIC_URL=https://aria.yourco.com
-CORS_ALLOW_ORIGINS=https://aria.yourco.com
+PUBLIC_URL=https://itsm.yourco.com
+CORS_ALLOW_ORIGINS=https://itsm.yourco.com
 INGEST_IN_API=0
 WEB_CONCURRENCY=6
 DB_POOL_MAX=15
@@ -840,6 +842,26 @@ Any answer has a **Share** button → a stable link to a read-only view of that 
 - **Version-controlled** since `5848264` (`main`). `.gitignore` excludes `.env`, `node_modules`, `.venv`, build output, and `data/*` runtime — never commit your `.env` (it holds the live OpenRouter key).
 - **Enterprise login (LDAP + OIDC/SSO) is verified end-to-end** against real providers (OpenLDAP + Keycloak): bind-search-bind, JWKS signature verification, audience check, and tamper rejection all pass. Configure under Settings → Authentication.
 - Set real `JWT_SECRET`, `PUBLIC_URL` (for SSO redirect), `CORS_ORIGINS` before a real deploy.
+
+### Public URL & the SSO redirect_uri
+
+The **Public URL** is the address users reach the app on (e.g. `https://itsm.yourco.com`). It builds the OIDC **redirect_uri** — `<public-url>/api/auth/oidc/callback` — which the identity provider (Keycloak/Entra/Google) must have in its allow-list, or it rejects login with **"Invalid parameter: redirect_uri"**.
+
+**How Aria resolves it** (first non-empty wins): **UI setting → `PUBLIC_URL` env → `X-Forwarded-Proto`/`X-Forwarded-Host` (reverse proxy) → the request URL.** This matches Open WebUI's `WEBUI_URL`/`OPENID_REDIRECT_URI` model **and adds a UI override** so you can change it without editing env or redeploying.
+
+**To set / change the URL — two ways:**
+
+1. **UI (no redeploy):** Settings → Authentication → **Public URL** → type your domain → **Save changes**. The SSO provider modal then shows the exact **Redirect URI** to register. UI value overrides the env.
+2. **Env:** set `PUBLIC_URL=https://itsm.yourco.com` in `.env.prod`, then `docker compose --env-file .env.prod up -d --force-recreate app`.
+
+**Verify** the server's actual value (definitive — the modal only shows the browser origin):
+```
+GET https://<your-domain>/api/auth/oidc/redirect-uri
+→ { "redirect_uri": "https://itsm.yourco.com/api/auth/oidc/callback", ... }
+```
+If it shows `http://` or the wrong host, the Public URL isn't applied — fix it and recheck. Then register **that exact string** in the IdP client (Keycloak → client → *Valid redirect URIs*; add, don't replace). Each app needs its **own** IdP client + its own redirect — never reuse another app's client.
+
+> Common mistake: leaving `PUBLIC_URL` as the example domain (`aria.yourco.com`) from a template — the IdP then rejects the redirect because it doesn't match your real domain. Set it to **your** domain (or set it in the UI).
 - The frontend is built **inside the image** — every deploy must rebuild: `docker compose up -d --build --force-recreate app`. `--build` alone can build the image but leave the old container running (new `app/*.py` won't be live); use `--force-recreate` and verify the container actually swapped.
 - **SPA cache headers (fixed):** `index.html` is served `no-cache` and the hashed `/_app/*` assets `immutable`, so a new deploy reaches the browser on the next navigation without a manual hard-refresh. (Before this, the shell was heuristically cached and could point at chunk hashes the new deploy deleted → a stuck/blank screen. If you still see a stale page once right after upgrading from an old build, hard-refresh `Cmd+Shift+R` a single time.)
 - **Cache gotcha:** `compose up -d --build` can cache the `COPY app/` layer and ship a **new frontend with a stale backend** (a missing route then 404s and falls through to the SPA). If a just-added endpoint 404s, run `docker compose build app` first (this busts the layer — you'll see `COPY app/` run, not `CACHED`), then `up -d --force-recreate`, and confirm with `docker exec <app> grep <symbol> /app/app/routes.py`. Registry `EOF`/TLS timeouts mid-build are common — just retry `build` until it prints `Built`.
