@@ -56,7 +56,12 @@ def _discover(issuer: str) -> dict:
 
 
 def redirect_uri(public_url: str | None = None) -> str:
-    base = (public_url or PUBLIC_URL or "").rstrip("/")
+    # Prefer an explicitly-configured PUBLIC_URL (like Open WebUI's
+    # OPENID_REDIRECT_URI) so the redirect_uri is deterministic and identical
+    # between the auth request, the token exchange, and the value registered in
+    # Keycloak — even behind a reverse proxy that rewrites scheme/host. Only
+    # fall back to the request-derived base when PUBLIC_URL isn't set.
+    base = (PUBLIC_URL or public_url or "").rstrip("/")
     return f"{base}/api/auth/oidc/callback"
 
 

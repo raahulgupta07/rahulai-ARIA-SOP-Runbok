@@ -315,8 +315,13 @@ def find_or_create(email: str, name: str, source: str, oauth_sub: str | None = N
         if u["auth_source"] == source:
             return u                       # same provider — always fine
         cfg = get_config()
-        if cfg.get("merge_by_email") and email_verified:
-            return u                       # verified cross-provider merge
+        # Match Open WebUI: when the admin has turned merge on, merge on the
+        # email claim from a trusted directory IdP (Keycloak/AD/LDAP). We do NOT
+        # additionally require email_verified — Open WebUI doesn't either, and a
+        # corporate IdP's email is authoritative. (email_verified still travels
+        # through so a future strict mode can use it.)
+        if cfg.get("merge_by_email"):
+            return u                       # cross-provider merge on email
         raise MergeBlocked(
             f"An account for {email} already exists via '{u['auth_source']}'. "
             "Ask an admin to enable email merge, or sign in with that method."
