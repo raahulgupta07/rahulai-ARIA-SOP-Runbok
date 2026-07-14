@@ -1,5 +1,8 @@
 # CLAUDE.md — City Agent Aria (codename DocSensei)
 
+## Status (2026-07-14c — ★SUPERADMIN LOCKOUT FIX, `main` `db5f05b`)
+★★★LANDMINE + fix: the `/login/admin` escape hatch (`from_admin=true`, bypasses the local-login master toggle) checked `u["role"] != "admin"` → a **superadmin** who turned Local-accounts OFF was locked out of BOTH `/login` (no local form) AND `/login/admin` (403 "admin sign-in only"). Fixed to `role not in ("admin","superadmin")`. Recovery for a locked box: in the app container `python -c "from app.auth import store; c=store.get_config(); c['enable_local']=True; store.save_config(c)"`. Dev superadmin = **admin@city.com / secret123** (id1, re-set from env SUPERADMIN_EMAIL/PASSWORD every boot). Verified: local OFF → normal login 403, `/login/admin` superadmin → OK.
+
 ## Status (2026-07-14b — per-method master on/off toggles, `main` `45f3282`)
 Settings→Authentication→Methods: SSO + LDAP cards now each carry a master **Toggle** (like Local always had) so an admin turns a whole method on/off from the card without deleting config. Config `sso_enabled`/`ldap_enabled` (DEFAULT_CONFIG, default True). `public_config`: `enable_oidc = sso_enabled AND has-providers`, `enable_ldap = ldap_enabled AND has-dirs`. Login page already gates on enable_oidc/enable_ldap/enable_local → method disappears when its master is off. Cards changed from navigate-on-click `<button>` to `<div>` + a `.linkbtn` "Manage providers/directories →" (Toggle can't nest in a button); status line Disabled / "⚠ On — add a provider" / ● Enabled. FE normalize() defaults the two flags true when unset. Verified: SSO master OFF + valid provider → enable_oidc False. Purely additive (defaults on = no behaviour change until flipped).
 
