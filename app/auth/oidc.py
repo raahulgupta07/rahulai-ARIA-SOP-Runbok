@@ -94,13 +94,30 @@ def exchange(provider: dict, code: str, state: str, public_url: str | None = Non
     if not id_token:
         raise OidcError("no id_token in response")
 
-    # verify signature against JWKS
-    jwks = PyJWKClient(disc["jwks_uri"])
-    signing_key = jwks.get_signing_key_from_jwt(id_token).key
-    claims = jwt.decode(
-        id_token, signing_key, algorithms=["RS256", "ES256"],
-        audience=oc["client_id"], options={"verify_at_hash": False},
-    )
+    # verify signature against JWKS. Any failure (JWKS unreachable, bad
+    # signature, expired, decode error) becomes an OidcError so the callback
+    # redirects to /login with a message instead of a raw 500.
+    try:
+        jwks = PyJWKClient(disc["jwks_uri"])
+        signing_key = jwks.get_signing_key_from_jwt(id_token).key
+        # Keycloak's id_token `aud` is frequently "account" (or a list that omits
+        # the client), while the client id lives in `azp`. So we DON'T let PyJWT
+        # enforce audience — we verify the signature + issuer, then check the
+        # client id appears in either `aud` or `azp` ourselves.
+        claims = jwt.decode(
+            id_token, signing_key, algorithms=["RS256", "ES256"],
+            issuer=oc["issuer"].rstrip("/"),
+            options={"verify_at_hash": False, "verify_aud": False},
+        )
+    except jwt.PyJWTError as e:
+        raise OidcError(f"id_token verify failed: {e}")
+    except Exception as e:  # JWKS fetch / network / anything else
+        raise OidcError(f"id_token verify error: {e}")
+    aud = claims.get("aud")
+    aud_list = aud if isinstance(aud, list) else [aud]
+    cid = oc["client_id"]
+    if cid not in aud_list and claims.get("azp") != cid:
+        raise OidcError("id_token audience does not match client id")
     email = claims.get("email")
     if not email:
         raise OidcError("id_token has no email claim")

@@ -6,12 +6,28 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.19.0"
+VERSION = "2.20.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.20.0",
+        "date": "2026-07-14",
+        "title": "Folders, access groups, one-account users & rock-solid Keycloak SSO",
+        "lines": [
+            "Organise sources into nested folders with a colour and a real line-icon; rename, move, expand/collapse; 'Include subfolders' to browse a whole subtree",
+            "Access groups (OpenWebUI-style): default Administrators & Users, grant tab access + Manage content / Teach knowledge per group — Settings stays super-admin only",
+            "Every member auto-joins the Users group; new members added on first sign-in",
+            "Users table shows ID and each person's login methods (local / LDAP / SSO), merged into one row per email",
+            "Turn each login method on or off (email · LDAP · SSO) from Settings → Authentication — users only see what's enabled",
+            "Admin sign-in stays reachable at /login/admin even with every method off, so SSO/LDAP trouble can't lock admins out",
+            "Keycloak / OIDC sign-in fixed: accepts Keycloak's audience (aud=account, client in azp) and verifies the issuer",
+            "SSO callback can no longer return 'Internal Server Error' — every failure is logged and shown on the login page with a clear reason",
+            "Merge-accounts-by-email toggle so one person is one account across LDAP and SSO",
+        ],
+    },
     {
         "version": "2.19.0",
         "date": "2026-06-19",

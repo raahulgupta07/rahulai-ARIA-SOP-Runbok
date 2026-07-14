@@ -148,32 +148,41 @@ def oidc_login(request: Request, pid: str | None = None):
 
 @router.get("/auth/oidc/callback")
 def oidc_callback(code: str, state: str, request: Request):
-    base = str(request.base_url).rstrip("/")
-    ok, pid = consume_state(state)
-    if not ok:
-        return RedirectResponse("/login?error=invalid+state")
-    provider = store.oidc_provider(pid) if pid else None
-    if provider is None:
-        provs = [p for p in store.oidc_providers() if p.get("issuer") and p.get("client_id")]
-        provider = provs[0] if provs else None
-    if provider is None:
-        return RedirectResponse("/login?error=unknown+provider")
+    # Whole body is wrapped: an SSO callback must NEVER surface a raw 500 to the
+    # browser — any unexpected error is logged with a traceback and the user is
+    # sent back to /login with a short message.
+    import urllib.parse as _url
     try:
-        info = exchange(provider, code, state, public_url=base)
-    except OidcError as e:
-        return RedirectResponse(f"/login?error={e}")
-    try:
-        u = store.find_or_create(info["email"], info["name"], "oidc",
-                                 oauth_sub=info["sub"], email_verified=info.get("email_verified", False))
-    except store.MergeBlocked as e:
-        return RedirectResponse(f"/login?error={e}")
-    if not u["active"] or u["role"] == "pending":
-        return RedirectResponse("/login?pending=1")
-    store.touch_login(u["id"])
-    store.record_auth_method(u["id"], "oidc")
-    store.add_to_users_group(u["id"], role=u.get("role"), auth_source=u.get("auth_source"))
-    # hand the token to the SPA via URL fragment (kept out of server logs)
-    return RedirectResponse(f"/login#token={make_token(u)}")
+        base = str(request.base_url).rstrip("/")
+        ok, pid = consume_state(state)
+        if not ok:
+            return RedirectResponse("/login?error=invalid+state")
+        provider = store.oidc_provider(pid) if pid else None
+        if provider is None:
+            provs = [p for p in store.oidc_providers() if p.get("issuer") and p.get("client_id")]
+            provider = provs[0] if provs else None
+        if provider is None:
+            return RedirectResponse("/login?error=unknown+provider")
+        try:
+            info = exchange(provider, code, state, public_url=base)
+        except OidcError as e:
+            return RedirectResponse("/login?error=" + _url.quote(str(e)))
+        try:
+            u = store.find_or_create(info["email"], info["name"], "oidc",
+                                     oauth_sub=info["sub"], email_verified=info.get("email_verified", False))
+        except store.MergeBlocked as e:
+            return RedirectResponse("/login?error=" + _url.quote(str(e)))
+        if not u["active"] or u["role"] == "pending":
+            return RedirectResponse("/login?pending=1")
+        store.touch_login(u["id"])
+        store.record_auth_method(u["id"], "oidc")
+        store.add_to_users_group(u["id"], role=u.get("role"), auth_source=u.get("auth_source"))
+        # hand the token to the SPA via URL fragment (kept out of server logs)
+        return RedirectResponse(f"/login#token={make_token(u)}")
+    except Exception as e:
+        import traceback
+        print("[oidc] callback failed:\n" + traceback.format_exc())
+        return RedirectResponse("/login?error=" + _url.quote(f"sso login failed: {e}"))
 
 
 # ---------------- me ----------------
