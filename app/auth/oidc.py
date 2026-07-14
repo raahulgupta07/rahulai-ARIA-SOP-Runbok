@@ -14,6 +14,11 @@ from ..db import get_conn
 # callback. Consumed one-shot; expired rows (>10 min) pruned lazily on each use.
 _STATE_TTL_MIN = 10
 
+# A normal browser-ish User-Agent on every server-to-server call to the IdP.
+# A WAF / reverse proxy in front of Keycloak commonly 403s bot/library UAs
+# (e.g. "Python-urllib") on the discovery / JWKS / userinfo paths.
+_UA = {"User-Agent": "Mozilla/5.0 (Aria OIDC client)", "Accept": "application/json"}
+
 
 def _state_put(state: str, pid: str | None = None) -> None:
     with get_conn() as conn:
@@ -45,7 +50,7 @@ def consume_state(state: str):
 
 def _discover(issuer: str) -> dict:
     url = issuer.rstrip("/") + "/.well-known/openid-configuration"
-    r = httpx.get(url, timeout=10)
+    r = httpx.get(url, headers=_UA, timeout=10)
     r.raise_for_status()
     return r.json()
 
@@ -86,10 +91,12 @@ def exchange(provider: dict, code: str, state: str, public_url: str | None = Non
         "redirect_uri": redirect_uri(public_url),
         "client_id": oc["client_id"],
         "client_secret": oc.get("client_secret", ""),
-    }, timeout=10)
+    }, headers={"User-Agent": _UA["User-Agent"]}, timeout=10)
     if tok.status_code != 200:
         raise OidcError(f"token exchange failed: {tok.text[:200]}")
-    id_token = tok.json().get("id_token")
+    tok_json = tok.json()
+    access_token = tok_json.get("access_token")
+    id_token = tok_json.get("id_token")
     if not id_token:
         raise OidcError("no id_token in response")
 
@@ -100,10 +107,7 @@ def exchange(provider: dict, code: str, state: str, public_url: str | None = Non
         # Fetch JWKS ourselves via httpx (NOT PyJWKClient, which uses urllib with
         # a "Python-urllib" User-Agent that a WAF / reverse proxy in front of the
         # IdP often blocks with 403). A normal User-Agent gets through.
-        jr = httpx.get(disc["jwks_uri"],
-                       headers={"User-Agent": "Mozilla/5.0 (Aria OIDC client)",
-                                "Accept": "application/json"},
-                       timeout=10)
+        jr = httpx.get(disc["jwks_uri"], headers=_UA, timeout=10)
         jr.raise_for_status()
         keys = jr.json().get("keys", [])
         kid = jwt.get_unverified_header(id_token).get("kid")
@@ -131,9 +135,25 @@ def exchange(provider: dict, code: str, state: str, public_url: str | None = Non
     cid = oc["client_id"]
     if cid not in aud_list and claims.get("azp") != cid:
         raise OidcError("id_token audience does not match client id")
+    # id_token claims first; fall back to the /userinfo endpoint if email is
+    # missing (some Keycloak clients don't map email into the id_token but do
+    # return it from userinfo). This mirrors Open WebUI's behaviour. userinfo
+    # values fill gaps; id_token claims are kept where userinfo omits them.
+    if not claims.get("email") and disc.get("userinfo_endpoint") and access_token:
+        try:
+            ur = httpx.get(disc["userinfo_endpoint"],
+                           headers={**_UA, "Authorization": f"Bearer {access_token}"},
+                           timeout=10)
+            if ur.status_code == 200:
+                info = ur.json()
+                for k, v in info.items():
+                    claims.setdefault(k, v)
+        except Exception as e:
+            print(f"[oidc] userinfo fallback failed: {e!r}")
+
     email = claims.get("email")
     if not email:
-        raise OidcError("id_token has no email claim")
+        raise OidcError("no email claim in id_token or userinfo")
     name = claims.get("name") or claims.get("preferred_username") or email.split("@")[0]
     # email_verified may arrive as bool or the string "true" depending on the IdP
     ev = claims.get("email_verified")
