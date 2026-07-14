@@ -23,6 +23,9 @@
   function normalize(c: any) {
     c.oidc_providers = Array.isArray(c.oidc_providers) ? c.oidc_providers : [];
     c.ldap_directories = Array.isArray(c.ldap_directories) ? c.ldap_directories : [];
+    // master on/off per method — default ON when unset
+    c.sso_enabled = c.sso_enabled !== false;
+    c.ldap_enabled = c.ldap_enabled !== false;
     if (!c.oidc_providers.length && c.oidc?.issuer) {
       c.oidc_providers = [{ id: 'default', name: (c.oidc.provider || 'SSO'), provider: c.oidc.provider || 'generic',
         label: c.oidc.label || '', issuer: c.oidc.issuer, client_id: c.oidc.client_id || '',
@@ -135,20 +138,34 @@
             <div class="mc-sub">Email + password{cfg.enable_signup ? ' · self sign-up on' : ' · self sign-up off'}</div>
             <div class="mc-st" class:on={cfg.enable_local}>{cfg.enable_local ? '● Enabled' : '○ Disabled'}</div>
           </div>
-          <button class="mcard click" class:focus={enabledCount(cfg.oidc_providers)} onclick={() => (pane = 'sso')}>
+          <div class="mcard">
             <div class="mc-top"><span class="mc-ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#3a3833" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><circle cx="12" cy="11" r="2"/></svg></span>
-              <span class="badge info">{cfg.oidc_providers.length} provider{cfg.oidc_providers.length === 1 ? '' : 's'}</span></div>
+              <Toggle bind:checked={cfg.sso_enabled} /></div>
             <div class="mc-nm">SSO (OIDC)</div>
-            <div class="mc-sub">Microsoft · Google · Okta · Keycloak</div>
-            <div class="mc-link">Manage providers →</div>
-          </button>
-          <button class="mcard click" onclick={() => (pane = 'ldap')}>
+            <div class="mc-sub">{cfg.oidc_providers.length} provider{cfg.oidc_providers.length === 1 ? '' : 's'} · Microsoft · Google · Okta · Keycloak</div>
+            {#if !cfg.sso_enabled}
+              <div class="mc-st">○ Disabled</div>
+            {:else if !cfg.oidc_providers.length}
+              <div class="mc-st warn">⚠ On — add a provider</div>
+            {:else}
+              <div class="mc-st on">● Enabled</div>
+            {/if}
+            <button type="button" class="mc-link linkbtn" onclick={() => (pane = 'sso')}>Manage providers →</button>
+          </div>
+          <div class="mcard">
             <div class="mc-top"><span class="mc-ic"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#3a3833" stroke-width="2"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h5"/></svg></span>
-              <span class="badge">{cfg.ldap_directories.length} director{cfg.ldap_directories.length === 1 ? 'y' : 'ies'}</span></div>
+              <Toggle bind:checked={cfg.ldap_enabled} /></div>
             <div class="mc-nm">LDAP / Active Directory</div>
-            <div class="mc-sub">Bind against your directory</div>
-            <div class="mc-link">{cfg.ldap_directories.length ? 'Manage directories →' : '+ Add directory'}</div>
-          </button>
+            <div class="mc-sub">{cfg.ldap_directories.length} director{cfg.ldap_directories.length === 1 ? 'y' : 'ies'} · bind against your directory</div>
+            {#if !cfg.ldap_enabled}
+              <div class="mc-st">○ Disabled</div>
+            {:else if !cfg.ldap_directories.length}
+              <div class="mc-st warn">⚠ On — add a directory</div>
+            {:else}
+              <div class="mc-st on">● Enabled</div>
+            {/if}
+            <button type="button" class="mc-link linkbtn" onclick={() => (pane = 'ldap')}>{cfg.ldap_directories.length ? 'Manage directories →' : '+ Add directory'}</button>
+          </div>
         </div>
 
         <div class="tip"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2z"/></svg>
@@ -322,7 +339,10 @@
   .mc-sub{font-size:12px; color:var(--muted); margin-top:2px;}
   .mc-st{font-size:11.5px; color:var(--muted); margin-top:9px;}
   .mc-st.on{color:#2f8f5f;}
+  .mc-st.warn{color:#c98a2e;}
   .mc-link{font-size:11.5px; color:#426693; margin-top:9px; font-weight:500;}
+  .linkbtn{display:block; background:none; border:none; padding:0; cursor:pointer; font-family:inherit;}
+  .linkbtn:hover{text-decoration:underline;}
   .badge{font-size:11px; font-weight:600; background:#f0efed; color:var(--muted); padding:3px 9px; border-radius:999px;}
   .badge.info{background:#eaf0f7; color:#426693;}
   .tip{display:flex; gap:9px; align-items:flex-start; background:#eaf0f7; color:#3a5878; border-radius:11px; padding:11px 13px; font-size:12.5px; line-height:1.5; margin-bottom:6px;}

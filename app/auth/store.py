@@ -15,6 +15,11 @@ DEFAULT_CONFIG = {
     "enable_signup": False,
     "enable_ldap": False,
     "enable_oidc": False,
+    # master on/off per method (Settings → Authentication cards). Default ON so
+    # a method appears on the login page as soon as a provider/dir is configured;
+    # flip OFF to hide the whole method without deleting its config.
+    "sso_enabled": True,
+    "ldap_enabled": True,
     "default_role": "user",          # user | pending | admin
     "first_user_admin": True,
     # Merge an LDAP/SSO login into an existing account with the SAME email even
@@ -168,8 +173,9 @@ def public_config() -> dict:
     return {
         "enable_local": c["enable_local"],
         "enable_signup": c["enable_signup"],
-        "enable_ldap": bool(dirs),
-        "enable_oidc": bool(provs),
+        # a method shows only when its master switch is on AND it has a valid provider/dir
+        "enable_ldap": bool(dirs) and bool(c.get("ldap_enabled", True)),
+        "enable_oidc": bool(provs) and bool(c.get("sso_enabled", True)),
         "sso_providers": sso,
         "ldap_dirs": ld,
         # legacy single-provider fields (older cached clients) — first provider
