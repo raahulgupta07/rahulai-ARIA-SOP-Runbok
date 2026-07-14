@@ -6,12 +6,21 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.20.1"
+VERSION = "2.20.2"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.20.2",
+        "date": "2026-07-14",
+        "title": "SSO diagnostics — see the exact redirect URL to register",
+        "lines": [
+            "New /api/auth/oidc/redirect-uri page shows the exact redirect URL the server sends — register that verbatim in Keycloak",
+            "Each SSO start logs the redirect URL + proxy scheme, so a mismatch is obvious in the logs",
+        ],
+    },
     {
         "version": "2.20.1",
         "date": "2026-07-14",

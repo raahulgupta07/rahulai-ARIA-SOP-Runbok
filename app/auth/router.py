@@ -160,10 +160,36 @@ def oidc_login(request: Request, pid: str | None = None):
     if provider is None or not provider.get("enabled"):
         provider = provs[0]
     base = _public_base(request)
+    # Log the EXACT redirect_uri we send to the IdP. This must be registered
+    # verbatim in the IdP client's allow-list — copy this line's value there.
+    from .oidc import redirect_uri as _ru
+    from ..config import PUBLIC_URL as _PU
+    print(f"[oidc] redirect_uri sent to IdP = {_ru(base)}  "
+          f"(PUBLIC_URL={_PU!r}, x-forwarded-proto={request.headers.get('x-forwarded-proto')!r})")
     try:
         return RedirectResponse(auth_url(provider, public_url=base))
     except OidcError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/auth/oidc/redirect-uri")
+def oidc_redirect_uri_debug(request: Request):
+    """Shows the EXACT redirect_uri this server sends to the IdP. Open in a
+    browser and register this verbatim in the IdP client's allow-list. No
+    secrets. This is the definitive value — the SSO modal only shows the browser
+    origin, which can differ from what the server sends behind a proxy."""
+    from .oidc import redirect_uri as _ru
+    from ..config import PUBLIC_URL
+    base = _public_base(request)
+    return {
+        "redirect_uri": _ru(base),
+        "resolved_base": base,
+        "public_url_env": PUBLIC_URL or None,
+        "x_forwarded_proto": request.headers.get("x-forwarded-proto"),
+        "x_forwarded_host": request.headers.get("x-forwarded-host"),
+        "host": request.headers.get("host"),
+        "note": "Register redirect_uri verbatim in the IdP client. If it is http://, set PUBLIC_URL=https://<host> and redeploy.",
+    }
 
 
 @router.get("/auth/oidc/callback")
