@@ -146,7 +146,7 @@
     <div class="verwrap">
       <button class="verpill" onclick={() => (verOpen = !verOpen)}>
         <span class="vdot"></span>
-        v{ver.version}<span class="verextra"> · {ver.sha} · {String(ver.built ?? '').slice(0, 10)}</span>
+        v{ver.version}
       </button>
       {#if verOpen}
         <div class="verpop">

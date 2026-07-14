@@ -28,10 +28,6 @@
     <!-- header -->
     <div class="wn-head">
       <span class="wn-ver">v{v.version}</span>
-      <span class="wn-sep">·</span>
-      <span class="wn-sha">{v.sha}</span>
-      <span class="wn-sep">·</span>
-      <span class="wn-built">{shortDate(v.built)}</span>
       {#if v.up_to_date}
         <span class="wn-pill"><span class="wn-dot"></span>Up to date</span>
       {/if}
