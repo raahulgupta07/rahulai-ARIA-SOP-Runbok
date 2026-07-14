@@ -93,8 +93,10 @@ def login(body: Credentials):
         log_event("login_fail", email=body.email,
                   meta={"reason": "no user" if not u else "bad password"})
         raise HTTPException(status_code=401, detail="invalid email or password")
-    # escape hatch is admins only — a normal local user can't bypass the toggle
-    if body.from_admin and not cfg["enable_local"] and u["role"] != "admin":
+    # escape hatch is admins only — a normal local user can't bypass the toggle.
+    # BOTH admin and superadmin qualify (a superadmin who turns local login off
+    # must still be able to get back in via /login/admin — else full lockout).
+    if body.from_admin and not cfg["enable_local"] and u["role"] not in ("admin", "superadmin"):
         log_event("login_fail", email=body.email, meta={"reason": "admin-route non-admin"})
         raise HTTPException(status_code=403, detail="admin sign-in only")
     log_event("login_ok", email=u["email"], meta={"source": "local", "admin_route": body.from_admin})
