@@ -5,7 +5,6 @@ import urllib.parse
 
 import httpx
 import jwt
-from jwt import PyJWKClient
 
 from ..config import PUBLIC_URL
 from ..db import get_conn
@@ -98,8 +97,20 @@ def exchange(provider: dict, code: str, state: str, public_url: str | None = Non
     # signature, expired, decode error) becomes an OidcError so the callback
     # redirects to /login with a message instead of a raw 500.
     try:
-        jwks = PyJWKClient(disc["jwks_uri"])
-        signing_key = jwks.get_signing_key_from_jwt(id_token).key
+        # Fetch JWKS ourselves via httpx (NOT PyJWKClient, which uses urllib with
+        # a "Python-urllib" User-Agent that a WAF / reverse proxy in front of the
+        # IdP often blocks with 403). A normal User-Agent gets through.
+        jr = httpx.get(disc["jwks_uri"],
+                       headers={"User-Agent": "Mozilla/5.0 (Aria OIDC client)",
+                                "Accept": "application/json"},
+                       timeout=10)
+        jr.raise_for_status()
+        keys = jr.json().get("keys", [])
+        kid = jwt.get_unverified_header(id_token).get("kid")
+        jwk = next((k for k in keys if k.get("kid") == kid), None) or (keys[0] if keys else None)
+        if jwk is None:
+            raise OidcError("no signing key in provider JWKS")
+        signing_key = jwt.PyJWK(jwk).key
         # Keycloak's id_token `aud` is frequently "account" (or a list that omits
         # the client), while the client id lives in `azp`. So we DON'T let PyJWT
         # enforce audience — we verify the signature + issuer, then check the
@@ -109,6 +120,8 @@ def exchange(provider: dict, code: str, state: str, public_url: str | None = Non
             issuer=oc["issuer"].rstrip("/"),
             options={"verify_at_hash": False, "verify_aud": False},
         )
+    except OidcError:
+        raise
     except jwt.PyJWTError as e:
         raise OidcError(f"id_token verify failed: {e}")
     except Exception as e:  # JWKS fetch / network / anything else
