@@ -260,7 +260,8 @@
             <label class="fg"><span>Button label <span class="hint">blank = auto</span></span><input bind:value={edit.draft.label} placeholder="Continue with Microsoft" /></label>
           </div>
           <div class="redirect">Redirect URI — register at your provider
-            <code>{location.origin}/api/auth/oidc/callback</code></div>
+            <code>{((cfg.public_url || '').trim().replace(/\/$/, '') || (typeof location !== 'undefined' ? location.origin : '')) + '/api/auth/oidc/callback'}</code>
+            {#if !(cfg.public_url || '').trim()}<div class="rhint">Tip: set <b>Public URL</b> (in Provisioning below) so this matches what the server sends behind your proxy.</div>{/if}</div>
         {:else}
           <div class="sect-h">1 · Connection</div>
           <div class="grid-conn">
@@ -415,6 +416,7 @@
   .sw.on{border:2px solid var(--clay);}
   .redirect{background:#f4f3f0; border-radius:9px; padding:9px 11px; font-size:11.5px; color:var(--muted); margin-top:4px;}
   .redirect code{display:block; margin-top:4px; font-size:11px; color:var(--ink); word-break:break-all;}
+  .rhint{margin-top:6px; font-size:11px; color:var(--muted);}
 
   @media (max-width:640px){
     .mcards{grid-template-columns:1fr;}
