@@ -179,6 +179,14 @@
           <Row label="Merge accounts by email" hint="One person = one account across LDAP & SSO. Only merges a VERIFIED email."><Toggle bind:checked={cfg.merge_by_email} /></Row>
         </Section>
 
+        <Section title="Public URL" desc="The address users reach this app on. Used to build the SSO redirect URL — must match what you register at your identity provider.">
+          <Row label="Public URL" hint="Leave blank to auto-detect from the proxy">
+            <input class="txt" bind:value={cfg.public_url} placeholder="https://itsm.citygpt.xyz" />
+          </Row>
+          <div class="redirect">SSO redirect URI — register this exact value at your provider (Keycloak → client → Valid redirect URIs)
+            <code>{((cfg.public_url || '').trim().replace(/\/$/, '') || (typeof location !== 'undefined' ? location.origin : '')) + '/api/auth/oidc/callback'}</code></div>
+        </Section>
+
       {:else if pane === 'sso'}
         <div class="lhead"><div><h3>SSO providers</h3><p>Each enabled provider shows as its own button on the login page.</p></div><button class="btn add" onclick={newProvider}>+ Add SSO provider</button></div>
         {#if !cfg.oidc_providers.length}<div class="empty">No SSO providers yet. Click "Add SSO provider".</div>{/if}
@@ -363,6 +371,7 @@
 
   .hint{font-weight:400; color:var(--muted); font-size:11px;}
   .sel{height:40px; border:1px solid var(--border); border-radius:9px; padding:0 10px; background:#fff; font-size:13.5px; width:100%;}
+  .txt{height:40px; border:1px solid var(--border); border-radius:9px; padding:0 11px; background:#fff; font-size:13.5px; width:100%; min-width:260px;}
   .fg{display:block; padding:7px 0;} .fg span{display:block; font-size:12px; color:var(--muted); margin-bottom:5px;}
   .fg input{width:100%; height:40px; border:1px solid var(--border); border-radius:9px; padding:0 12px; font-size:13.5px; background:#fff; outline:none; box-sizing:border-box;}
   .fg input:focus{border-color:var(--clay);}

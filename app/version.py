@@ -6,12 +6,22 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.20.2"
+VERSION = "2.21.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.21.0",
+        "date": "2026-07-14",
+        "title": "Set the Public URL in Settings — no env edit, no redeploy",
+        "lines": [
+            "New Settings → Authentication → Public URL: set the address users reach the app on, right in the UI",
+            "The SSO redirect URI is shown live from it — copy that exact value into Keycloak",
+            "Overrides the PUBLIC_URL env; blank = auto-detect from the reverse proxy",
+        ],
+    },
     {
         "version": "2.20.2",
         "date": "2026-07-14",

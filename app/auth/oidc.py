@@ -74,7 +74,9 @@ def redirect_uri(public_url: str | None = None) -> str:
     # between the auth request, the token exchange, and the value registered in
     # Keycloak — even behind a reverse proxy that rewrites scheme/host. Only
     # fall back to the request-derived base when PUBLIC_URL isn't set.
-    base = (PUBLIC_URL or public_url or "").rstrip("/")
+    # Trust the caller's resolved base first (it already prefers the UI config
+    # value, then PUBLIC_URL, then proxy headers). Env PUBLIC_URL is the fallback.
+    base = (public_url or PUBLIC_URL or "").rstrip("/")
     return f"{base}/api/auth/oidc/callback"
 
 

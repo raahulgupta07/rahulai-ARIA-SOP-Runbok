@@ -141,6 +141,11 @@ def _public_base(request: Request) -> str:
     the IdP — otherwise the IdP rejects it as 'Invalid parameter: redirect_uri'.
     """
     from ..config import PUBLIC_URL
+    # 1) UI-configured Public URL (Settings -> Authentication) wins — no redeploy.
+    cfg_url = (store.get_config().get("public_url") or "").strip()
+    if cfg_url:
+        return cfg_url.rstrip("/")
+    # 2) PUBLIC_URL env.
     if PUBLIC_URL:
         return PUBLIC_URL.rstrip("/")
     proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()

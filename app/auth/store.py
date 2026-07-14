@@ -22,6 +22,10 @@ DEFAULT_CONFIG = {
     "ldap_enabled": True,
     "default_role": "user",          # user | pending | admin
     "first_user_admin": True,
+    # Public base URL of this deployment (scheme+host, e.g. https://itsm.example.com).
+    # Used to build the OIDC redirect_uri. Set it here in the UI OR via the PUBLIC_URL
+    # env; the UI value wins. Leave blank to derive from the reverse-proxy headers.
+    "public_url": "",
     # Merge an LDAP/SSO login into an existing account with the SAME email even
     # when it was created via a different method. OFF by default (OpenWebUI model)
     # — only ever merges when the provider VERIFIES the email (LDAP mail trusted;
