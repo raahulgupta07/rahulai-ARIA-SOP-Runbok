@@ -6,12 +6,22 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.20.0"
+VERSION = "2.20.1"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.20.1",
+        "date": "2026-07-14",
+        "title": "SSO hardening — issuer, redirect URL scheme & clearer errors",
+        "lines": [
+            "Issuer URL is forgiving: pasting the full .well-known discovery URL works too (no more doubled path / 404)",
+            "Redirect URL always uses the real public scheme+host (honours the reverse proxy) so Keycloak stops rejecting 'Invalid parameter: redirect_uri'",
+            "An identity-provider error on the way back now shows a clear message instead of a blank 422 page",
+        ],
+    },
     {
         "version": "2.20.0",
         "date": "2026-07-14",

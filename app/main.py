@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
     close_pool()  # drain DB connection pool on shutdown
 
 
-app = FastAPI(title="DocSensei", version="2.20.0", lifespan=lifespan)
+app = FastAPI(title="DocSensei", version="2.20.1", lifespan=lifespan)
 
 # Same-origin by default (CORS_ALLOW_ORIGINS empty). The embed widget loads in an
 # iframe served from THIS origin, so it talks same-origin and needs no CORS grant.

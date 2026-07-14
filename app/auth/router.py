@@ -131,6 +131,26 @@ def ldap(body: LdapCreds):
 
 
 # ---------------- oidc / sso ----------------
+def _public_base(request: Request) -> str:
+    """The externally-visible base URL used to build the OIDC redirect_uri.
+
+    Priority: PUBLIC_URL env (deterministic, like Open WebUI's OPENID_REDIRECT_URI)
+    -> X-Forwarded-Proto/Host from the reverse proxy (so it's https even when the
+    proxy talks http to the app) -> raw request URL. This must be IDENTICAL for
+    the login redirect and the token exchange, and match the URI registered in
+    the IdP — otherwise the IdP rejects it as 'Invalid parameter: redirect_uri'.
+    """
+    from ..config import PUBLIC_URL
+    if PUBLIC_URL:
+        return PUBLIC_URL.rstrip("/")
+    proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+    host = (request.headers.get("x-forwarded-host")
+            or request.headers.get("host") or "").split(",")[0].strip()
+    if proto and host:
+        return f"{proto}://{host}"
+    return str(request.base_url).rstrip("/")
+
+
 @router.get("/auth/oidc/login")
 def oidc_login(request: Request, pid: str | None = None):
     provs = [p for p in store.oidc_providers() if p.get("enabled") and p.get("issuer") and p.get("client_id")]
@@ -139,7 +159,7 @@ def oidc_login(request: Request, pid: str | None = None):
     provider = store.oidc_provider(pid) if pid else None
     if provider is None or not provider.get("enabled"):
         provider = provs[0]
-    base = str(request.base_url).rstrip("/")
+    base = _public_base(request)
     try:
         return RedirectResponse(auth_url(provider, public_url=base))
     except OidcError as e:
@@ -147,13 +167,19 @@ def oidc_login(request: Request, pid: str | None = None):
 
 
 @router.get("/auth/oidc/callback")
-def oidc_callback(code: str, state: str, request: Request):
+def oidc_callback(request: Request, code: str | None = None, state: str | None = None,
+                  error: str | None = None, error_description: str | None = None):
     # Whole body is wrapped: an SSO callback must NEVER surface a raw 500 to the
     # browser — any unexpected error is logged with a traceback and the user is
-    # sent back to /login with a short message.
+    # sent back to /login with a short message. code/state are optional so an IdP
+    # error redirect (which omits them) becomes a readable message, not a 422.
     import urllib.parse as _url
     try:
-        base = str(request.base_url).rstrip("/")
+        # IdP redirected back with an error (user denied, misconfig, etc.)
+        if error or not code or not state:
+            msg = error_description or error or "SSO did not return a login code"
+            return RedirectResponse("/login?error=" + _url.quote(msg))
+        base = _public_base(request)
         ok, pid, nonce = consume_state(state)
         if not ok:
             return RedirectResponse("/login?error=invalid+state")

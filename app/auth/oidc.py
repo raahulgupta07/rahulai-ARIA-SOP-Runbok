@@ -48,8 +48,21 @@ def consume_state(state: str):
     return _state_consume(state)
 
 
+_WK = "/.well-known/openid-configuration"
+
+
+def _issuer_base(issuer: str) -> str:
+    """Normalise a pasted issuer to the bare issuer URL. Tolerates an admin
+    pasting the FULL discovery URL (…/.well-known/openid-configuration) — we
+    strip it so we never build a doubled …/.well-known/…/.well-known/… path."""
+    iss = (issuer or "").strip().rstrip("/")
+    if iss.endswith(_WK):
+        iss = iss[: -len(_WK)].rstrip("/")
+    return iss
+
+
 def _discover(issuer: str) -> dict:
-    url = issuer.rstrip("/") + "/.well-known/openid-configuration"
+    url = _issuer_base(issuer) + _WK
     r = httpx.get(url, headers=_UA, timeout=10)
     r.raise_for_status()
     return r.json()
@@ -130,7 +143,7 @@ def exchange(provider: dict, code: str, state: str, public_url: str | None = Non
         # client id appears in either `aud` or `azp` ourselves.
         claims = jwt.decode(
             id_token, signing_key, algorithms=["RS256", "ES256"],
-            issuer=oc["issuer"].rstrip("/"),
+            issuer=_issuer_base(oc["issuer"]),
             options={"verify_at_hash": False, "verify_aud": False},
         )
     except OidcError:
