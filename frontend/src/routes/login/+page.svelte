@@ -243,11 +243,13 @@
           <div class="alt">Have an account? <button class="link" onclick={() => (mode = 'login')}>Sign in</button></div>
         {/if}
 
+        <!-- Admin escape hatch is NOT advertised publicly. It only surfaces as a
+             recovery link when no sign-in method is enabled; otherwise admins reach
+             it directly at /login/admin. -->
         {#if !cfg.enable_local && !cfg.enable_ldap && !cfg.enable_oidc}
-          <div class="msg info">No sign-in methods are enabled. Use Admin sign-in below.</div>
+          <div class="msg info">No sign-in methods are enabled.</div>
+          <a class="adminlink" href="/login/admin">Admin sign-in →</a>
         {/if}
-
-        <a class="adminlink" href="/login/admin">Admin sign-in →</a>
       </div>
     </div>
 
