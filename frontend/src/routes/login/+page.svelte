@@ -201,13 +201,14 @@
           </button>
         {/if}
 
-        {#if cfg.enable_local && !ldapMode && (cfg.enable_oidc || cfg.enable_ldap)}
+        {#if (cfg.sso_providers?.length) || (ldapMode ? cfg.enable_local : (cfg.ldap_dirs?.length))}
           <div class="or">OR</div>
         {/if}
 
-        {#if !ldapMode}
+        <!-- SSO buttons are ALWAYS shown (not gated behind ldapMode) -->
+        {#if cfg.enable_oidc}
           {#each (cfg.sso_providers ?? []) as p, i}
-            <button class="btn tinted" class:primary={!cfg.enable_local && i === 0} onclick={() => doSso(p.id)}>
+            <button class="btn tinted" class:primary={!cfg.enable_local && !ldapMode && i === 0} onclick={() => doSso(p.id)}>
               {#if p.provider === 'microsoft'}
                 <svg viewBox="0 0 24 24"><rect x="3" y="3" width="8" height="8" fill="#f25022"/><rect x="13" y="3" width="8" height="8" fill="#7fba00"/><rect x="3" y="13" width="8" height="8" fill="#00a4ef"/><rect x="13" y="13" width="8" height="8" fill="#ffb900"/></svg>
               {:else if p.provider === 'google'}
