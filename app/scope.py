@@ -113,6 +113,12 @@ SCOPE_RECOVER_SUBS: int = int(os.getenv("SCOPE_RECOVER_SUBS", "3"))
 # main floor). Junk can't exploit the lower bar: _recover_queries returns NO
 # queries for off-corpus questions, so nothing reaches this comparison.
 SCOPE_RECOVER_MIN_SCORE: float = float(os.getenv("SCOPE_RECOVER_MIN_SCORE", "0.05"))
+# Raw pure-FTS probe floor (recovery step 0): a page literally containing the
+# asked phrase ranks ~0.09+ on the question's own terms while junk tops out
+# ~0.06 on this corpus ("payment contract is active" 0.093 vs "install
+# windows 11" 0.061). Catches in-corpus topics INVISIBLE to the title-only
+# router catalog (body-level topics like a check inside an Order SOP).
+SCOPE_PROBE_MIN_SCORE: float = float(os.getenv("SCOPE_PROBE_MIN_SCORE", "0.08"))
 
 
 _CATALOG_TTL_S = 300
@@ -222,6 +228,18 @@ def try_recover(q: str, search_fn: Callable[[str], list[dict]],
     text = (q or "").strip().lower()
     if not text or any(w in text for w in _DENY):
         return None, None, []
+    # 0) raw pure-FTS probe: does some page rank well on the question's own
+    # terms (no expansion noise)? Rescues literal in-body topics the
+    # title-only router can't see. Zero LLM cost.
+    try:
+        from .retrieve import raw_top_doc, pages_for_docs
+        probe = raw_top_doc(q, sectors=sectors, folders=folders)
+        if probe and probe[1] >= SCOPE_PROBE_MIN_SCORE:
+            pages = pages_for_docs([probe[0]], q, k=8, sectors=sectors, folders=folders)
+            if pages:
+                return pages, pages[0]["doc_name"], []
+    except Exception as e:
+        print(f"[scope] raw probe failed: {e!r}")
     try:
         titles, subs = _recover_queries(q)
     except Exception as e:

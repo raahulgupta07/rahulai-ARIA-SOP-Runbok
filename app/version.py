@@ -6,12 +6,22 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.23.0"
+VERSION = "2.23.1"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.23.1",
+        "date": "2026-07-23",
+        "title": "Find answers buried inside a runbook — exact-phrase rescue",
+        "lines": [
+            "Questions about a topic covered INSIDE a runbook (e.g. 'is the payment contract active' — a check within the Order Creation SOP) were wrongly declined; a raw exact-term probe now routes straight to the page that contains the phrase",
+            "The page that literally contains your asked phrase can no longer be crowded out of ranking by keyword-dense cover pages",
+            "Off-topic questions still declined (probe floor sits above junk's best scores)",
+        ],
+    },
     {
         "version": "2.23.0",
         "date": "2026-07-23",

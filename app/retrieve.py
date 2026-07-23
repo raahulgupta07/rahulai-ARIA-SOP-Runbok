@@ -283,6 +283,37 @@ def search_pages(query: str, k: int | None = None,
     with get_conn() as conn:
         rows = conn.execute(sql, params).fetchall()
 
+        # POOL GUARANTEE: the hybrid ORDER BY's node/ilike boosts (driven by
+        # expansion terms) can push keyword-dense cover pages above the page
+        # that literally contains the asked phrase. Merge the top pure-FTS
+        # rows (question terms only, no boosts) into the pool so the rerank
+        # at least SEES them. Cheap indexed query; no-op when already present.
+        try:
+            pure = conn.execute("""
+                WITH q AS (SELECT to_tsquery('simple', %(ptsq)s) AS tsq,
+                                  to_tsquery('english', %(ptsq)s) AS tsqe)
+                SELECT p.id AS page_id, p.doc_id, d.name AS doc_name, p.page_no,
+                       p.image_path, left(p.text, 400) AS snippet,
+                       left(p.text, 16000) AS text_full, m.md AS page_md,
+                       GREATEST(ts_rank(p.tsv, q.tsq), ts_rank(p.tsv_en, q.tsqe)) AS fts,
+                       similarity(left(p.text, 2000), %(raw)s) AS trg,
+                       0 AS node, 0 AS hits
+                FROM pages p JOIN docs d ON d.id = p.doc_id
+                     LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no, q
+                WHERE d.status IN ('ready','ready_lite')
+                  AND (p.tsv @@ q.tsq OR p.tsv_en @@ q.tsqe) """ + _SEC + """
+                ORDER BY GREATEST(ts_rank(p.tsv, q.tsq), ts_rank(p.tsv_en, q.tsqe)) DESC
+                LIMIT 3
+            """, {"ptsq": _tsquery([query]) or "x", "raw": raw,
+                  "sectors": sectors, "folders": folders}).fetchall()
+            have_ids = {r["page_id"] for r in rows}
+            for pr in pure:
+                if pr["page_id"] not in have_ids:
+                    rows.append(pr)
+                    have_ids.add(pr["page_id"])
+        except Exception as e:
+            print(f"[retrieve] pure-fts pool fill failed (non-fatal): {e!r}")
+
     # retrieval funnel telemetry: how many candidates the SQL pool scanned, the
     # pool size we asked for, and how many survive rerank (for answer_metrics).
     _scanned = len(rows)
@@ -469,6 +500,30 @@ def search_pages(query: str, k: int | None = None,
             "score": score,
         })
     return out
+
+
+def raw_top_doc(query: str, sectors: list[int] | None = None,
+                folders: list[int] | None = None) -> tuple[int, float] | None:
+    """(doc_id, score) of the best page by PURE FTS rank on the question alone —
+    no expansion terms, no rerank. The hybrid pipeline's ilike/node boosts can
+    bury a page that literally contains the asked phrase ("payment contract is
+    active") under keyword-dense cover pages; this probe is immune to that."""
+    tsq = _tsquery([query]) or "x"
+    sql = """
+    WITH q AS (SELECT to_tsquery('simple', %(tsq)s) AS tsq,
+                      to_tsquery('english', %(tsq)s) AS tsqe)
+    SELECT p.doc_id, GREATEST(ts_rank(p.tsv, q.tsq), ts_rank(p.tsv_en, q.tsqe)) AS r
+    FROM pages p JOIN docs d ON d.id = p.doc_id, q
+    WHERE d.status IN ('ready','ready_lite')
+      AND (p.tsv @@ q.tsq OR p.tsv_en @@ q.tsqe)
+      AND (%(folders)s::bigint[] IS NULL
+           OR d.folder_id = ANY(%(folders)s)
+           OR (d.folder_id IS NULL AND d.sector_id = ANY(%(sectors)s)))
+    ORDER BY r DESC LIMIT 1
+    """
+    with get_conn() as conn:
+        row = conn.execute(sql, {"tsq": tsq, "sectors": sectors, "folders": folders}).fetchone()
+    return (row["doc_id"], float(row["r"])) if row else None
 
 
 def pages_for_docs(doc_ids: list[int], query: str, k: int = 8,
