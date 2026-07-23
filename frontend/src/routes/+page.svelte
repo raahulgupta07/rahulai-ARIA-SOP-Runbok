@@ -91,7 +91,11 @@
     input = '';
     messages.forEach((m) => (m.follows = undefined));  // only newest answer shows follow-ups
     messages.push({ role: 'user', text: q });
-    messages.push({ role: 'bot', text: '', loading: true, thinking: true, steps: [], streaming: true, t0: Date.now(), q });
+    // seed the trace locally so the Working… panel shows the instant the user
+    // sends — no blank dots while the server warms up (or a proxy buffers)
+    messages.push({ role: 'bot', text: '', loading: true, thinking: true,
+      steps: [{ label: 'Understanding your question', detail: q, state: 'running' }],
+      streaming: true, t0: Date.now(), q });
     busy = true;
     controller = new AbortController();
     scrollDown();
@@ -162,8 +166,17 @@
         // wipe the ungrounded first attempt so attempt-2 streams fresh
         if (obj.reset) { m.text = ''; m.thinking = true; }
         m.steps = m.steps || [];
-        m.steps.forEach((s) => { if (s.state === 'running') s.state = 'done'; });
-        m.steps.push({ label: obj.label, detail: obj.detail, state: obj.state || 'done' });
+        const last = m.steps[m.steps.length - 1];
+        if (last && last.label === obj.label) {
+          // same-label update (server re-emits e.g. the locally-seeded
+          // "Understanding your question" or "Rephrasing…" running→done) —
+          // merge into one row instead of duplicating it
+          if (obj.detail) last.detail = obj.detail;
+          last.state = obj.state || 'done';
+        } else {
+          m.steps.forEach((s) => { if (s.state === 'running') s.state = 'done'; });
+          m.steps.push({ label: obj.label, detail: obj.detail, state: obj.state || 'done' });
+        }
         messages = messages;
         scrollDown();
       },

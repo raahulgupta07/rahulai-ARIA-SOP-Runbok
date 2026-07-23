@@ -185,7 +185,11 @@ def _rerank(query: str, rows: list, keep: int) -> list:
                 {"role": "system", "content": (
                     "You rank candidate document pages by how well each one ANSWERS "
                     "the user's question (actual steps/values/screens, not just a "
-                    f"keyword match). Return ONLY the {keep} best indices, most "
+                    "keyword match). A document whose TITLE names the question's "
+                    "topic outranks keyword-dense pages of unrelated documents. "
+                    "When two pages seem equally relevant, KEEP their original "
+                    "order (it reflects search rank — do not shuffle lookalike "
+                    f"cover pages). Return ONLY the {keep} best indices, most "
                     "relevant first, comma-separated (e.g. 3,0,5). No other text.")},
                 {"role": "user", "content": f"Question: {query}\n\nPages:\n" + "\n".join(lines)},
             ],

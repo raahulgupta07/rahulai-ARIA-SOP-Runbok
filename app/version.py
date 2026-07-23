@@ -6,12 +6,25 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.22.0"
+VERSION = "2.23.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.23.0",
+        "date": "2026-07-23",
+        "title": "No more blank waiting — instant thinking trace + smarter ranking",
+        "lines": [
+            "The 'Working…' trace appears the moment you send — no more blank screen with dots while the server (or a buffering proxy) warms up",
+            "Duplicate trace rows merged (rephrasing shows as one updating step)",
+            "Login version badge is a plain number — the What's-new panel lives in the bell inside the app",
+            "Page ranking prefers the runbook whose title matches your topic and no longer shuffles lookalike cover pages",
+            "Casual-phrasing question bank: every runbook's Q&A gained broken-English variants so everyday wording gets instant answers",
+            "Broken-English test bank: 56/56 answered, right document 86% (was 59%); off-topic still declined",
+        ],
+    },
     {
         "version": "2.22.0",
         "date": "2026-07-23",

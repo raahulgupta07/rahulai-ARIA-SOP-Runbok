@@ -3,11 +3,9 @@
   import { goto } from '$app/navigation';
   import { auth } from '$lib/auth';
   import { api } from '$lib/api';
-  import WhatsNew from '$lib/WhatsNew.svelte';
   import { brand, loadBrand } from '$lib/brand';
 
   let ver = $state<any>(null);
-  let verOpen = $state(false);
 
   // runtime white-label — login has its OWN local --clay token, so feed it the
   // brand accent + brand strings/logo, falling back to today's defaults.
@@ -144,16 +142,10 @@
 
   {#if ver}
     <div class="verwrap">
-      <button class="verpill" onclick={() => (verOpen = !verOpen)}>
+      <span class="verpill">
         <span class="vdot"></span>
         v{ver.version}
-      </button>
-      {#if verOpen}
-        <div class="verpop">
-          <button class="verx" onclick={() => (verOpen = false)} aria-label="Close">✕</button>
-          <WhatsNew compact />
-        </div>
-      {/if}
+      </span>
     </div>
   {/if}
 
@@ -386,12 +378,11 @@
     .or{margin:8px 0;}
     .foot{padding:8px 18px 12px; font-size:11px;}
   }
-  .verpill{display:inline-flex; align-items:center; gap:7px; cursor:pointer;
+  .verpill{display:inline-flex; align-items:center; gap:7px;
     background:#fff; border:1px solid var(--border); border-radius:999px;
     padding:6px 13px; font-size:12px; font-weight:500; color:var(--clay);
     font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
     box-shadow:0 1px 3px rgba(0,0,0,.05);}
-  .verpill:hover{background:#f3f3f1; border-color:#dcdcd8;}
   .vdot{width:6px; height:6px; border-radius:999px; background:var(--clay);}
   .verpop{position:absolute; top:calc(100% + 9px); right:0; width:300px; max-width:88vw;
     max-height:80vh; overflow-y:auto;
