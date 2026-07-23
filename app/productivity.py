@@ -385,21 +385,31 @@ def _gaps(conn, s, e, n):
     return out
 
 
-def _people(conn, s, e, minutes, has_dept):
+def _people(conn, s, e, minutes, rate, has_dept):
+    """One row per real member (NO cap — the Excel export needs everyone). Adds
+    created_at, last_active (all-time), value_usd, per-user token spend (joined
+    via answer_metrics.user_id), login methods, and a 'new' flag."""
     dept_sel = "COALESCE(NULLIF(u.department,''),'Unassigned')" if has_dept else "NULL"
     rows = conn.execute(
         "WITH agg AS (SELECT user_id, sum(questions) q, sum(sourced) sourced, "
         "  sum(blind) blind, sum(up) up, sum(down) down, "
         "  count(*) FILTER (WHERE questions>0) active_days "
-        "  FROM usage_daily WHERE day BETWEEN %s AND %s GROUP BY user_id) "
+        "  FROM usage_daily WHERE day BETWEEN %s AND %s GROUP BY user_id), "
+        "la AS (SELECT user_id, max(day) d FROM usage_daily WHERE questions>0 GROUP BY user_id), "
+        "tok AS (SELECT user_id, sum(COALESCE(tok_in,0)+COALESCE(tok_out,0)) t "
+        "  FROM answer_metrics WHERE created_at::date BETWEEN %s AND %s "
+        "  AND user_id IS NOT NULL GROUP BY user_id) "
         f"SELECT u.id, u.name, u.email, {dept_sel} AS dept, "
+        "  u.created_at, u.auth_methods, u.auth_source, "
         "  COALESCE(a.q,0) q, COALESCE(a.sourced,0) sourced, COALESCE(a.blind,0) blind, "
-        "  COALESCE(a.up,0) up, COALESCE(a.down,0) down, COALESCE(a.active_days,0) active_days "
+        "  COALESCE(a.up,0) up, COALESCE(a.down,0) down, COALESCE(a.active_days,0) active_days, "
+        "  la.d AS last_active, COALESCE(tok.t,0) tokens "
         "FROM users u LEFT JOIN agg a ON a.user_id=u.id "
+        "  LEFT JOIN la ON la.user_id=u.id LEFT JOIN tok ON tok.user_id=u.id "
         "WHERE COALESCE(u.role,'')<>'widget' AND COALESCE(u.role,'')<>'pending' "
         "  AND COALESCE(u.auth_source,'')<>'embed' "
-        "ORDER BY q DESC NULLS LAST, u.id LIMIT 50",
-        (s, e),
+        "ORDER BY q DESC NULLS LAST, u.id",
+        (s, e, s, e),
     ).fetchall()
     qs = sorted((int(r["q"]) for r in rows if int(r["q"]) > 0), reverse=True)
     power_cut = qs[int(len(qs) * 0.1)] if qs else None
@@ -410,22 +420,187 @@ def _people(conn, s, e, minutes, has_dept):
         down = int(r["down"] or 0)
         up = int(r["up"] or 0)
         answered = sourced + int(r["blind"] or 0)
+        hours = round(answered * minutes / 60, 1)
         resolved = _clamp01((sourced - down) / max(1, sourced)) if sourced else 0.0
-        if q == 0:
+        created = r["created_at"]
+        new_in_window = bool(created and s <= created.date() <= e)
+        if new_in_window and q < 5:
+            flag = "new"
+        elif q == 0:
             flag = "dormant"
         elif power_cut is not None and q >= power_cut:
             flag = "power"
         else:
             flag = "active"
+        methods = r["auth_methods"] or ([r["auth_source"]] if r["auth_source"] else [])
         out.append({
             "id": r["id"], "name": r["name"] or r["email"], "email": r["email"],
             "dept": r["dept"], "questions": q, "active_days": int(r["active_days"] or 0),
-            "hours": round(answered * minutes / 60, 1),
+            "hours": hours,
             "helpful": _pct(up, up + down) if (up + down) else None,
             "resolved": round(resolved, 4),
+            "created_at": created.date().isoformat() if created else None,
+            "last_active": r["last_active"].isoformat() if r["last_active"] else None,
+            "value_usd": round(hours * rate, 2),
+            "tokens": int(r["tokens"] or 0),
+            "methods": list(methods),
             "flag": flag,
         })
     return out
+
+
+# ---- platform + adoption (management-dashboard extras) ------------------------
+def _platform(conn, s, e):
+    """Whole-platform vitals for the window: token spend, model mix, cache serves,
+    new signups, conversation shape, and KB size. Each read fails soft to a safe
+    default via the caller's per-section try/except."""
+    # token spend (answer_metrics tok_in/tok_out are the real column names)
+    tk = conn.execute(
+        "SELECT COALESCE(sum(tok_in),0) AS tin, COALESCE(sum(tok_out),0) AS tout, "
+        "  count(*) AS n FROM answer_metrics WHERE created_at::date BETWEEN %s AND %s",
+        (s, e),
+    ).fetchone()
+    tin = int(tk["tin"] or 0)
+    tout = int(tk["tout"] or 0)
+    n = int(tk["n"] or 0)
+    total = tin + tout
+    tokens = {"total": total, "tin": tin, "tout": tout,
+              "per_answer": round(total / n) if n else 0}
+
+    # answers by model — the 'qa-bank' pseudo-model = zero-LLM cache serves
+    by_model = []
+    for r in conn.execute(
+        "SELECT COALESCE(model,'?') AS model, count(*) AS answers FROM answer_metrics "
+        "WHERE created_at::date BETWEEN %s AND %s GROUP BY 1 ORDER BY 2 DESC",
+        (s, e),
+    ).fetchall():
+        m = r["model"] or "?"
+        by_model.append({
+            "model": "cache" if m == "qa-bank" else m,
+            "answers": int(r["answers"] or 0),
+            "share_pct": _pct(int(r["answers"] or 0), n),
+        })
+
+    cr = conn.execute(
+        "SELECT count(*) FILTER (WHERE cache_hit) AS serves, "
+        "  COALESCE(avg(ms_total) FILTER (WHERE cache_hit),0)/1000.0 AS avg_s "
+        "FROM answer_metrics WHERE created_at::date BETWEEN %s AND %s",
+        (s, e),
+    ).fetchone()
+    serves = int(cr["serves"] or 0)
+    cache = {"serves": serves, "hit_rate": round(serves / n, 4) if n else 0.0,
+             "avg_s": round(float(cr["avg_s"] or 0), 1)}
+
+    # new signups in window (real members only) + newest member overall
+    nu = int(conn.execute(
+        "SELECT count(*) AS n FROM users WHERE created_at::date BETWEEN %s AND %s "
+        "  AND COALESCE(role,'')<>'widget' AND COALESCE(auth_source,'')<>'embed'",
+        (s, e),
+    ).fetchone()["n"] or 0)
+    last = conn.execute(
+        "SELECT email, name, created_at, auth_methods, auth_source FROM users "
+        "WHERE COALESCE(role,'')<>'widget' AND COALESCE(auth_source,'')<>'embed' "
+        "ORDER BY created_at DESC NULLS LAST, id DESC LIMIT 1"
+    ).fetchone()
+    last_u = None
+    if last:
+        methods = last["auth_methods"] or []
+        last_u = {
+            "email": last["email"], "name": last["name"] or last["email"],
+            "created_at": last["created_at"].date().isoformat() if last["created_at"] else None,
+            "method": methods[-1] if methods else (last["auth_source"] or "local"),
+        }
+    new_users = {"count": nu, "last": last_u}
+
+    # conversations started in window; turns = bot messages per conversation
+    cv = conn.execute(
+        "WITH conv AS (SELECT c.id, count(*) FILTER (WHERE m.role='bot') AS turns "
+        "  FROM conversations c LEFT JOIN messages m ON m.conversation_id=c.id "
+        "  WHERE c.created_at::date BETWEEN %s AND %s GROUP BY c.id) "
+        "SELECT count(*) AS n, COALESCE(avg(turns),0) AS avg_turns, "
+        "  count(*) FILTER (WHERE turns<=1) AS one_turn, COALESCE(max(turns),0) AS max_turns "
+        "FROM conv",
+        (s, e),
+    ).fetchone()
+    cn = int(cv["n"] or 0)
+    conversations = {
+        "count": cn, "avg_turns": round(float(cv["avg_turns"] or 0), 1),
+        "one_turn_pct": _pct(int(cv["one_turn"] or 0), cn),
+        "max_turns": int(cv["max_turns"] or 0),
+    }
+
+    # knowledge base size (whole corpus, not window-scoped)
+    ready = "status IN ('ready','ready_lite')"
+    docs = int(conn.execute(f"SELECT count(*) AS n FROM docs WHERE {ready}").fetchone()["n"] or 0)
+    pages = int(conn.execute(
+        f"SELECT count(*) AS n FROM pages p JOIN docs d ON d.id=p.doc_id WHERE d.{ready}"
+    ).fetchone()["n"] or 0)
+    qa_active = int(conn.execute(
+        "SELECT count(*) AS n FROM qa_pairs WHERE status='active'"
+    ).fetchone()["n"] or 0)
+    ld_row = conn.execute(
+        f"SELECT name, created_at FROM docs WHERE {ready} "
+        "ORDER BY created_at DESC NULLS LAST LIMIT 1"
+    ).fetchone()
+    last_doc = None
+    if ld_row:
+        last_doc = {"name": ld_row["name"],
+                    "created_at": ld_row["created_at"].date().isoformat() if ld_row["created_at"] else None}
+    kb = {"docs": docs, "pages": pages, "qa_active": qa_active, "last_doc": last_doc}
+
+    return {"tokens": tokens, "by_model": by_model, "cache": cache,
+            "new_users": new_users, "conversations": conversations, "kb": kb}
+
+
+def _active_between(conn, d1, d2):
+    """Distinct real members who asked ≥1 question in [d1,d2] (widgets/embed excluded)."""
+    return int(conn.execute(
+        "SELECT count(DISTINCT ud.user_id) AS n FROM usage_daily ud "
+        "JOIN users u ON u.id=ud.user_id "
+        "WHERE ud.questions>0 AND ud.day BETWEEN %s AND %s "
+        "  AND COALESCE(u.role,'')<>'widget' AND COALESCE(u.auth_source,'')<>'embed'",
+        (d1, d2),
+    ).fetchone()["n"] or 0)
+
+
+def _adoption(conn, s, e, d7, d30):
+    """DAU/WAU/MAU (anchored at window end e), 14-day DAU trend, stickiness,
+    after-hours activity, plus the funnel's d7/d30 retention carried through."""
+    dau = _active_between(conn, e, e)
+    wau = _active_between(conn, e - datetime.timedelta(days=6), e)
+    mau = _active_between(conn, e - datetime.timedelta(days=29), e)
+
+    start14 = e - datetime.timedelta(days=13)
+    by_day = {r["day"]: int(r["n"]) for r in conn.execute(
+        "SELECT ud.day AS day, count(DISTINCT ud.user_id) AS n FROM usage_daily ud "
+        "JOIN users u ON u.id=ud.user_id "
+        "WHERE ud.questions>0 AND ud.day BETWEEN %s AND %s "
+        "  AND COALESCE(u.role,'')<>'widget' AND COALESCE(u.auth_source,'')<>'embed' "
+        "GROUP BY ud.day",
+        (start14, e),
+    ).fetchall()}
+    trend = []
+    d = start14
+    while d <= e:
+        trend.append(by_day.get(d, 0))
+        d += datetime.timedelta(days=1)
+    dau_avg_7d = sum(trend[-7:]) / 7 if trend else 0
+    stickiness = round(100 * dau_avg_7d / mau) if mau else 0
+
+    # user messages outside Mon–Fri 09:00–18:00 Asia/Yangon
+    after = int(conn.execute(
+        "SELECT count(*) AS n FROM messages m "
+        "JOIN conversations c ON c.id=m.conversation_id JOIN users u ON u.id=c.user_id "
+        "WHERE m.role='user' AND m.created_at::date BETWEEN %s AND %s "
+        "  AND COALESCE(u.role,'')<>'widget' AND COALESCE(u.auth_source,'')<>'embed' "
+        "  AND (extract(isodow FROM m.created_at AT TIME ZONE 'Asia/Yangon')>5 "
+        "    OR extract(hour FROM m.created_at AT TIME ZONE 'Asia/Yangon')<9 "
+        "    OR extract(hour FROM m.created_at AT TIME ZONE 'Asia/Yangon')>=18)",
+        (s, e),
+    ).fetchone()["n"] or 0)
+
+    return {"dau": dau, "wau": wau, "mau": mau, "dau_trend": trend,
+            "stickiness_pct": stickiness, "after_hours": after, "d7": d7, "d30": d30}
 
 
 # ---- public API ---------------------------------------------------------------
@@ -460,6 +635,15 @@ def overview(days: int = 30, date_from: str | None = None, date_to: str | None =
         "funnel": {"registered": 0, "asked": 0, "weekly": 0, "power": 0,
                    "dormant": 0, "d7": 0, "d30": 0},
         "gaps": [], "people": [],
+        "platform": {
+            "tokens": {"total": 0, "tin": 0, "tout": 0, "per_answer": 0},
+            "by_model": [], "cache": {"serves": 0, "hit_rate": 0.0, "avg_s": 0.0},
+            "new_users": {"count": 0, "last": None},
+            "conversations": {"count": 0, "avg_turns": 0.0, "one_turn_pct": 0, "max_turns": 0},
+            "kb": {"docs": 0, "pages": 0, "qa_active": 0, "last_doc": None},
+        },
+        "adoption": {"dau": 0, "wau": 0, "mau": 0, "dau_trend": [0] * 14,
+                     "stickiness_pct": 0, "after_hours": 0, "d7": 0, "d30": 0},
     }
 
     try:
@@ -472,7 +656,8 @@ def overview(days: int = 30, date_from: str | None = None, date_to: str | None =
                 ("domains", lambda: _domains(conn, s, e, ps, pe, minutes)),
                 ("departments", lambda: _departments(conn, s, e, ps, pe, minutes)),
                 ("gaps", lambda: _gaps(conn, s, e, n)),
-                ("people", lambda: _people(conn, s, e, minutes, has_dept)),
+                ("people", lambda: _people(conn, s, e, minutes, rate, has_dept)),
+                ("platform", lambda: _platform(conn, s, e)),
             ):
                 try:
                     out[key] = fn()
@@ -482,6 +667,10 @@ def overview(days: int = 30, date_from: str | None = None, date_to: str | None =
                 out["funnel"] = _funnel(conn, s, e, out["totals"]["registered_users"])
             except Exception as ex:
                 print(f"[productivity] funnel failed: {ex!r}")
+            try:
+                out["adoption"] = _adoption(conn, s, e, out["funnel"]["d7"], out["funnel"]["d30"])
+            except Exception as ex:
+                print(f"[productivity] adoption failed: {ex!r}")
     except Exception as ex:
         print(f"[productivity] overview failed: {ex!r}")
 

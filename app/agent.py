@@ -396,7 +396,8 @@ def _quick_stream(query: str, seed_pages: list[dict], history: list[dict] | None
 
 # ---------------- DEEP: Agno agent (images + tools), chunk-streamed ----------
 def _deep_text(query: str, seed_pages: list[dict], session_id: str | None,
-               history: list[dict] | None = None, audience: str = "expert") -> str:
+               history: list[dict] | None = None, audience: str = "expert",
+               meter: dict | None = None) -> str:
     from agno.agent import Agent
     from agno.media import Image
     from agno.models.openrouter import OpenRouter
@@ -429,6 +430,16 @@ def _deep_text(query: str, seed_pages: list[dict], session_id: str | None,
     images = [Image(filepath=p["image_path"]) for p in seed_pages if p.get("image_path")]
     try:
         resp = agent.run(ctx, images=images)
+        # deep-mode token metering: Agno aggregates per-call metrics on the
+        # response; without this, deep answers report 0 tokens / $0 and the
+        # cost dashboards undercount. Fail-soft — metering never breaks answers.
+        if meter is not None:
+            try:
+                m = getattr(resp, "metrics", None) or {}
+                meter["tok_in"] = sum(m.get("input_tokens") or []) or sum(m.get("prompt_tokens") or [])
+                meter["tok_out"] = sum(m.get("output_tokens") or []) or sum(m.get("completion_tokens") or [])
+            except Exception as e:
+                print(f"[agent] deep meter failed (non-fatal): {e!r}")
         return resp.content if hasattr(resp, "content") else str(resp)
     except Exception as e:
         print(f"[agent] deep run failed, fallback quick text: {e!r}")
@@ -448,7 +459,7 @@ def stream_reply(query: str, seed_pages: list[dict], mode: str = "quick",
                 meter["model"] = DEEP_MODEL
             # deep mode gets follow-up context from our own messages history (no
             # Agno persistent session memory — see _deep_text)
-            text = _deep_text(query, seed_pages, session_id, history, audience)
+            text = _deep_text(query, seed_pages, session_id, history, audience, meter=meter)
             for i in range(0, len(text), 48):   # chunk so the client still streams
                 yield text[i:i + 48]
         else:

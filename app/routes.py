@@ -2964,6 +2964,24 @@ def insights_overview(days: int = 30,
     return productivity.overview(days=days, date_from=date_from, date_to=date_to)
 
 
+@router.get("/insights/people.xlsx", dependencies=[Depends(require_admin)])
+def insights_people_xlsx(days: int = 30,
+                         date_from: str | None = Query(None, alias="from"),
+                         date_to: str | None = Query(None, alias="to")):
+    """All-users productivity workbook (summary + per-department sheets)."""
+    from fastapi.responses import Response
+    from . import insights_export
+    days = max(1, min(days, 365))
+    try:
+        data = insights_export.people_xlsx(days=days, date_from=date_from, date_to=date_to)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    fname = f"aria-people-{date_from or ''}-{date_to or ''}".strip("-") if date_from else f"aria-people-{days}d"
+    return Response(content=data,
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}.xlsx"'})
+
+
 @router.get("/analytics/perf", dependencies=[Depends(require_admin)])
 def analytics_perf(days: int = 30):
     """Performance scorecard — latency p50/p95, real token spend, retrieval

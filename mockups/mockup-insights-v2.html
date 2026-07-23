@@ -114,6 +114,63 @@ tr:last-child td{border-bottom:0}
       <div class="d">မြန်မာ 32% · mixed 7%</div></div>
   </div>
 
+  <!-- PLATFORM KPIs — tokens · models · users · system -->
+  <div class="card">
+    <h2>Platform usage <small>tokens · models · accounts · system</small><span class="newtag">NEW</span></h2>
+    <div class="krow" style="grid-template-columns:repeat(6,minmax(0,1fr))">
+      <div class="kc" style="border:0;padding:6px 8px">
+        <div class="l">TOKENS USED</div><div class="n">4.2M</div>
+        <div class="d">3.1M in · 1.1M out · <b>1,794</b>/answer</div>
+        <svg width="100%" height="22" viewBox="0 0 100 22" preserveAspectRatio="none"><path d="M0,16 L14,15 28,17 42,13 56,14 70,11 84,12 100,9" fill="none" stroke="#7b6bd6" stroke-width="2"/></svg>
+      </div>
+      <div class="kc" style="border:0;padding:6px 8px">
+        <div class="l">BY MODEL</div>
+        <div style="margin-top:7px;font-size:11.5px;line-height:1.9">
+          <div><i style="display:inline-block;width:8px;height:8px;border-radius:3px;background:var(--blue);margin-right:6px"></i>gemini-flash-lite (quick) <b style="float:right">78%</b></div>
+          <div><i style="display:inline-block;width:8px;height:8px;border-radius:3px;background:var(--violet);margin-right:6px"></i>deep (Agno) <b style="float:right">6%</b></div>
+          <div><i style="display:inline-block;width:8px;height:8px;border-radius:3px;background:var(--green);margin-right:6px"></i>cache · 0 tokens <b style="float:right">16%</b></div>
+        </div>
+      </div>
+      <div class="kc" style="border:0;padding:6px 8px">
+        <div class="l">CACHE HIT</div><div class="n" style="color:var(--green)">16%</div>
+        <div class="d">371 instant answers · $0 · avg 1.6s</div>
+        <svg width="100%" height="22" viewBox="0 0 100 22" preserveAspectRatio="none"><path d="M0,17 L14,16 28,14 42,15 56,12 70,13 84,10 100,8" fill="none" stroke="#3f8f5f" stroke-width="2"/></svg>
+      </div>
+      <div class="kc" style="border:0;padding:6px 8px">
+        <div class="l">NEW USERS (30D)</div><div class="n">+9</div>
+        <div class="d">last: <b>thet.zaw@citymart.com</b><br>21 Jul · via LDAP</div>
+      </div>
+      <div class="kc" style="border:0;padding:6px 8px">
+        <div class="l">CONVERSATIONS</div><div class="n">618</div>
+        <div class="d">avg <b>3.8</b> turns · 12% one-and-done<br>longest 21 turns</div>
+      </div>
+      <div class="kc" style="border:0;padding:6px 8px">
+        <div class="l">KNOWLEDGE BASE</div><div class="n">28 docs</div>
+        <div class="d">253 pages · 114 Q&A banked<br>last upload: <b>SOP_024</b> · 22 Jul</div>
+      </div>
+    </div>
+    <div class="note">Tokens + model split from real per-answer metering (answer_metrics) · cache = Q&A-bank serves at zero LLM cost · new users from account creation log with auth method.</div>
+  </div>
+
+  <!-- ADOPTION KPIs -->
+  <div class="krow">
+    <div class="kc"><div class="l">DAU</div><div class="n">21</div>
+      <svg width="100%" height="24" viewBox="0 0 100 24" preserveAspectRatio="none"><path d="M0,18 L11,16 22,17 33,13 44,14 55,11 66,12 77,9 88,10 100,7" fill="none" stroke="#3f7fb0" stroke-width="2"/></svg>
+      <div class="d"><span class="up">▲ 5</span> vs prior avg</div></div>
+    <div class="kc"><div class="l">WAU</div><div class="n">41</div>
+      <svg width="100%" height="24" viewBox="0 0 100 24" preserveAspectRatio="none"><path d="M0,17 L20,15 40,13 60,12 80,9 100,8" fill="none" stroke="#2f8f83" stroke-width="2"/></svg>
+      <div class="d"><span class="up">▲ 12%</span></div></div>
+    <div class="kc"><div class="l">MAU</div><div class="n">64</div>
+      <svg width="100%" height="24" viewBox="0 0 100 24" preserveAspectRatio="none"><path d="M0,16 L25,14 50,12 75,10 100,9" fill="none" stroke="#7b6bd6" stroke-width="2"/></svg>
+      <div class="d">78% of 82 registered</div></div>
+    <div class="kc"><div class="l">STICKINESS</div><div class="n">33%</div>
+      <div class="d" style="margin-top:8px">DAU/MAU — daily-habit share<br><span class="up">▲ 4pt</span> vs prior 30d</div></div>
+    <div class="kc"><div class="l">RETENTION</div><div class="n">D7 68%</div>
+      <div class="d" style="margin-top:6px">D30 <b>52%</b> · new users who come back</div></div>
+    <div class="kc"><div class="l">AFTER-HOURS</div><div class="n" style="color:var(--violet)">214</div>
+      <div class="d">answers outside 9-6 + weekends<br>= coverage with no staff on duty</div></div>
+  </div>
+
   <div class="grid2">
     <!-- trend chart -->
     <div class="card">
@@ -191,6 +248,37 @@ tr:last-child td{border-bottom:0}
       <div class="note">Ranked by distinct users hit. Top 2 = Finance → explains their 61% resolved rate. One click → assign to a doc owner.</div>
       <h2 style="margin-top:13px">Auto weekly digest <small>email / Teams</small></h2>
       <div class="note" style="margin-top:0">Every Monday: hours saved, top team, gaps, dormant list → management inbox. Nothing to log into.</div>
+    </div>
+  </div>
+
+  <!-- PER-USER PRODUCTIVITY -->
+  <div class="card">
+    <h2>People — per-user productivity <small>privacy-safe: counts + topics, never chat text</small>
+      <span style="float:right;display:flex;gap:8px">
+        <span class="dept-pick" style="padding:5px 11px">🔎 Search…</span>
+        <span class="dept-pick" style="padding:5px 11px">Flag: All ▾</span>
+        <span class="dept-pick" style="padding:5px 11px;background:#1f2e26;color:#fff;border:0">⬇ Download Excel — all 82 users</span>
+      </span>
+    </h2>
+    <div style="overflow-x:auto">
+    <table style="min-width:1080px">
+      <tr><th>USER</th><th>DEPT</th><th>CREATED</th><th>LAST ACTIVE</th><th class="num">ACTIVE DAYS</th><th class="num">QUESTIONS</th><th class="num">HOURS SAVED</th><th class="num">$ VALUE</th><th class="num">TOKENS</th><th class="num">HELPFUL</th><th class="num">RESOLVED</th><th>LOGIN</th><th>STATUS</th></tr>
+      <tr><td><b>khin.htay</b><div style="font-size:10.5px;color:var(--mut)">khin.htay@cityholdings.com</div></td><td>IT Support</td>
+          <td>02 Mar 26</td><td><b>today</b> 09:41</td><td class="num">22/30</td><td class="num">214</td><td class="num" style="color:var(--teal)"><b>28.5 h</b></td><td class="num">$114</td><td class="num">381k</td><td class="num">97%</td><td class="num">95%</td><td>LDAP</td><td><span class="pill pg">🔥 power</span></td></tr>
+      <tr><td><b>aung.min</b><div style="font-size:10.5px;color:var(--mut)">aung.min@citymart.com</div></td><td>Store Ops</td>
+          <td>15 Apr 26</td><td>yesterday</td><td class="num">18/30</td><td class="num">96</td><td class="num" style="color:var(--teal)"><b>12.8 h</b></td><td class="num">$51</td><td class="num">168k</td><td class="num">92%</td><td class="num">88%</td><td>LDAP · SSO</td><td><span class="pill pg">active</span></td></tr>
+      <tr><td><b>su.su</b><div style="font-size:10.5px;color:var(--mut)">su.su@cityholdings.com</div></td><td>Warehouse</td>
+          <td>28 May 26</td><td>3 d ago</td><td class="num">9/30</td><td class="num">41</td><td class="num" style="color:var(--teal)"><b>5.4 h</b></td><td class="num">$22</td><td class="num">73k</td><td class="num">85%</td><td class="num">71%</td><td>SSO</td><td><span class="pill pa">⚠ at-risk</span></td></tr>
+      <tr><td><b>thet.zaw</b><div style="font-size:10.5px;color:var(--mut)">thet.zaw@citymart.com</div></td><td>Finance</td>
+          <td><b>21 Jul 26</b> · newest</td><td>21 Jul</td><td class="num">1/30</td><td class="num">3</td><td class="num" style="color:var(--teal)"><b>0.4 h</b></td><td class="num">$2</td><td class="num">6k</td><td class="num">—</td><td class="num">67%</td><td>LDAP</td><td><span class="pill pa">new</span></td></tr>
+      <tr><td><b>mya.thida</b><div style="font-size:10.5px;color:var(--mut)">mya.thida@cfc.com.mm</div></td><td>Unassigned</td>
+          <td>02 Mar 26</td><td>26 d ago</td><td class="num">0/30</td><td class="num">0</td><td class="num">0 h</td><td class="num">$0</td><td class="num">0</td><td class="num">—</td><td class="num">—</td><td>local</td><td><span class="pill pr">💤 dormant</span></td></tr>
+    </table>
+    </div>
+    <div class="legend">
+      <span>Excel export = ALL 82 users, every column above + top topic + dept + domain (xlsx, one sheet per department + summary sheet)</span>
+      <span>Sortable: click any column</span>
+      <span>Hours saved = answered × minutes knob · $ = hours × hourly-rate knob</span>
     </div>
   </div>
 

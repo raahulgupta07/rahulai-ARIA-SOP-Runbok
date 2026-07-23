@@ -45,7 +45,21 @@
     departments: [] as any[],
     funnel: { registered: 0, asked: 0, weekly: 0, power: 0, dormant: 0, d7: 0, d30: 0 },
     gaps: [] as any[],
-    people: [] as any[]
+    people: [] as any[],
+    // platform usage (tokens · models · accounts · system) — all fail-soft zero-shapes
+    platform: {
+      tokens: { total: 0, tin: 0, tout: 0, per_answer: 0 },
+      by_model: [] as any[],
+      cache: { serves: 0, hit_rate: 0, avg_s: 0 },
+      new_users: { count: 0, last: null as any },
+      conversations: { count: 0, avg_turns: 0, one_turn_pct: 0, max_turns: 0 },
+      kb: { docs: 0, pages: 0, qa_active: 0, last_doc: null as any }
+    },
+    // adoption (DAU/WAU/MAU/stickiness/retention/after-hours)
+    adoption: {
+      dau: 0, wau: 0, mau: 0, dau_trend: [] as number[],
+      stickiness_pct: 0, after_hours: 0, d7: 0, d30: 0
+    }
   };
 
   let data = $state<any>(EMPTY);
@@ -71,6 +85,95 @@
   const n = (x: number) => nf.format(Math.round(x || 0));
   const money = (x: number) => '$' + nf.format(Math.round(x || 0));
   const pct = (x: number) => `${Math.round(x || 0)}%`;
+
+  // compact token/count formatter → 4.2M / 381k / 512
+  function compact(x: number) {
+    const v = Math.round(x || 0);
+    if (v >= 1_000_000) return (v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1).replace(/\.0$/, '') + 'M';
+    if (v >= 1_000) return (v / 1_000).toFixed(v >= 10_000 ? 0 : 1).replace(/\.0$/, '') + 'k';
+    return String(v);
+  }
+
+  // short date "21 Jul" from an ISO/date string (fail-soft)
+  function shortDate(s: string) {
+    if (!s) return '';
+    const d = new Date(s);
+    if (isNaN(+d)) return String(s).slice(0, 10);
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+  }
+
+  // map a raw model string → { label, color } (cache green / quick blue / deep violet)
+  function modelDot(model: string) {
+    const m = (model || '').toLowerCase();
+    if (m === 'cache' || m.includes('cache') || m.includes('qa-bank')) return { label: 'Cache · 0 tokens', color: C.green };
+    if (m.includes('gemini') || m.includes('flash')) return { label: 'Quick', color: C.blue };
+    return { label: 'Deep', color: C.violet };
+  }
+
+  // ---- people table: client-side search + flag filter ----
+  let peopleSearch = $state('');
+  let flagFilter = $state('all'); // all | power | active | new | dormant
+  const FLAG_PILLS = ['all', 'power', 'active', 'new', 'dormant'];
+
+  const peopleView = $derived(
+    (data.people || []).filter((p: any) => {
+      if (flagFilter !== 'all' && (p.flag || '') !== flagFilter) return false;
+      const q = peopleSearch.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.email || '').toLowerCase().includes(q) ||
+        (p.dept || '').toLowerCase().includes(q)
+      );
+    })
+  );
+
+  // status pill: power/active green · new/at-risk amber · dormant red (+ icon)
+  function statusPill(f: string) {
+    switch (f) {
+      case 'power': return { cls: 'pg', txt: '🔥 power' };
+      case 'active': return { cls: 'pg', txt: 'active' };
+      case 'at-risk': return { cls: 'pa', txt: '⚠ at-risk' };
+      case 'new': return { cls: 'pa', txt: 'new' };
+      case 'dormant': return { cls: 'pr', txt: '💤 dormant' };
+      default: return { cls: 'pa', txt: f || '—' };
+    }
+  }
+
+  // Excel download — authed blob (mirrors api.ts fetch→blob→a.download w/ Bearer)
+  let xlsxBusy = $state(false);
+  async function downloadPeopleXlsx() {
+    xlsxBusy = true;
+    try {
+      const qs = fromD && toD ? `from=${fromD}&to=${toD}` : `days=${days}`;
+      const r = await fetch(`${api.base}/insights/people.xlsx?${qs}`, {
+        headers: { Authorization: `Bearer ${auth.token()}` }
+      });
+      if (!r.ok) throw new Error('export failed');
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `aria-insights-people-${fromD && toD ? `${fromD}_${toD}` : `${days}d`}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      /* fail-soft — no crash if the endpoint isn't wired yet */
+    }
+    xlsxBusy = false;
+  }
+
+  // tiny sparkline path from a numeric series → SVG polyline points (0..100 × 0..24)
+  function sparkPoints(arr: number[], h = 24) {
+    const a = (arr || []).filter((v) => typeof v === 'number');
+    if (a.length < 2) return '';
+    const max = Math.max(1, ...a);
+    const step = 100 / (a.length - 1);
+    return a.map((v, i) => `${(i * step).toFixed(1)},${(h - (v / max) * (h - 2) - 1).toFixed(1)}`).join(' ');
+  }
+  const dauSpark = $derived(sparkPoints(data.adoption?.dau_trend || []));
 
   // delta vs a prior value → { txt, up }  (up=true is "good/green")
   function delta(cur: number, prev: number, goodUp = true, unit = '%') {
@@ -201,6 +304,122 @@
               ? pct((data.totals.active_users / data.totals.registered_users) * 100)
               : '0%'} adoption
           </div>
+        </div>
+      </div>
+
+      <!-- PLATFORM USAGE — tokens · models · accounts · system -->
+      <div class="card">
+        <h2>Platform usage <small>tokens · models · accounts · system</small></h2>
+        <div class="pgrid">
+          <!-- tokens -->
+          <div class="pcell">
+            <div class="l">TOKENS USED</div>
+            <div class="nn">{compact(data.platform.tokens.total)}</div>
+            <div class="d">
+              {compact(data.platform.tokens.tin)} in · {compact(data.platform.tokens.tout)} out ·
+              <b>{n(data.platform.tokens.per_answer)}</b>/answer
+            </div>
+          </div>
+          <!-- by model -->
+          <div class="pcell">
+            <div class="l">BY MODEL</div>
+            <div class="models">
+              {#each data.platform.by_model as m}
+                {@const dot = modelDot(m.model)}
+                <div class="mrow" title={m.model}>
+                  <i style="background:{dot.color}"></i>
+                  <span class="mn">{dot.label}</span>
+                  <b>{pct(m.share_pct)}</b>
+                </div>
+              {/each}
+              {#if !data.platform.by_model.length}
+                <div class="mrow"><span class="mn empty">No model activity yet.</span></div>
+              {/if}
+            </div>
+          </div>
+          <!-- cache hit -->
+          <div class="pcell">
+            <div class="l">CACHE HIT</div>
+            <div class="nn" style="color:{C.green}">{pct(data.platform.cache.hit_rate)}</div>
+            <div class="d">
+              {n(data.platform.cache.serves)} instant answers · $0 · avg {(data.platform.cache.avg_s || 0).toFixed(1)}s
+            </div>
+          </div>
+          <!-- new users -->
+          <div class="pcell">
+            <div class="l">NEW USERS</div>
+            <div class="nn">+{n(data.platform.new_users.count)}</div>
+            <div class="d">
+              {#if data.platform.new_users.last}
+                last: <b>{data.platform.new_users.last.email || data.platform.new_users.last.name}</b><br />
+                {shortDate(data.platform.new_users.last.created_at)}
+                {#if data.platform.new_users.last.method}· via {data.platform.new_users.last.method}{/if}
+              {:else}no new accounts this period{/if}
+            </div>
+          </div>
+          <!-- conversations -->
+          <div class="pcell">
+            <div class="l">CONVERSATIONS</div>
+            <div class="nn">{n(data.platform.conversations.count)}</div>
+            <div class="d">
+              avg <b>{(data.platform.conversations.avg_turns || 0).toFixed(1)}</b> turns ·
+              {pct(data.platform.conversations.one_turn_pct)} one-and-done<br />
+              longest {n(data.platform.conversations.max_turns)} turns
+            </div>
+          </div>
+          <!-- knowledge base -->
+          <div class="pcell">
+            <div class="l">KNOWLEDGE BASE</div>
+            <div class="nn">{n(data.platform.kb.docs)} docs</div>
+            <div class="d">
+              {n(data.platform.kb.pages)} pages · {n(data.platform.kb.qa_active)} Q&amp;A active
+              {#if data.platform.kb.last_doc}
+                <br />last: <b>{data.platform.kb.last_doc.name}</b> · {shortDate(data.platform.kb.last_doc.created_at)}
+              {/if}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ADOPTION KPI ROW -->
+      <div class="krow">
+        <div class="kc">
+          <div class="l">DAU</div>
+          <div class="nn" style="color:{C.blue}">{n(data.adoption.dau)}</div>
+          {#if dauSpark}
+            <svg class="spark" width="100%" height="24" viewBox="0 0 100 24" preserveAspectRatio="none">
+              <polyline points={dauSpark} fill="none" stroke={C.blue} stroke-width="2" />
+            </svg>
+          {:else}<div class="d">daily active users</div>{/if}
+        </div>
+        <div class="kc">
+          <div class="l">WAU</div>
+          <div class="nn" style="color:{C.teal}">{n(data.adoption.wau)}</div>
+          <div class="d">weekly active users</div>
+        </div>
+        <div class="kc">
+          <div class="l">MAU</div>
+          <div class="nn" style="color:{C.violet}">{n(data.adoption.mau)}</div>
+          <div class="d">
+            {data.totals.registered_users
+              ? pct((data.adoption.mau / data.totals.registered_users) * 100)
+              : '0%'} of {n(data.totals.registered_users)} registered
+          </div>
+        </div>
+        <div class="kc">
+          <div class="l">STICKINESS</div>
+          <div class="nn">{pct(data.adoption.stickiness_pct)}</div>
+          <div class="d">DAU/MAU — daily-habit share</div>
+        </div>
+        <div class="kc">
+          <div class="l">RETENTION</div>
+          <div class="nn">D7 {pct(data.adoption.d7)}</div>
+          <div class="d">D30 <b>{pct(data.adoption.d30)}</b> · new users who return</div>
+        </div>
+        <div class="kc">
+          <div class="l">AFTER-HOURS</div>
+          <div class="nn" style="color:{C.violet}">{n(data.adoption.after_hours)}</div>
+          <div class="d">answers outside 9-6 &amp; weekends</div>
         </div>
       </div>
 
@@ -338,32 +557,51 @@
         </div>
       </div>
 
-      <!-- PEOPLE -->
+      <!-- PEOPLE — per-user productivity -->
       <div class="card">
-        <h2>People <small>top contributors this period</small></h2>
+        <h2>People — per-user productivity <small>privacy-safe: counts + topics, never chat text</small></h2>
+        <div class="ptools">
+          <input class="psearch" type="text" placeholder="🔎 Search name / email / dept…" bind:value={peopleSearch} />
+          <div class="fpills">
+            {#each FLAG_PILLS as f}
+              <button class:on={flagFilter === f} onclick={() => (flagFilter = f)}>{f === 'all' ? 'All' : f}</button>
+            {/each}
+          </div>
+          <button class="xbtn" onclick={downloadPeopleXlsx} disabled={xlsxBusy}>
+            {xlsxBusy ? 'Preparing…' : '⬇ Download Excel — all users'}
+          </button>
+        </div>
         <div class="tscroll">
-          <table>
+          <table class="ptable">
             <thead>
               <tr>
-                <th>NAME</th><th>DEPT</th><th class="num">QUESTIONS</th><th class="num">ACTIVE DAYS</th>
-                <th class="num">HOURS</th><th class="num">HELPFUL</th><th class="num">RESOLVED</th><th>FLAG</th>
+                <th>USER</th><th>DEPT</th><th>CREATED</th><th>LAST ACTIVE</th>
+                <th class="num">ACTIVE DAYS</th><th class="num">QUESTIONS</th><th class="num">HOURS SAVED</th>
+                <th class="num">$ VALUE</th><th class="num">TOKENS</th><th class="num">HELPFUL</th><th class="num">RESOLVED</th>
+                <th>LOGIN</th><th>STATUS</th>
               </tr>
             </thead>
             <tbody>
-              {#each data.people as p}
+              {#each peopleView as p}
+                {@const st = statusPill(p.flag)}
                 <tr>
                   <td><b>{p.name}</b><div class="sub">{p.email}</div></td>
-                  <td>{p.dept}</td>
-                  <td class="num">{n(p.questions)}</td>
+                  <td>{p.dept || '—'}</td>
+                  <td>{shortDate(p.created_at) || '—'}</td>
+                  <td>{p.last_active ? shortDate(p.last_active) : '—'}</td>
                   <td class="num">{n(p.active_days)}</td>
-                  <td class="num">{n(p.hours)}</td>
-                  <td class="num">{pct(p.helpful)}</td>
-                  <td class="num">{pct(p.resolved)}</td>
-                  <td><span class="pill {flagCls(p.flag)}">{p.flag}</span></td>
+                  <td class="num">{n(p.questions)}</td>
+                  <td class="num hrs">{n(p.hours)}</td>
+                  <td class="num">{money(p.value_usd)}</td>
+                  <td class="num">{compact(p.tokens)}</td>
+                  <td class="num">{p.helpful != null ? pct(p.helpful) : '—'}</td>
+                  <td class="num">{p.resolved != null ? pct(p.resolved) : '—'}</td>
+                  <td>{(p.methods || []).join(' · ') || '—'}</td>
+                  <td><span class="pill {st.cls}">{st.txt}</span></td>
                 </tr>
               {/each}
-              {#if !data.people.length}
-                <tr><td colspan="8" class="empty">No people activity yet.</td></tr>
+              {#if !peopleView.length}
+                <tr><td colspan="13" class="empty">No people match this filter.</td></tr>
               {/if}
             </tbody>
           </table>
@@ -467,13 +705,46 @@
   .topic { display: inline-block; background: #f6f5f1; border: 1px solid var(--line); border-radius: 99px; padding: 3px 10px; font-size: 11.5px; }
   .topic b { color: var(--red); margin-left: 4px; }
 
+  /* platform usage grid */
+  .pgrid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; }
+  .pcell { padding: 2px 2px; }
+  .pcell .l { font-size: 10px; letter-spacing: .07em; color: var(--mut); font-weight: 700; }
+  .pcell .nn { font-size: 21px; font-weight: 700; margin-top: 4px; }
+  .pcell .d { font-size: 10.5px; margin-top: 4px; color: var(--mut); line-height: 1.5; }
+  .pcell .d b { color: var(--ink); }
+  .models { margin-top: 8px; display: flex; flex-direction: column; gap: 5px; }
+  .mrow { display: flex; align-items: center; font-size: 11.5px; }
+  .mrow i { width: 8px; height: 8px; border-radius: 3px; margin-right: 6px; flex: none; }
+  .mrow .mn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mrow .mn.empty { color: var(--mut); font-style: italic; }
+  .mrow b { margin-left: 6px; }
+  .spark { margin-top: 7px; display: block; }
+
+  /* people tools */
+  .ptools { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .psearch {
+    flex: 1; min-width: 180px; background: #fff; border: 1px solid var(--line);
+    border-radius: 9px; padding: 7px 11px; font-size: 12.5px; color: var(--ink); font-family: inherit;
+  }
+  .psearch:focus { outline: none; border-color: var(--teal); }
+  .fpills { display: flex; gap: 2px; background: #f6f5f1; border: 1px solid var(--line); border-radius: 99px; padding: 3px; }
+  .fpills button { padding: 4px 12px; border-radius: 99px; border: 0; background: none; color: var(--mut); font-size: 11.5px; cursor: pointer; text-transform: capitalize; }
+  .fpills button.on { background: var(--ink); color: #fff; }
+  .xbtn { background: #1f2e26; color: #fff; border: 0; border-radius: 9px; padding: 8px 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .xbtn:disabled { opacity: .5; cursor: default; }
+
+  .ptable { min-width: 1120px; }
+  .ptable .hrs { color: var(--teal); font-weight: 700; }
+
   @media (max-width: 900px) {
     .hero { grid-template-columns: 1fr 1fr; }
     .krow { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .grid2, .grid3 { grid-template-columns: 1fr; }
+    .pgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   }
   @media (max-width: 560px) {
     .hero { grid-template-columns: 1fr; }
     .krow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .pgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 </style>

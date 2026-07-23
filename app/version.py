@@ -6,12 +6,24 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.24.0"
+VERSION = "2.25.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.25.0",
+        "date": "2026-07-23",
+        "title": "Insights: platform usage, adoption KPIs & Excel people export",
+        "lines": [
+            "Platform usage band: real token consumption (in/out/per-answer), answers by model incl. zero-cost cache serves, new accounts with the latest signup, conversation depth, knowledge-base size",
+            "Adoption KPIs: DAU / WAU / MAU with trend, stickiness, D7/D30 retention, after-hours answers (coverage while nobody's on duty)",
+            "People table upgraded: created & last-active dates, $ value, tokens, login methods, 'new' flag — with search and flag filters",
+            "Download Excel — every user, one sheet per department plus a summary sheet (.xlsx)",
+            "Deep-mode answers now meter real tokens/cost (were reporting $0 — dashboards undercounted)",
+        ],
+    },
     {
         "version": "2.24.0",
         "date": "2026-07-23",
