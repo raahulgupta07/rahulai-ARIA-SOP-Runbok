@@ -91,7 +91,11 @@ _RULES_FOLLOWUPS = (
     "Output ONE line exactly: FOLLOWUPS: <three follow-up questions the user might "
     "ask next, separated by ' | '>. Each MUST be a COMPLETE, natural question ending "
     "with '?' (NOT a topic or phrase like 'User Creation' — write 'How do I create a "
-    "user?'). Ground them in this document's content. Write them in the SAME language "
+    "user?'). They MUST continue the SAME topic/procedure the user just asked about — "
+    "deeper steps, error handling, prerequisites, or verification of THAT procedure. "
+    "NEVER suggest questions about other unrelated runbooks that merely appear in the "
+    "source pages (after an order question, do NOT suggest user-account questions). "
+    "Ground them in the cited document's content. Write them in the SAME language "
     "as the QUESTION (English question -> English; Burmese question -> Burmese). "
     "(or 'FOLLOWUPS: none')."
 )
