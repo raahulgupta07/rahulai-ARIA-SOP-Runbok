@@ -126,6 +126,15 @@ $context_tsv$;
 CREATE INDEX IF NOT EXISTS idx_pages_doc ON pages(doc_id);
 CREATE INDEX IF NOT EXISTS idx_pages_tsv ON pages USING GIN (tsv);
 CREATE INDEX IF NOT EXISTS idx_pages_trgm ON pages USING GIN (text gin_trgm_ops);
+-- English-stemmed shadow of tsv: 'simple' stays primary (exact terms + Burmese
+-- pass through untouched); tsv_en lets casual query wording meet the doc's
+-- formal wording (create/creation/creating all stem to 'creat'). Retrieval
+-- scores GREATEST(simple, english) so this can only add recall, never remove.
+ALTER TABLE pages ADD COLUMN IF NOT EXISTS tsv_en tsvector
+    GENERATED ALWAYS AS (
+        to_tsvector('english', coalesce(text, '') || ' ' || coalesce(context, ''))
+    ) STORED;
+CREATE INDEX IF NOT EXISTS idx_pages_tsv_en ON pages USING GIN (tsv_en);
 
 -- flattened PageIndex tree nodes (precomputed at ingest, no per-query parse)
 CREATE TABLE IF NOT EXISTS nodes (
@@ -139,6 +148,10 @@ CREATE TABLE IF NOT EXISTS nodes (
 );
 CREATE INDEX IF NOT EXISTS idx_nodes_doc ON nodes(doc_id);
 CREATE INDEX IF NOT EXISTS idx_nodes_tsv ON nodes USING GIN (tsv);
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS tsv_en tsvector
+    GENERATED ALWAYS AS
+        (to_tsvector('english', coalesce(title, '') || ' ' || coalesce(summary, ''))) STORED;
+CREATE INDEX IF NOT EXISTS idx_nodes_tsv_en ON nodes USING GIN (tsv_en);
 CREATE INDEX IF NOT EXISTS idx_nodes_trgm ON nodes
     USING GIN ((coalesce(title,'') || ' ' || coalesce(summary,'')) gin_trgm_ops);
 

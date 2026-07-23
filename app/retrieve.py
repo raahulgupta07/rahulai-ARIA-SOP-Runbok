@@ -237,29 +237,35 @@ def search_pages(query: str, k: int | None = None,
     # one indexed query; score = fts + 2*section + 0.5*trigram + ilike hits
     sql = """
     WITH q AS (
-        SELECT to_tsquery('simple', %(tsq)s) AS tsq
+        SELECT to_tsquery('simple', %(tsq)s) AS tsq,
+               to_tsquery('english', %(tsq)s) AS tsqe
     )
     SELECT p.id AS page_id, p.doc_id, d.name AS doc_name, p.page_no,
            p.image_path, left(p.text, 400) AS snippet,
            left(p.text, 16000) AS text_full, m.md AS page_md,
-           ts_rank(p.tsv, q.tsq) AS fts,
+           GREATEST(ts_rank(p.tsv, q.tsq), ts_rank(p.tsv_en, q.tsqe)) AS fts,
            similarity(left(p.text, 2000), %(raw)s) AS trg,
-           COALESCE((SELECT max(ts_rank(n.tsv, q.tsq)) FROM nodes n
+           COALESCE((SELECT max(GREATEST(ts_rank(n.tsv, q.tsq), ts_rank(n.tsv_en, q.tsqe)))
+                     FROM nodes n
                      WHERE n.doc_id = p.doc_id AND n.page_no = p.page_no
-                       AND n.tsv @@ q.tsq), 0) AS node,
+                       AND (n.tsv @@ q.tsq OR n.tsv_en @@ q.tsqe)), 0) AS node,
            (SELECT count(*) FROM unnest(%(ilike)s::text[]) term
             WHERE p.text ILIKE '%%' || term || '%%') AS hits
     FROM pages p JOIN docs d ON d.id = p.doc_id
          LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no, q
     WHERE d.status IN ('ready','ready_lite') AND (
           p.tsv @@ q.tsq
+       OR p.tsv_en @@ q.tsqe
        OR p.text ILIKE ANY (SELECT '%%' || t || '%%' FROM unnest(%(ilike)s::text[]) t)
        OR EXISTS (SELECT 1 FROM nodes n WHERE n.doc_id = p.doc_id
-                  AND n.page_no = p.page_no AND n.tsv @@ q.tsq)) """ + _SEC + """
-    ORDER BY (ts_rank(p.tsv, q.tsq) + 2.0 * COALESCE(
-                 (SELECT max(ts_rank(n.tsv, q.tsq)) FROM nodes n
+                  AND n.page_no = p.page_no
+                  AND (n.tsv @@ q.tsq OR n.tsv_en @@ q.tsqe))) """ + _SEC + """
+    ORDER BY (GREATEST(ts_rank(p.tsv, q.tsq), ts_rank(p.tsv_en, q.tsqe))
+              + 2.0 * COALESCE(
+                 (SELECT max(GREATEST(ts_rank(n.tsv, q.tsq), ts_rank(n.tsv_en, q.tsqe)))
+                  FROM nodes n
                   WHERE n.doc_id = p.doc_id AND n.page_no = p.page_no
-                    AND n.tsv @@ q.tsq), 0)
+                    AND (n.tsv @@ q.tsq OR n.tsv_en @@ q.tsqe)), 0)
               + 0.5 * similarity(left(p.text, 2000), %(raw)s)
               + 0.3 * (SELECT count(*) FROM unnest(%(ilike)s::text[]) term
                        WHERE p.text ILIKE '%%' || term || '%%')
@@ -311,14 +317,16 @@ def search_pages(query: str, k: int | None = None,
         have = {(r["doc_id"], r["page_no"]) for r in rows}
         with get_conn() as conn:
             extra = conn.execute(
-                "WITH q AS (SELECT to_tsquery('simple', %(tsq)s) AS tsq) "
+                "WITH q AS (SELECT to_tsquery('simple', %(tsq)s) AS tsq, "
+                "to_tsquery('english', %(tsq)s) AS tsqe) "
                 "SELECT p.id AS page_id, p.doc_id, d.name AS doc_name, p.page_no, "
                 "p.image_path, left(p.text,400) AS snippet, left(p.text,16000) AS text_full, "
                 "m.md AS page_md "
                 "FROM pages p JOIN docs d ON d.id = p.doc_id "
                 "LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no, q "
                 "WHERE p.doc_id = %(doc)s "
-                "ORDER BY (ts_rank(p.tsv, q.tsq) + 0.3 * similarity(left(p.text,2000), %(raw)s)) DESC, "
+                "ORDER BY (GREATEST(ts_rank(p.tsv, q.tsq), ts_rank(p.tsv_en, q.tsqe)) "
+                "+ 0.3 * similarity(left(p.text,2000), %(raw)s)) DESC, "
                 "p.page_no LIMIT %(d)s",
                 {"tsq": tsq, "raw": raw, "doc": top_doc, "d": RETRIEVE_DEPTH},
             ).fetchall()
@@ -339,7 +347,8 @@ def search_pages(query: str, k: int | None = None,
             if cand:
                 with get_conn() as conn:
                     ex = conn.execute(
-                        "WITH q AS (SELECT to_tsquery('simple', %(tsq)s) AS tsq) "
+                        "WITH q AS (SELECT to_tsquery('simple', %(tsq)s) AS tsq, "
+                "to_tsquery('english', %(tsq)s) AS tsqe) "
                         "SELECT DISTINCT ON (p.doc_id) p.id AS page_id, p.doc_id, "
                         "d.name AS doc_name, p.page_no, p.image_path, "
                         "left(p.text,400) AS snippet, left(p.text,16000) AS text_full, "
@@ -347,7 +356,7 @@ def search_pages(query: str, k: int | None = None,
                         "FROM pages p JOIN docs d ON d.id = p.doc_id "
                         "LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no, q "
                         "WHERE p.doc_id = ANY(%(docs)s) " + _SEC +
-                        "ORDER BY p.doc_id, (ts_rank(p.tsv, q.tsq) + "
+                        "ORDER BY p.doc_id, (GREATEST(ts_rank(p.tsv, q.tsq), ts_rank(p.tsv_en, q.tsqe)) + "
                         "0.3 * similarity(left(p.text,2000), %(raw)s)) DESC, p.page_no",
                         {"tsq": tsq, "raw": raw, "docs": cand, "sectors": sectors, "folders": folders},
                     ).fetchall()
@@ -381,7 +390,8 @@ def search_pages(query: str, k: int | None = None,
                 cand = [r["d"] for r in neigh if r["d"] and r["d"] not in have_docs][:walk_max]
                 if cand:
                     ex = conn.execute(
-                        "WITH q AS (SELECT to_tsquery('simple', %(tsq)s) AS tsq) "
+                        "WITH q AS (SELECT to_tsquery('simple', %(tsq)s) AS tsq, "
+                "to_tsquery('english', %(tsq)s) AS tsqe) "
                         "SELECT DISTINCT ON (p.doc_id) p.id AS page_id, p.doc_id, "
                         "d.name AS doc_name, p.page_no, p.image_path, "
                         "left(p.text,400) AS snippet, left(p.text,16000) AS text_full, "
@@ -389,7 +399,7 @@ def search_pages(query: str, k: int | None = None,
                         "FROM pages p JOIN docs d ON d.id = p.doc_id "
                         "LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no, q "
                         "WHERE d.status IN ('ready','ready_lite') AND p.doc_id = ANY(%(docs)s) " + _SEC +
-                        "ORDER BY p.doc_id, (ts_rank(p.tsv, q.tsq) + "
+                        "ORDER BY p.doc_id, (GREATEST(ts_rank(p.tsv, q.tsq), ts_rank(p.tsv_en, q.tsqe)) + "
                         "0.3 * similarity(left(p.text,2000), %(raw)s)) DESC, p.page_no",
                         {"tsq": tsq, "raw": raw, "docs": cand, "sectors": sectors, "folders": folders},
                     ).fetchall()
@@ -415,7 +425,8 @@ def search_pages(query: str, k: int | None = None,
                 if nbr:
                     with get_conn() as conn:
                         gx = conn.execute(
-                            "WITH q AS (SELECT to_tsquery('simple', %(tsq)s) AS tsq) "
+                            "WITH q AS (SELECT to_tsquery('simple', %(tsq)s) AS tsq, "
+                "to_tsquery('english', %(tsq)s) AS tsqe) "
                             "SELECT DISTINCT ON (p.doc_id) p.id AS page_id, p.doc_id, "
                             "d.name AS doc_name, p.page_no, p.image_path, "
                             "left(p.text,400) AS snippet, left(p.text,16000) AS text_full, "
@@ -423,7 +434,7 @@ def search_pages(query: str, k: int | None = None,
                             "FROM pages p JOIN docs d ON d.id = p.doc_id "
                             "LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no, q "
                             "WHERE d.status IN ('ready','ready_lite') AND p.doc_id = ANY(%(docs)s) " + _SEC +
-                            "ORDER BY p.doc_id, (ts_rank(p.tsv, q.tsq) + "
+                            "ORDER BY p.doc_id, (GREATEST(ts_rank(p.tsv, q.tsq), ts_rank(p.tsv_en, q.tsqe)) + "
                             "0.3 * similarity(left(p.text,2000), %(raw)s)) DESC, p.page_no",
                             {"tsq": tsq, "raw": raw, "docs": nbr, "sectors": sectors, "folders": folders}).fetchall()
                     for e in gx:
@@ -456,6 +467,54 @@ def search_pages(query: str, k: int | None = None,
     return out
 
 
+def pages_for_docs(doc_ids: list[int], query: str, k: int = 8,
+                   sectors: list[int] | None = None,
+                   folders: list[int] | None = None) -> list[dict]:
+    """Best pages of SPECIFIC docs for a query — no LLM expand, no rerank.
+    Used by the scope-gate recovery once the router LLM has already picked the
+    runbook (searching the doc TITLE through the full pipeline lets expansion
+    terms + rerank noise crowd the right doc out). Deterministic: FTS rank
+    within the routed docs, page order as tiebreak. Same row shape as
+    search_pages so it can serve as a seed."""
+    if not doc_ids:
+        return []
+    tsq = _tsquery([query]) or "x"
+    sql = """
+    WITH q AS (SELECT to_tsquery('simple', %(tsq)s) AS tsq,
+                      to_tsquery('english', %(tsq)s) AS tsqe)
+    SELECT p.id AS page_id, p.doc_id, d.name AS doc_name, p.page_no,
+           p.image_path, left(p.text, 400) AS snippet,
+           left(p.text, 16000) AS text_full, m.md AS page_md,
+           GREATEST(ts_rank(p.tsv, q.tsq), ts_rank(p.tsv_en, q.tsqe)) AS fts,
+           similarity(left(p.text, 2000), %(raw)s) AS trg
+    FROM pages p JOIN docs d ON d.id = p.doc_id
+         LEFT JOIN doc_pages_md m ON m.doc_id = p.doc_id AND m.page_no = p.page_no, q
+    WHERE d.status IN ('ready','ready_lite') AND p.doc_id = ANY(%(docs)s)
+      AND (%(folders)s::bigint[] IS NULL
+           OR d.folder_id = ANY(%(folders)s)
+           OR (d.folder_id IS NULL AND d.sector_id = ANY(%(sectors)s)))
+    ORDER BY GREATEST(ts_rank(p.tsv, q.tsq), ts_rank(p.tsv_en, q.tsqe))
+             + 0.5 * similarity(left(p.text, 2000), %(raw)s) DESC, p.page_no
+    LIMIT %(k)s
+    """
+    with get_conn() as conn:
+        rows = conn.execute(sql, {"tsq": tsq, "raw": query.strip(), "docs": doc_ids,
+                                  "k": k, "sectors": sectors, "folders": folders}).fetchall()
+    use_wiki = os.getenv("CHAT_USE_WIKI", "0") == "1"
+    out = []
+    for r in rows:
+        raw = r.get("text_full") or r.get("snippet") or ""
+        md = r.get("page_md")
+        out.append({
+            "page_id": r["page_id"], "doc_id": r["doc_id"],
+            "doc_name": r["doc_name"], "page_no": r["page_no"],
+            "image_path": r["image_path"], "snippet": r["snippet"] or "",
+            "text_full": (md if (use_wiki and md) else raw),
+            "score": float(r.get("fts") or 0) + 0.5 * float(r.get("trg") or 0),
+        })
+    return out
+
+
 # ---------------- agentic / iterative retrieval (Vercel knowledge-agent idea) ---
 # When the first search returns thin results, let a small LLM propose alternative
 # angles (sub-questions / synonyms / predicted screen names) and search each, then
@@ -472,7 +531,9 @@ _REFORMULATE_SYS = (
 )
 
 
-def _reformulate(query: str) -> list[str]:
+def _reformulate(query: str, limit: int | None = None) -> list[str]:
+    """limit overrides AGENTIC_MAX_SUBS (the env is tuned low for the always-on
+    agentic path; the scope-gate recovery wants the full 3 variants)."""
     if not _client:
         return []
     try:
@@ -490,7 +551,7 @@ def _reformulate(query: str) -> list[str]:
             q = (q or "").strip()
             if q and q.lower() not in seen:
                 seen.add(q.lower()); out.append(q)
-        return out[:AGENTIC_MAX_SUBS]
+        return out[: (limit or AGENTIC_MAX_SUBS)]
     except Exception as e:
         print(f"[retrieve] reformulate skipped: {e!r}")
         return []
