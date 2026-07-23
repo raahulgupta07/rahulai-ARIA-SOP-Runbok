@@ -152,7 +152,7 @@
   // topnav = [Chat, Workspace, Sources, Settings]; Settings is superadmin-only
   let appTabs = $derived([topnav[0], topnav[1], topnav[2], evalNav, wikiNav]);
   let navList = $derived.by(() => {
-    if (isAdmin) return isSuperadmin ? [...appTabs, topnav[3]] : appTabs;
+    if (isAdmin) return isSuperadmin ? [...appTabs, insightsNav, topnav[3]] : [...appTabs, insightsNav];
     if (!me) return [];
     const out: any[] = [];
     if (feats.has('chat')) out.push(topnav[0]);       // Chat
@@ -182,6 +182,7 @@
     // Settings is superadmin-only, always.
     if (/^\/settings/.test(p) && !isSuperadmin) { goto('/'); return; }
     if (isAdmin) return;                                   // admin/superadmin: all app areas
+    if (/^\/insights/.test(p)) { goto('/'); return; }      // Insights is admin-only
     // otherwise gate each area by the group's granted feature / capability
     if (/^\/workspace/.test(p) && !feats.has('workspace')) { goto('/'); return; }
     if (/^\/sources/.test(p) && !(feats.has('sources') || canManage)) { goto('/'); return; }
@@ -205,6 +206,8 @@
   const wikiNav = { href: '/wiki', label: 'Wiki', section: '/wiki', d: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20M4 19.5A2.5 2.5 0 0 0 6.5 22H20V2H6.5A2.5 2.5 0 0 0 4 4.5v15zM8 7h8M8 11h6' };
   // Eval — offline answer-quality scoring dashboard (admin only)
   const evalNav = { href: '/eval', label: 'Eval', section: '/eval', d: 'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11' };
+  // Insights — productivity / CEO analytics (admin only, sits BEFORE Settings)
+  const insightsNav = { href: '/insights', label: 'Insights', section: '/insights', d: 'M3 3v18h18M7 14l4-4 3 3 5-6' };
 
   // mobile bottom tab bar — Chat · Workspace · Brain · Settings
   const bottomnav = [

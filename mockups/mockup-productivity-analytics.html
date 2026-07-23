@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Aria — Productivity Analytics mockup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{--cream:#faf9f5;--sand:#f0eee6;--ink:#1f1e1d;--mut:#8a8578;--line:#e0dfda;
+ --blue:#3f7fb0;--teal:#2f8f83;--violet:#7b6bd6;--amber:#c98a2e;--green:#3f8f5f;--red:#c0492f;--clay:#c2683f}
+*{box-sizing:border-box;margin:0}
+body{font-family:-apple-system,'Segoe UI',sans-serif;background:#f4f3f0;color:var(--ink);padding:0 0 60px}
+.top{background:var(--sand);border-bottom:1px solid var(--line);padding:12px 26px;display:flex;align-items:center;gap:20px}
+.top .logo{font-weight:700;color:var(--clay)}.top .nav{display:flex;gap:14px;font-size:13px;color:var(--mut)}
+.top .nav b{color:var(--ink)}
+.head{max-width:1220px;margin:22px auto 0;padding:0 18px;display:flex;align-items:center;gap:14px}
+.head h1{font-size:20px;font-family:Georgia,serif}
+.range{margin-left:auto;display:flex;gap:2px;background:#fff;border:1px solid var(--line);border-radius:99px;padding:3px}
+.range span{padding:4px 12px;border-radius:99px;font-size:12px;color:var(--mut)}
+.range .on{background:var(--ink);color:#fff}
+.dept-pick{background:#fff;border:1px solid var(--line);border-radius:9px;padding:6px 12px;font-size:12.5px}
+.wrap{max-width:1220px;margin:16px auto 0;padding:0 18px;display:flex;flex-direction:column;gap:14px}
+.krow{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.kc{background:#fff;border:1px solid var(--line);border-radius:13px;padding:15px 16px}
+.kc .l{font-size:10.5px;letter-spacing:.07em;color:var(--mut);font-weight:600}
+.kc .n{font-size:25px;font-weight:700;margin-top:3px}
+.kc .d{font-size:11px;margin-top:3px;color:var(--mut)}
+.kc .up{color:var(--green)} .kc .dn{color:var(--red)}
+.grid2{display:grid;grid-template-columns:1.35fr 1fr;gap:12px}
+.card{background:#fff;border:1px solid var(--line);border-radius:13px;padding:16px 18px}
+.card h2{font-size:13.5px;margin-bottom:12px}
+.card h2 small{color:var(--mut);font-weight:400;font-size:11.5px;margin-left:8px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;font-size:10.5px;letter-spacing:.06em;color:var(--mut);padding:5px 8px;border-bottom:1px solid var(--line)}
+td{padding:7px 8px;border-bottom:1px solid #efece6}
+tr:last-child td{border-bottom:0}
+.bar{height:7px;border-radius:99px;background:#eee9e2;overflow:hidden;min-width:90px}
+.bar i{display:block;height:100%;border-radius:99px}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.pill{font-size:10.5px;font-weight:700;border-radius:99px;padding:2px 9px}
+.pg{background:#e2efe7;color:var(--green)} .pa{background:#f7edd8;color:var(--amber)} .pr{background:#f3e2de;color:var(--red)}
+.usr{display:flex;align-items:center;gap:8px}
+.av{width:24px;height:24px;border-radius:50%;color:#fff;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.topic{display:inline-block;background:#f6f5f1;border:1px solid var(--line);border-radius:99px;padding:3px 11px;font-size:12px;margin:0 6px 7px 0}
+.topic b{color:var(--red);font-weight:700;margin-left:5px}
+.mailcard{border:1px dashed var(--line);border-radius:11px;padding:13px 15px;background:var(--cream);font-size:12.5px;line-height:1.6}
+.mailcard .mh{font-weight:700;margin-bottom:5px}
+.note{font-size:11px;color:var(--mut);margin-top:9px}
+.legend{display:flex;gap:14px;font-size:11px;color:var(--mut);margin-top:9px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.newtag{font-size:9.5px;font-weight:800;letter-spacing:.06em;background:#e9f0e9;color:var(--green);border-radius:5px;padding:2px 6px;vertical-align:2px;margin-left:6px}
+</style>
+</head>
+<body>
+<div class="top"><span class="logo">◐ CityAgent ARIA</span>
+ <span class="nav">Chat · Workspace · Sources · <b>Insights ▸ Productivity</b></span></div>
+
+<div class="head">
+  <h1>Productivity</h1><span class="newtag">NEW</span>
+  <select class="dept-pick"><option>All departments</option><option>IT Support</option><option>Store Ops</option><option>Finance</option><option>Warehouse</option></select>
+  <div class="range"><span>7d</span><span class="on">30d</span><span>90d</span></div>
+</div>
+
+<div class="wrap">
+
+  <!-- KPI strip -->
+  <div class="krow">
+    <div class="kc"><div class="l">HOURS SAVED</div><div class="n" style="color:var(--teal)">312 h</div><div class="d"><span class="up">▲ 18%</span> vs prior 30d · 8 min/answer</div></div>
+    <div class="kc"><div class="l">QUESTIONS ANSWERED</div><div class="n">2,341</div><div class="d">2,164 sourced · 94 instant-cache</div></div>
+    <div class="kc"><div class="l">RESOLVED RATE</div><div class="n" style="color:var(--green)">87%</div><div class="d">solved without re-asking or escalating</div></div>
+    <div class="kc"><div class="l">DEFLECTION</div><div class="n" style="color:var(--violet)">71%</div><div class="d">closed by Aria, no helpdesk ticket</div></div>
+    <div class="kc"><div class="l">ACTIVE USERS</div><div class="n">64 / 82</div><div class="d"><span class="dn">▼ 3</span> dormant this month</div></div>
+  </div>
+
+  <div class="grid2">
+    <!-- department rollup -->
+    <div class="card">
+      <h2>By department <small>hours saved · question volume · answer quality</small></h2>
+      <table>
+        <tr><th>DEPARTMENT</th><th>USERS</th><th>QUESTIONS</th><th style="width:34%">HOURS SAVED</th><th class="num">HELPFUL</th><th class="num">RESOLVED</th></tr>
+        <tr><td><b>IT Support (AMS)</b></td><td>14</td><td class="num">1,116</td>
+            <td><div class="bar"><i style="width:92%;background:var(--teal)"></i></div></td>
+            <td class="num">96%</td><td class="num"><span class="pill pg">93%</span></td></tr>
+        <tr><td><b>Store Ops</b></td><td>31</td><td class="num">742</td>
+            <td><div class="bar"><i style="width:58%;background:var(--teal)"></i></div></td>
+            <td class="num">91%</td><td class="num"><span class="pill pg">86%</span></td></tr>
+        <tr><td><b>Warehouse</b></td><td>18</td><td class="num">305</td>
+            <td><div class="bar"><i style="width:26%;background:var(--teal)"></i></div></td>
+            <td class="num">88%</td><td class="num"><span class="pill pa">74%</span></td></tr>
+        <tr><td><b>Finance</b></td><td>9</td><td class="num">178</td>
+            <td><div class="bar"><i style="width:14%;background:var(--teal)"></i></div></td>
+            <td class="num">83%</td><td class="num"><span class="pill pr">61%</span></td></tr>
+      </table>
+      <div class="note">Departments come from Settings → Users (or auto-filled from the LDAP department attribute). Finance's low resolved rate + refusal topics below = their runbooks are missing.</div>
+    </div>
+
+    <!-- unanswered topics -->
+    <div class="card">
+      <h2>Where Aria fails people <small>refused / unresolved topics → write these docs next</small></h2>
+      <div>
+        <span class="topic">invoice cancellation <b>×14</b></span>
+        <span class="topic">payment voucher approve <b>×11</b></span>
+        <span class="topic">ecom refund process <b>×8</b></span>
+        <span class="topic">store count schedule <b>×6</b></span>
+        <span class="topic">grn reversal <b>×5</b></span>
+        <span class="topic">supplier onboarding <b>×4</b></span>
+      </div>
+      <div class="note">Counted from "outside the runbooks" refusals + conversations users abandoned after re-asking twice. Names ranked by distinct users affected — top 2 are all Finance.</div>
+      <h2 style="margin-top:16px">Weekly digest to management <small>email / Teams, auto</small></h2>
+      <div class="mailcard">
+        <div class="mh">Aria weekly — Jul 14–20</div>
+        📈 612 questions · <b>81 h saved</b> · resolved 87%<br>
+        🏆 Top team: IT Support (papers cut 22 tickets)<br>
+        ⚠ Unanswered: invoice cancellation (14 asks, 9 users)<br>
+        💤 5 users went dormant — nudge list attached
+      </div>
+    </div>
+  </div>
+
+  <!-- per user -->
+  <div class="card">
+    <h2>People <small>per-person productivity · privacy-safe (counts + topics only, never chat text)</small></h2>
+    <table>
+      <tr><th>USER</th><th>DEPT</th><th class="num">QUESTIONS</th><th class="num">ACTIVE DAYS</th><th class="num">HOURS SAVED</th><th class="num">HELPFUL</th><th class="num">RESOLVED</th><th>TOP TOPIC</th><th>STATUS</th></tr>
+      <tr><td><span class="usr"><span class="av" style="background:var(--blue)">KH</span>khin.htay</span></td><td>IT Support</td>
+          <td class="num">214</td><td class="num">22</td><td class="num"><b>28.5 h</b></td><td class="num">97%</td><td class="num">95%</td><td>batch jobs</td><td><span class="pill pg">🔥 power</span></td></tr>
+      <tr><td><span class="usr"><span class="av" style="background:var(--teal)">AM</span>aung.min</span></td><td>Store Ops</td>
+          <td class="num">96</td><td class="num">18</td><td class="num"><b>12.8 h</b></td><td class="num">92%</td><td class="num">88%</td><td>price change</td><td><span class="pill pg">active</span></td></tr>
+      <tr><td><span class="usr"><span class="av" style="background:var(--violet)">SS</span>su.su</span></td><td>Warehouse</td>
+          <td class="num">41</td><td class="num">9</td><td class="num"><b>5.4 h</b></td><td class="num">85%</td><td class="num">71%</td><td>transfer</td><td><span class="pill pa">⚠ at-risk</span></td></tr>
+      <tr><td><span class="usr"><span class="av" style="background:var(--amber)">TZ</span>thet.zaw</span></td><td>Finance</td>
+          <td class="num">12</td><td class="num">3</td><td class="num"><b>1.6 h</b></td><td class="num">67%</td><td class="num">58%</td><td>invoice</td><td><span class="pill pr">💤 dormant</span></td></tr>
+    </table>
+    <div class="legend">
+      <span><i style="background:var(--teal)"></i>Hours saved = answered questions × minutes-saved knob (Settings → ROI)</span>
+      <span><i style="background:var(--green)"></i>Resolved = 👍 or no re-ask/escalation in the conversation</span>
+      <span>Export CSV ↓</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

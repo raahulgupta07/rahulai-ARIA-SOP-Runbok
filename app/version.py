@@ -6,12 +6,25 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.23.1"
+VERSION = "2.24.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.24.0",
+        "date": "2026-07-23",
+        "title": "Insights — productivity analytics for management",
+        "lines": [
+            "New top-level Insights tab (admins): total hours saved, labour value vs AI cost (ROI), resolved & deflection rates, adoption",
+            "Trends everywhere — daily hours saved, deltas vs the prior period, custom date range on top of 7d/30d/90d presets",
+            "Usage by organisation (email domain) and by department — departments auto-fill from the LDAP directory, editable per user",
+            "When people ask (hourly pattern), EN/Burmese language split, adoption funnel with dormant-user count",
+            "Knowledge gaps: the questions Aria couldn't answer, ranked — your write-these-docs-next list",
+            "People view: per-person questions, hours saved and activity flags (privacy-safe: counts and topics, never chat text)",
+        ],
+    },
     {
         "version": "2.23.1",
         "date": "2026-07-23",

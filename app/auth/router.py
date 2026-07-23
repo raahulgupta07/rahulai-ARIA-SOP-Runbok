@@ -127,6 +127,15 @@ def ldap(body: LdapCreds):
         u = store.find_or_create(info["email"], info["name"], "ldap", email_verified=True)
     except store.MergeBlocked as e:
         raise HTTPException(status_code=409, detail=str(e))
+    # AD department attribute -> Insights productivity rollups (fail-soft)
+    if info.get("department"):
+        try:
+            from ..db import get_conn
+            with get_conn() as conn:
+                conn.execute("UPDATE users SET department=%s WHERE id=%s",
+                             (info["department"][:80], u["id"]))
+        except Exception as e:
+            print(f"[auth] ldap department update failed: {e!r}")
     return _issue(u, "ldap")
 
 
@@ -287,6 +296,7 @@ class UserPatch(BaseModel):
     role: str | None = None
     active: bool | None = None
     name: str | None = None
+    department: str | None = None
 
 
 @router.patch("/admin/users/{uid}")
@@ -297,6 +307,15 @@ def admin_patch(uid: int, body: UserPatch, admin: dict = Depends(require_superad
     u = store.update_user(uid, role=body.role, active=body.active, name=body.name)
     if not u:
         raise HTTPException(status_code=404, detail="user not found")
+    if body.department is not None:   # '' clears; manual overrides LDAP autofill
+        try:
+            from ..db import get_conn
+            with get_conn() as conn:
+                conn.execute("UPDATE users SET department=%s WHERE id=%s",
+                             (body.department.strip()[:80] or None, uid))
+            u["department"] = body.department.strip()[:80] or None
+        except Exception as e:
+            print(f"[auth] department update failed: {e!r}")
     from ..security_log import log_event
     if body.role and prev and body.role != prev.get("role"):
         log_event("role_change", email=u.get("email"), actor_email=admin.get("email"),

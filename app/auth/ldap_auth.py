@@ -93,7 +93,7 @@ def ldap_login(cfg: dict, username: str, password: str) -> dict:
     email_attr = lc.get("email_attr", "mail")
     name_attr = lc.get("name_attr", "cn")
     svc.search(lc["base_dn"], flt, search_scope=SUBTREE,
-               attributes=[email_attr, name_attr])
+               attributes=[email_attr, name_attr, "department"])
     if not svc.entries:
         svc.unbind()
         raise LdapError("user not found")
@@ -101,6 +101,9 @@ def ldap_login(cfg: dict, username: str, password: str) -> dict:
     user_dn = entry.entry_dn
     email = str(entry[email_attr].value) if email_attr in entry else ""
     name = str(entry[name_attr].value) if name_attr in entry else username
+    # AD's standard `department` attribute — feeds the Insights productivity
+    # rollups; absent/blank on non-AD directories is fine (stays None)
+    department = str(entry["department"].value) if "department" in entry and entry["department"].value else None
     svc.unbind()
 
     if not email:
@@ -113,7 +116,7 @@ def ldap_login(cfg: dict, username: str, password: str) -> dict:
     except Exception:
         raise LdapError("invalid credentials")
 
-    return {"email": email, "name": name}
+    return {"email": email, "name": name, "department": department}
 
 
 def ldap_test(cfg: dict) -> dict:

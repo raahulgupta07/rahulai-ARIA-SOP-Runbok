@@ -328,6 +328,10 @@ CREATE TABLE IF NOT EXISTS user_groups (
 -- every sign-in method this email has authenticated with (local|ldap|oidc).
 -- one users row per email (merge-by-email); this array shows ALL its logins.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_methods TEXT[];
+-- productivity analytics: team attribution. Auto-filled from the LDAP
+-- `department` attribute at login; editable in Settings -> Users; falls back
+-- to 'Unassigned' in rollups.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS department TEXT;
 -- a user's home sector (set from email domain at signup); role gains 'sector_admin'.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS sector_id BIGINT REFERENCES sectors(id);
 -- every doc is tagged with the sector (+ folder) it belongs to.

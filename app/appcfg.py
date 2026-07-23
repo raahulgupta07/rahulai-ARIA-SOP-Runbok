@@ -9,6 +9,9 @@ _DEFAULTS = {
     "minutes_saved_per_answer": float(os.getenv("VALUE_MINUTES_SAVED", "6")),
     "llm_price_per_mtok": float(os.getenv("LLM_PRICE_PER_MTOK", "0.30")),
     "tokens_per_answer": int(os.getenv("TOKENS_PER_ANSWER", "3500")),
+    # avg loaded labour cost per hour — converts hours-saved into $ value on
+    # the Insights productivity page
+    "hourly_rate_usd": float(os.getenv("VALUE_HOURLY_RATE", "4.0")),
 }
 
 

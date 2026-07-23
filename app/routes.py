@@ -2953,6 +2953,17 @@ def analytics_management(days: int = 30):
     return analytics_mod.management(days)
 
 
+@router.get("/insights/overview", dependencies=[Depends(require_admin)])
+def insights_overview(days: int = 30,
+                      date_from: str | None = Query(None, alias="from"),
+                      date_to: str | None = Query(None, alias="to")):
+    """Productivity / CEO analytics — totals, trends, domains, departments,
+    funnel, gaps, people. Pure reads, fail-soft (see app/productivity.py)."""
+    from . import productivity
+    days = max(1, min(days, 365))
+    return productivity.overview(days=days, date_from=date_from, date_to=date_to)
+
+
 @router.get("/analytics/perf", dependencies=[Depends(require_admin)])
 def analytics_perf(days: int = 30):
     """Performance scorecard — latency p50/p95, real token spend, retrieval
