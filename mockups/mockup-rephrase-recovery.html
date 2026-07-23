@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Aria — Rephrase Recovery mockup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{ --cream:#faf9f5; --sand:#f0eee6; --ink:#1f1e1d; --mut:#8a8578; --clay:#c2683f;
+         --clay-tint:#f6e9e2; --line:#e0dfda; --green:#3f8f5f; --red:#c0492f; --amber:#c98a2e; }
+  *{box-sizing:border-box; margin:0}
+  body{font-family:-apple-system,'Segoe UI',sans-serif; background:var(--cream); color:var(--ink); padding:34px 20px 60px}
+  h1{font-family:Georgia,serif; font-size:26px; text-align:center}
+  .sub{text-align:center; color:var(--mut); font-size:13px; margin:6px 0 30px}
+  .wrap{max-width:1240px; margin:0 auto; display:grid; grid-template-columns:1fr 1fr; gap:22px}
+  @media(max-width:980px){ .wrap{grid-template-columns:1fr} }
+  .col{background:#fff; border:1px solid var(--line); border-radius:14px; padding:20px 22px}
+  .tag{display:inline-block; font-size:11px; font-weight:700; letter-spacing:.08em; padding:3px 10px; border-radius:99px; margin-bottom:14px}
+  .tag.old{background:#f3e2de; color:var(--red)}
+  .tag.new{background:#e2efe7; color:var(--green)}
+  .q{background:var(--ink); color:#fff; border-radius:16px 16px 4px 16px; padding:10px 16px; font-size:14px; width:fit-content; margin:0 0 14px auto}
+  /* thinking trace */
+  .trace{border:1px solid var(--line); border-radius:12px; background:var(--cream); padding:12px 14px; margin-bottom:14px; font-size:13px}
+  .trace .tt{font-size:11px; font-weight:700; color:var(--mut); letter-spacing:.06em; margin-bottom:8px}
+  .step{display:flex; gap:9px; align-items:flex-start; padding:5px 0}
+  .dot{width:16px; height:16px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center; font-size:10px; margin-top:1px}
+  .dot.ok{background:#e2efe7; color:var(--green)}
+  .dot.warn{background:#f7edd8; color:var(--amber)}
+  .dot.act{background:var(--clay-tint); color:var(--clay)}
+  .dot.bad{background:#f3e2de; color:var(--red)}
+  .step b{font-weight:600}
+  .step .d{color:var(--mut); font-size:12px; margin-top:1px}
+  .rphr{display:inline-block; background:#fff; border:1px dashed var(--clay); color:var(--clay); border-radius:8px; padding:2px 8px; font-size:12px; margin-top:3px}
+  /* answers */
+  .ans{font-size:14px; line-height:1.55}
+  .ans .avatar{color:var(--clay); font-size:15px; margin-right:6px}
+  .refusal{background:#fdf6f4; border:1px solid #ecd2c9; border-radius:12px; padding:12px 15px; color:#7a4636; font-size:13.5px}
+  .coinrow{display:flex; gap:6px; margin-top:12px}
+  .coin{background:var(--clay-tint); color:var(--clay); font-size:11.5px; font-weight:600; border-radius:99px; padding:3px 10px}
+  .meta{color:var(--mut); font-size:11.5px; margin-top:10px}
+  .meta .g{color:var(--green)} .meta .r{color:var(--red)}
+  h2{font-size:15px; margin:26px 0 10px}
+  /* flow diagram */
+  .flow{max-width:1240px; margin:34px auto 0; background:#fff; border:1px solid var(--line); border-radius:14px; padding:22px}
+  .frow{display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:center; font-size:13px}
+  .fb{border:1.5px solid var(--line); border-radius:10px; padding:9px 14px; background:var(--cream); text-align:center}
+  .fb.hot{border-color:var(--clay); background:var(--clay-tint); font-weight:600}
+  .fb.good{border-color:var(--green); background:#e2efe7}
+  .fb.stop{border-color:var(--red); background:#f3e2de}
+  .arr{color:var(--mut); font-size:16px}
+  .lbl{font-size:11px; color:var(--mut); text-align:center; margin-top:4px}
+  .note{max-width:1240px; margin:16px auto 0; font-size:12.5px; color:var(--mut); text-align:center}
+  .note b{color:var(--ink)}
+</style>
+</head>
+<body>
+  <h1>Rephrase recovery — second chance before refusing</h1>
+  <div class="sub">Fires ONLY when retrieval is weak (score &lt; 0.10). Normal questions: zero change, zero added latency.</div>
+
+  <div class="wrap">
+    <!-- BEFORE -->
+    <div class="col">
+      <span class="tag old">TODAY — instant refusal</span>
+      <div class="q">how to make order for shop?</div>
+      <div class="trace">
+        <div class="tt">WORKING…</div>
+        <div class="step"><span class="dot ok">✓</span><div><b>Understanding question</b></div></div>
+        <div class="step"><span class="dot warn">!</span><div><b>Searched 28 runbooks</b><div class="d">best match too weak (score 0.06)</div></div></div>
+        <div class="step"><span class="dot bad">✕</span><div><b>Out of scope — refused</b></div></div>
+      </div>
+      <div class="refusal">⚠ That's outside the runbooks I cover (company SOPs &amp; IT procedures). Try asking about a specific process — e.g. CAR mass input, user creation, or a batch job.</div>
+      <div class="meta">ARIA 1.0 · Quick · <span class="r">unsourced</span></div>
+    </div>
+
+    <!-- AFTER -->
+    <div class="col">
+      <span class="tag new">WITH FIX — rephrase, then retry</span>
+      <div class="q">how to make order for shop?</div>
+      <div class="trace">
+        <div class="tt">WORKING…</div>
+        <div class="step"><span class="dot ok">✓</span><div><b>Understanding question</b></div></div>
+        <div class="step"><span class="dot warn">!</span><div><b>Searched 28 runbooks</b><div class="d">best match too weak (score 0.06)</div></div></div>
+        <div class="step"><span class="dot act">↻</span><div><b>Rephrasing question — 3 ways</b><div class="d">one LLM call rewrites it into runbook wording (OpenWebUI-style query generation):</div>
+          <span class="rphr">"order creation in Gold Stock"</span>
+          <span class="rphr">"Order Mass Input procedure"</span>
+          <span class="rphr">"create warehouse order G.O.L.D."</span></div></div>
+        <div class="step"><span class="dot ok">✓</span><div><b>Searched all 3 — merged 5 pages</b><div class="d">Order Mass Input Issue p.4-6 (0.36) · Order Creation &amp; Integration p.2 (0.21)</div></div></div>
+        <div class="step"><span class="dot ok">✓</span><div><b>Composing answer</b></div></div>
+      </div>
+      <div class="ans"><span class="avatar">✦</span>To create an order in the G.O.L.D. system, use <b>Order Mass Input</b>: <b>1.</b> Prepare the Excel file with the required columns [1] <b>2.</b> Upload via Mass Input screen [2] <b>3.</b> Verify batch result at 12:00 PM / 3:00 PM run [3] …</div>
+      <div class="coinrow"><span class="coin">1 · Order Mass Input · p4</span><span class="coin">2 · p5</span><span class="coin">3 · p6</span></div>
+      <div class="meta">ARIA 1.0 · Quick · <span class="g">✓ 3 sources</span> · +1.4s (rephrase) — only on weak questions</div>
+    </div>
+  </div>
+
+  <!-- junk still refused -->
+  <div class="wrap" style="margin-top:22px">
+    <div class="col" style="grid-column:1/-1">
+      <span class="tag old">JUNK — still refused (gate intact)</span>
+      <div class="q">best restaurants in yangon?</div>
+      <div class="trace">
+        <div class="tt">WORKING…</div>
+        <div class="step"><span class="dot warn">!</span><div><b>Searched 28 runbooks</b><div class="d">weak (0.04)</div></div></div>
+        <div class="step"><span class="dot act">↻</span><div><b>Rephrasing question — 3 ways</b> <span class="rphr">"restaurant recommendations Yangon"</span> <span class="rphr">"dining places Yangon"</span> <span class="rphr">"food guide Yangon"</span></div></div>
+        <div class="step"><span class="dot warn">!</span><div><b>Searched all 3 — still weak (best 0.04)</b></div></div>
+        <div class="step"><span class="dot bad">✕</span><div><b>Out of scope — refused</b></div></div>
+      </div>
+      <div class="refusal">⚠ That's outside the runbooks I cover (company SOPs &amp; IT procedures).</div>
+    </div>
+  </div>
+
+  <!-- flow -->
+  <div class="flow">
+    <h2 style="margin-top:0; text-align:center">Pipeline change (scope gate only)</h2>
+    <div class="frow">
+      <div><div class="fb">Question</div></div>
+      <span class="arr">→</span>
+      <div><div class="fb">Search runbooks</div><div class="lbl">existing, unchanged</div></div>
+      <span class="arr">→</span>
+      <div><div class="fb good">score ≥ 0.10<br>answer normally</div><div class="lbl">~95% of traffic · 0 ms added</div></div>
+    </div>
+    <div class="frow" style="margin-top:14px">
+      <span class="arr" style="visibility:hidden">→</span>
+      <div><div class="fb">score &lt; 0.10 (would refuse)</div></div>
+      <span class="arr">→</span>
+      <div><div class="fb hot">ONE LLM call → 3 rephrasings<br><span style="font-weight:400; font-size:11.5px">casual → runbook wording, EN+MY</span></div><div class="lbl">~1-2s, only here</div></div>
+      <span class="arr">→</span>
+      <div><div class="fb">Search all 3, merge</div><div class="lbl">SQL only, ~ms each</div></div>
+      <span class="arr">→</span>
+      <div><div class="fb good">strong → answer</div></div>
+      <span class="arr">/</span>
+      <div><div class="fb stop">still weak → refuse</div></div>
+    </div>
+  </div>
+
+  <div class="note"><b>Guarantees:</b> normal path untouched · junk denylist still instant-refuses · max ONE extra LLM call, only on would-be refusals · rephrased query shown transparently in the thinking trace · answer still fully cited or honestly refused.</div>
+</body>
+</html>

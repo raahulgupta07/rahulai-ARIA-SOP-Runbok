@@ -523,6 +523,15 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
     seed = search_pages(req.q, k=req.k or DEFAULT_K, sectors=_sectors, folders=_folders)
     _ok_scope, _refusal = scope.in_scope(req.q, lambda _q: seed)
     if not _ok_scope:
+        # second chance: rephrase the (possibly broken-English) question into
+        # runbook wording and re-search before refusing
+        _rec_pages, _rec_q, _ = scope.try_recover(
+            req.q, lambda s: search_pages(s, k=req.k or DEFAULT_K,
+                                          sectors=_sectors, folders=_folders),
+            sectors=_sectors, folders=_folders)
+        if _rec_pages:
+            seed, _ok_scope = _rec_pages, True
+    if not _ok_scope:
         convo.add_message(conv_id, "user", req.q, [])
         convo.add_message(conv_id, "bot", _refusal, [])
         if first_turn:
@@ -716,6 +725,21 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
         # Use the follow-up-folded query (_sq) so a short follow-up keeps its topic
         # and isn't wrongly refused for having no standalone keywords.
         _ok_scope, _refusal = scope.in_scope(_sq, lambda _q: seed)
+        if not _ok_scope:
+            # second chance: rephrase into runbook wording, re-search, only then
+            # refuse. One LLM call, fires only on would-be refusals.
+            yield _step("Rephrasing the question", "matching it to runbook wording", "running")
+            _rec_pages, _rec_q, _rec_subs = scope.try_recover(
+                _sq, lambda s: search_pages(s, k=req.k or DEFAULT_K,
+                                            sectors=_sectors, folders=_folders),
+                sectors=_sectors, folders=_folders)
+            if _rec_pages:
+                seed, _ok_scope = _rec_pages, True
+                yield _step("Rephrasing the question",
+                            f'searched as: "{_rec_q}"', "done")
+            elif _rec_subs:
+                yield _step("Rephrasing the question",
+                            "tried " + " · ".join(_rec_subs[:3]) + " — still no match", "done")
         if not _ok_scope:
             yield _step("Outside the runbooks", "off-topic — declined", "done")
             yield json.dumps({"type": "token", "v": _refusal}) + "\n"

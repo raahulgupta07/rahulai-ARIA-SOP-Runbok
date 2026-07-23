@@ -6,12 +6,24 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.21.0"
+VERSION = "2.22.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.22.0",
+        "date": "2026-07-23",
+        "title": "Casual questions understood — stemming + runbook-router recovery",
+        "lines": [
+            "Ask in everyday words — 'how to create order' now finds 'Order Creation' (English word-stem matching alongside the exact index; Burmese untouched)",
+            "Broken-English / typo'd questions no longer wrongly refused: before declining, Aria rewrites the question against the runbook catalog and routes straight to the right SOP",
+            "The thinking trace shows the rewrite ('Rephrasing the question — searched as: …') so the match is transparent",
+            "Off-topic questions are still declined — the router returns nothing for questions unrelated to every runbook",
+            "Measured on a 56-question broken-English test bank: hardest 10 went from 0/10 answered to 10/10 right-document",
+        ],
+    },
     {
         "version": "2.21.0",
         "date": "2026-07-14",
