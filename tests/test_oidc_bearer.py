@@ -240,3 +240,67 @@ def test_token_never_logged(env, capsys):
 def test_garbage_never_raises(env):
     for t in ["", "x", "a.b.c", "not-a-jwt", None]:
         assert oidc.verify_bearer(t) is None
+
+
+# ---- app API keys (2.27.0): key identifies the app, token identifies the user ----
+@pytest.fixture
+def keys(env, monkeypatch):
+    from app.auth import app_keys
+    good = {"id": 7, "name": "CityGPT Global"}
+    touched = []
+    monkeypatch.setattr(app_keys, "verify", lambda k: good if k == "ak_live_GOOD" else None)
+    monkeypatch.setattr(app_keys, "touch", lambda kid: touched.append(kid))
+    env["touched_keys"] = touched
+    return env
+
+
+def _call(token, key=None):
+    try:
+        deps.current_principal(f"Bearer {token}", key)
+        return 200
+    except HTTPException as e:
+        return e.status_code
+
+
+def test_app_key_replaces_client_allow_list(keys):
+    # client not on the allow-list, but a valid app key vouches for the app
+    assert _call(_tok(azp="Dev-CityGPT"), "ak_live_GOOD") == 200
+    assert keys["touched_keys"] == [7]
+    assert keys["events"][-1][2]["app_key"] == "CityGPT Global"
+
+
+def test_app_key_still_needs_valid_user_token(keys):
+    assert _call(_tok(key=KEY_X, kid="kid-x"), "ak_live_GOOD") == 401      # bad signature
+    assert _call(_tok(iss="https://evil.test/realms/x"), "ak_live_GOOD") == 401
+    assert _call(_tok(typ="ID"), "ak_live_GOOD") == 401
+    assert _call(_tok(email="nobody@city.test"), "ak_live_GOOD") == 403
+
+
+def test_bad_or_revoked_app_key_fails_closed(keys):
+    # even an allow-listed client is refused when it presents a wrong key
+    assert _call(_tok(), "ak_live_WRONG") == 401
+
+
+def test_no_key_keeps_allow_list_path(keys):
+    assert _call(_tok()) == 200
+    assert _call(_tok(azp="Dev-CityGPT")) == 401
+
+
+def test_app_key_needs_master_switch(keys):
+    keys["cfg"]["bearer_enabled"] = False
+    assert _call(_tok(azp="Dev-CityGPT"), "ak_live_GOOD") == 401
+
+
+def test_hs256_ignores_app_key_header(keys):
+    tok = security.make_token(USERS["alice@city.test"])
+    assert _call(tok, "ak_live_WRONG") == 200
+
+
+def test_require_admin_direct_call_with_bearer(keys):
+    # require_admin calls current_user() positionally: the app-key param is then
+    # a FastAPI Header default, not a str — must not crash (was a 500 in dev)
+    try:
+        deps.require_admin(f"Bearer {_tok()}")
+        assert False, "expected 403"
+    except HTTPException as e:
+        assert e.status_code == 403

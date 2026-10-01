@@ -28,14 +28,22 @@ def _due(key: str) -> bool:
         return True
 
 
-def _bearer_user(token: str) -> dict:
+def _bearer_user(token: str, app_key: str | None = None) -> dict:
     """Fallback when the token is not one of ours: an IdP access token (e.g.
     Keycloak via an OpenWebUI pipe). Maps to the EXISTING user by email — never
     creates one. 401 = token not accepted, 403 = accepted but no usable account."""
     from .oidc import verify_bearer
     from ..security_log import log_event
+    from . import app_keys
 
-    claims = verify_bearer(token)
+    app = None
+    if app_key:
+        # an app key identifies the calling app INSTEAD of the client-id
+        # allow-list; a bad/revoked key is refused outright (fail closed)
+        app = app_keys.verify(app_key)
+        if not app:
+            raise HTTPException(status_code=401, detail="invalid or revoked app key")
+    claims = verify_bearer(token, skip_client_check=bool(app))
     if not claims:
         raise HTTPException(status_code=401, detail="invalid or expired token")
     email = (claims.get("email") or "").strip().lower()
@@ -47,6 +55,9 @@ def _bearer_user(token: str) -> dict:
     # is on. The token is still signature/issuer/client checked and must map to
     # an EXISTING active account.
     meta = {"issuer": claims.get("_issuer"), "client_id": claims.get("_client_id")}
+    if app:
+        meta["app_key"] = app["name"]
+        app_keys.touch(app["id"])
     user = store.get_by_email(email)
     if not user or not user["active"] or user["role"] == "widget":
         if _due("deny:" + email):
@@ -73,13 +84,14 @@ def _bearer(authorization: str | None) -> str | None:
     return authorization
 
 
-def current_user(authorization: str | None = Header(default=None)) -> dict:
+def current_user(authorization: str | None = Header(default=None),
+                 x_aria_app_key: str | None = Header(default=None)) -> dict:
     token = _bearer(authorization)
     if not token:
         raise HTTPException(status_code=401, detail="not authenticated")
     payload = decode_token(token)
     if not payload:
-        return _bearer_user(token)
+        return _bearer_user(token, x_aria_app_key if isinstance(x_aria_app_key, str) else None)
     user = store.get_by_id(int(payload["sub"]))
     if not user or not user["active"]:
         raise HTTPException(status_code=401, detail="account inactive")
@@ -88,7 +100,8 @@ def current_user(authorization: str | None = Header(default=None)) -> dict:
     return user
 
 
-def current_principal(authorization: str | None = Header(default=None)) -> dict:
+def current_principal(authorization: str | None = Header(default=None),
+                      x_aria_app_key: str | None = Header(default=None)) -> dict:
     """Accept EITHER a member login token OR an embed-widget token, so embedded
     sites and logged-in members share one brain. Widget tokens are rate-limited
     per visitor here."""
@@ -97,7 +110,7 @@ def current_principal(authorization: str | None = Header(default=None)) -> dict:
         raise HTTPException(status_code=401, detail="not authenticated")
     payload = decode_token(token)
     if not payload:
-        return _bearer_user(token)
+        return _bearer_user(token, x_aria_app_key if isinstance(x_aria_app_key, str) else None)
     user = store.get_by_id(int(payload["sub"]))
     if not user or not user["active"]:
         raise HTTPException(status_code=401, detail="account inactive")
