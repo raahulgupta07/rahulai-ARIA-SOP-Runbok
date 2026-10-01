@@ -363,3 +363,19 @@ def test_auto_create_needs_a_valid_token(jit):
     assert _status(deps.current_principal, _tok(email="newbie@city.test", azp="other-app")) == 401
     assert _status(deps.current_principal, _tok(key=KEY_X, kid="kid-x", email="newbie@city.test")) == 401
     assert jit["made"] == []
+
+
+# ---- channel attribution (2.29.0) ----
+def test_bearer_principal_tagged_with_app(keys):
+    u = deps.current_principal(f"Bearer {_tok(azp='Dev-CityGPT')}", "ak_live_GOOD")
+    assert u["_via"] == "CityGPT Global"                       # app-key name wins
+    u2 = deps.current_principal(f"Bearer {_tok()}")
+    assert u2["_via"] == CLIENT                                # else the client id
+    assert "_via" not in USERS["alice@city.test"]              # store row not mutated
+
+
+def test_channel_labels():
+    from app.routes import _channel
+    assert _channel({"id": 1}) == "web"
+    assert _channel({"_widget": True}) == "widget"
+    assert _channel({"_via": "CityGPT Global"}) == "app:CityGPT Global"

@@ -865,6 +865,13 @@ If it shows `http://` or the wrong host, the Public URL isn't applied — fix it
 
 > Common mistake: leaving `PUBLIC_URL` as the example domain (`aria.yourco.com`) from a template — the IdP then rejects the redirect because it doesn't match your real domain. Set it to **your** domain (or set it in the UI).
 
+### Section trees (PageIndex Flash, 2.29.0)
+Each runbook's section tree is built by **PageIndex Flash** from the PDF layout and bookmarks — no LLM, ~0.1–0.7 s per SOP (`TREE_MODE=flash`, default). Scanned/image-only PDFs fall back to the LLM builder (`TREE_MODE=llm` forces it). To rebuild trees for docs ingested earlier (e.g. installs from before 2.29.0, where `vendor_pageindex/` was missing and every page became its own section):
+```
+docker compose ... exec -T app python scripts/rebuild_trees.py --dry-run   # report
+docker compose ... exec -T app python scripts/rebuild_trees.py             # flat-tree docs only
+```
+
 ### Small talk & corpus questions
 - **"hi" / "thanks" / "who are you" / "help"** (English + Burmese) are answered instantly with no LLM call, plus a few example questions as follow-ups. Only a message that is *entirely* small talk counts ("hi, how do I…" is searched normally), and greetings are not counted as blind spots.
 - **"What SOPs do we have?"** — on a large library Aria lists each area with its count and a few titles; ask **"list Batch Jobs runbooks"** (any area name) for one area in full.

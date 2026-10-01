@@ -23,6 +23,8 @@
 
   let me = $state<User | null>(auth.cachedUser());
   let isAdmin = $derived((me?.role === 'admin' || me?.role === 'superadmin'));
+  // group-granted teachers (no admin role) still get the Teach action on Brain pages
+  let canTeach = $derived(isAdmin || !!(me as any)?.capabilities?.teach_knowledge);
   $effect(() => { if (!me) auth.me().then((u) => (me = u)).catch(() => {}); });
 
   const COMP: Record<string, any> = {
@@ -139,6 +141,16 @@
               Teach fact
             </button>
           {/if}
+        </div>
+      </div>
+    {:else if canTeach && onBrain}
+      <div class="statbar">
+        <div class="spills"></div>
+        <div class="sacts">
+          <button class="tbtn" onclick={fireTeach} title="Teach a fact">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.1V18h6v-1.2c0-.8.4-1.6 1-2.1A7 7 0 0 0 12 2z"/></svg>
+            Teach fact
+          </button>
         </div>
       </div>
     {/if}

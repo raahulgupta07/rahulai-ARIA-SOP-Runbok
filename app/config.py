@@ -242,6 +242,8 @@ OIDC_BEARER_ENABLED = os.getenv("OIDC_BEARER_ENABLED", "0").lower() in ("1", "tr
 OIDC_BEARER_CLIENT_IDS = os.getenv("OIDC_BEARER_CLIENT_IDS", "")
 # Create an Aria account the first time someone asks from a connected app (same as
 # Aria's own SSO login does on first sign-in). OFF by default; UI value wins once saved.
+# Section tree: "flash" = PageIndex Flash from PDF layout (no LLM) with LLM fallback; "llm" = LLM only
+TREE_MODE = os.getenv("TREE_MODE", "flash").lower()
 OIDC_BEARER_AUTO_CREATE = os.getenv("OIDC_BEARER_AUTO_CREATE", "0").lower() in ("1", "true", "yes", "on")
 
 # CORS: cross-origin browser callers. Empty (default) = same-origin only — the

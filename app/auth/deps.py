@@ -91,7 +91,10 @@ def _bearer_user(token: str, app_key: str | None = None) -> dict:
         except Exception as e:
             print(f"[auth] touch_login skipped: {e!r}")
         log_event("bearer_ok", email, meta=meta)
-    return user
+    # tag the principal with the calling app so answers can be attributed (channel)
+    u = dict(user)
+    u["_via"] = (app or {}).get("name") or claims.get("_client_id") or "app"
+    return u
 
 
 def _bearer(authorization: str | None) -> str | None:

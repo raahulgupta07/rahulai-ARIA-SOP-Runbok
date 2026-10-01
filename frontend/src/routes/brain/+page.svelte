@@ -13,6 +13,11 @@
   let _me = $state<any>(auth.cachedUser());
   $effect(() => { if (!_me) auth.me().then((u) => (_me = u)).catch(() => {}); });
   let isAdmin = $derived((_me?.role === 'admin' || _me?.role === 'superadmin'));
+  // group-granted caps (backend: rbac.can_teach / can_manage_content) — admin-tier always has both
+  let canTeach = $derived(isAdmin || !!_me?.capabilities?.teach_knowledge);
+  let canManage = $derived(isAdmin || !!_me?.capabilities?.manage_content);
+  // doc delete is ownership-scoped server-side (rbac.can_delete_doc): content managers OR the uploader
+  function canDelDoc(d: { uploaded_by?: string | null }) { return canManage || (!!_me?.email && d.uploaded_by === _me.email); }
 
   type Doc = {
     id: number; name: string; lang: string; page_count: number; sections: number; created_at: string;
@@ -573,7 +578,7 @@
     sync = { ...sync, finished: true, done: okN, total: okN, cur: '' };
     syncFade = setTimeout(() => (sync = null), 4000);   // "queued · indexing now" then fade; robot takes over
   }
-  function onDrop(e: DragEvent) { e.preventDefault(); dragOver = false; if (e.dataTransfer?.files) handleFiles(e.dataTransfer.files); }
+  function onDrop(e: DragEvent) { e.preventDefault(); dragOver = false; if (!canManage) return; if (e.dataTransfer?.files) handleFiles(e.dataTransfer.files); }
 
   let retagging = $state(false);
   async function retagAll() {
@@ -1179,7 +1184,7 @@
   let tKey = $state(''); let tVal = $state(''); let tBusy = $state(false);
   let teachOpen = $state(false);
   let folderInput: HTMLInputElement;
-  function startTeach() { tKey = ''; tVal = ''; teachOpen = true; }
+  function startTeach() { if (!canTeach) return; tKey = ''; tVal = ''; teachOpen = true; }
   // server-folder bulk import ("Import from server")
   let scanInfo = $state<{ exists: boolean; found: number; new: number; skipped: number; dir: string } | null>(null);
   let scanning = $state(false);
@@ -2144,7 +2149,7 @@
                 {#each audit.stale_facts as s}
                   <div class="flex items-center justify-between gap-3 px-3.5 py-2.5" style="border-color:var(--line)">
                     <button onclick={() => selectFact(facts.find((f) => f.id === s.id) || s)} class="text-left text-[13px] truncate hover:underline" style="color:var(--ink)">{s.value}</button>
-                    <button onclick={() => rejectFact(s)} class="shrink-0 text-[11.5px] px-2 py-0.5 rounded border" style="border-color:var(--border); color:var(--muted)">Retire</button>
+                    {#if canTeach}<button onclick={() => rejectFact(s)} class="shrink-0 text-[11.5px] px-2 py-0.5 rounded border" style="border-color:var(--border); color:var(--muted)">Retire</button>{/if}
                   </div>
                 {/each}
               </div>
@@ -2187,7 +2192,7 @@
                     </div>
 
                     <!-- Teach correction affordance -->
-                    {#if corr}
+                    {#if corr && canTeach}
                       <div class="flex items-center flex-wrap gap-2 mt-2.5 pt-2.5 border-t" style="border-color:var(--line)">
                         {#if linkedFact && linkedFact.status === 'pending'}
                           <span class="text-[11px]" style="color:var(--clay)">→ pending in Facts</span>
@@ -3081,10 +3086,12 @@
                     <div class="text-[13.5px]" style="color:var(--ink)">{f.value}</div>
                     <div class="text-[11px] mt-1" style="color:var(--muted)">{f.source === 'doc' ? 'From a document' : f.source === 'feedback' ? 'From a correction' : 'Learned in chat'}{f.source !== 'doc' && f.created_by ? ' · from ' + f.created_by : ''}{f.created_at ? ' · ' + relTime(f.created_at) : ''}</div>
                   </button>
+                  {#if canTeach}
                   <div class="flex gap-1.5 shrink-0">
                     <button onclick={() => approveFact(f)} class="text-[12px] px-3 py-1.5 rounded-[8px] text-white" style="background:var(--clay)">✓ Approve</button>
                     <button onclick={() => rejectFact(f)} class="text-[12px] px-3 py-1.5 rounded-[8px] border" style="border-color:var(--border); color:var(--muted); background:#fff">Reject</button>
                   </div>
+                  {/if}
                 </div>
               {/each}
             </div>
@@ -3126,12 +3133,14 @@
               {:else if st === 'queued'}
                 <div class="fmeta"><span class="fdot" style="background:{statusDot(st)}"></span>Queued</div>
               {/if}
-              {#if st === 'failed'}
+              {#if st === 'failed' && canManage}
                 <button onclick={(e) => { e.stopPropagation(); retryDoc(d); }} class="ddel" style="right:36px; color:var(--clay)" aria-label="Retry">↻</button>
               {/if}
+              {#if canDelDoc(d)}
               <button onclick={(e) => { e.stopPropagation(); delDoc(d); }} class="ddel" aria-label="Delete document">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
               </button>
+              {/if}
             </div>
           {/snippet}
 
@@ -3188,14 +3197,16 @@
               <span class="dl-c-by" title={d.uploaded_by || ''}>{shortUser(d.uploaded_by)}</span>
               <!-- Col 9: Actions -->
               <div class="dl-c-act">
-                {#if st === 'failed'}
+                {#if st === 'failed' && canManage}
                   <button class="dl-icon" title="Retry" onclick={(e) => { e.stopPropagation(); retryDoc(d); }} aria-label="Retry">↻</button>
                 {:else if st === 'ready'}
                   <button class="dl-open" onclick={(e) => { e.stopPropagation(); selectDoc(d); }} aria-label="Open document">Open →</button>
                 {/if}
+                {#if canDelDoc(d)}
                 <button class="dl-icon" title="Delete" onclick={(e) => { e.stopPropagation(); delDoc(d); }} aria-label="Delete document">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
                 </button>
+                {/if}
               </div>
             </div>
           {/snippet}
@@ -3225,7 +3236,7 @@
                 {/if}
               </div>
             {/if}
-            {#if isAdmin}
+            {#if canManage}
               <button class="chip" style="margin-left:auto; color:var(--clay)" title="Re-run auto-categorize on all documents" onclick={retagAll} disabled={retagging}>{retagging ? 'Tagging…' : '↻ Re-tag'}</button>
             {/if}
           </div>
@@ -3300,7 +3311,7 @@
             <div class="panel p-12 text-center" style="color:var(--muted)">
               <div class="text-3xl mb-2">—</div>
               <div class="text-[13.5px]">{needle ? `No documents match "${needle}".` : docDate !== 'all' ? 'No documents in this date range.' : 'No documents yet.'}</div>
-              <button onclick={() => fileInput.click()} class="mt-4 text-sm px-4 py-2 rounded-[9px] text-white" style="background:var(--clay)">Upload a document</button>
+              {#if canManage}<button onclick={() => fileInput.click()} class="mt-4 text-sm px-4 py-2 rounded-[9px] text-white" style="background:var(--clay)">Upload a document</button>{/if}
             </div>
           {:else if isViewCards}
             {#if isCatAll}
@@ -3388,12 +3399,14 @@
                     {#if p.confidence != null}<span>·</span><span>conf {Math.round((p.confidence || 0) * 100)}%</span>{/if}
                     {#if p.created_at}<span>·</span><span>{relTime(p.created_at)}</span>{/if}
                   </div>
+                  {#if canTeach}
                   <div class="flex gap-1.5 mt-1">
                     {#if st !== 'active'}<button disabled={qaBusy === p.id} onclick={() => approveQa(p)} class="text-[12px] px-3 py-1.5 rounded-[8px] text-white disabled:opacity-50" style="background:var(--clay)">✓ Approve</button>{/if}
                     {#if st !== 'rejected'}<button disabled={qaBusy === p.id} onclick={() => rejectQa(p)} class="text-[12px] px-3 py-1.5 rounded-[8px] border disabled:opacity-50" style="border-color:var(--border); color:var(--muted); background:#fff">Reject</button>{/if}
                     <button disabled={qaBusy === p.id} onclick={() => startQaEdit(p)} class="text-[12px] px-3 py-1.5 rounded-[8px] border disabled:opacity-50" style="border-color:var(--border); color:var(--muted); background:#fff">Edit</button>
                     <button disabled={qaBusy === p.id} onclick={() => delQa(p)} class="text-[12px] px-2.5 py-1.5 rounded-[8px] border disabled:opacity-50 ml-auto" style="border-color:var(--border); color:var(--muted); background:#fff" title="Delete">Delete</button>
                   </div>
+                  {/if}
                   {/if}
                 </div>
               {/each}
@@ -3439,10 +3452,10 @@
               {#if feedType !== 'fact'}<div class="text-[11.5px] mt-1">Facts also appear when you teach Aria in Chat ("remember…", "the correct value is…").</div>{:else}<div class="text-[11.5px] mt-1">Or just tell Aria in Chat: "remember that…" — it learns automatically (pending your review).</div>{/if}
               <div class="flex items-center justify-center gap-2 mt-4">
                 {#if feedType === 'fact'}
-                  <button onclick={startTeach} class="text-sm px-4 py-2 rounded-[9px] text-white" style="background:var(--clay)">Teach a fact</button>
+                  {#if canTeach}<button onclick={startTeach} class="text-sm px-4 py-2 rounded-[9px] text-white" style="background:var(--clay)">Teach a fact</button>{/if}
                 {:else}
-                  <button onclick={() => fileInput.click()} class="text-sm px-4 py-2 rounded-[9px] text-white" style="background:var(--clay)">Upload a document</button>
-                  <button onclick={startTeach} class="text-sm px-4 py-2 rounded-[9px] border" style="border-color:var(--border); color:var(--clay); background:#fff">Teach a fact</button>
+                  {#if canManage}<button onclick={() => fileInput.click()} class="text-sm px-4 py-2 rounded-[9px] text-white" style="background:var(--clay)">Upload a document</button>{/if}
+                  {#if canTeach}<button onclick={startTeach} class="text-sm px-4 py-2 rounded-[9px] border" style="border-color:var(--border); color:var(--clay); background:#fff">Teach a fact</button>{/if}
                 {/if}
               </div>
             </div>
@@ -3664,7 +3677,7 @@
           {#if factEditMode}
             <button onclick={() => (factEditMode = false)} class="mbtn-ghost">Cancel</button>
             <button onclick={() => saveFactEdit(f)} class="mbtn" style="background:var(--clay)">Save</button>
-          {:else}
+          {:else if canTeach}
             <button onclick={() => { factEditKey = f.key || ''; factEditVal = f.value || ''; factEditMode = true; }} class="mbtn-ghost">Edit</button>
             {#if f.status === 'pending'}
               <button onclick={() => rejectFact(f)} class="mbtn-ghost">Reject</button>
@@ -3858,7 +3871,7 @@
             <div class="jrow">
               <span class="jdot bad"></span>
               <span class="jname" title={parseDocName(d.name).title}>{parseDocName(d.name).title}</span>
-              <button class="jretry" onclick={() => retryDoc(d)}>↻ Retry</button>
+              {#if canManage}<button class="jretry" onclick={() => retryDoc(d)}>↻ Retry</button>{/if}
             </div>
           {/each}
         {/if}

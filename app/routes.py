@@ -402,6 +402,15 @@ def read_all():
     return {"ok": True}
 
 
+def _channel(user: dict) -> str:
+    """Where a question came from, for answer_metrics.channel."""
+    if user.get("_widget"):
+        return "widget"
+    if user.get("_via"):
+        return f"app:{user['_via']}"[:80]
+    return "web"
+
+
 def _pages_by_ids(ids: list[int]) -> list[dict]:
     if not ids:
         return []
@@ -526,7 +535,8 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
                 analytics_mod.record_metric(
                     message_id=bot_id, conversation_id=conv_id, user_id=user.get("id"),
                     model="qa-bank", mode="cache", ms_total=int((time.monotonic() - _t0) * 1000),
-                    cited_n=len(cited), blind=(len(cited) == 0), cache_hit=True)
+                    cited_n=len(cited), blind=(len(cited) == 0), cache_hit=True,
+                    channel=_channel(user))
             except Exception:
                 pass
             return {"answer": ans, "pages": cited, "conversation_id": conv_id,
@@ -706,7 +716,8 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
                         message_id=bot_id, conversation_id=conv_id, user_id=user.get("id"),
                         model="qa-bank", mode="cache",
                         ms_total=int((time.monotonic() - _t0_req) * 1000),
-                        cited_n=len(cited), blind=(len(cited) == 0), cache_hit=True)
+                        cited_n=len(cited), blind=(len(cited) == 0), cache_hit=True,
+                        channel=_channel(user))
                 except Exception:
                     pass
                 title = convo.autotitle(conv_id, req.q) if first_turn else None
@@ -935,7 +946,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
         try:
             analytics_mod.record_metric(
                 message_id=bot_id, conversation_id=conv_id, user_id=user["id"],
-                model=meter.get("model"), mode=req.mode,
+                model=meter.get("model"), mode=req.mode, channel=_channel(user),
                 ms_first_token=first_ms[0],
                 ms_total=int((time.monotonic() - t0) * 1000),
                 tok_in=meter.get("tok_in", 0), tok_out=meter.get("tok_out", 0),

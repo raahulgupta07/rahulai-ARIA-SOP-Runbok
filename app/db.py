@@ -442,6 +442,8 @@ ALTER TABLE answer_metrics ADD COLUMN IF NOT EXISTS cache_hit BOOLEAN DEFAULT FA
 ALTER TABLE answer_metrics ADD COLUMN IF NOT EXISTS scanned   INTEGER;
 ALTER TABLE answer_metrics ADD COLUMN IF NOT EXISTS pool      INTEGER;
 ALTER TABLE answer_metrics ADD COLUMN IF NOT EXISTS reranked  INTEGER;
+-- where the question came from: 'web' | 'widget' | 'app:<app key name or client id>' (NULL = before 2.29 → web)
+ALTER TABLE answer_metrics ADD COLUMN IF NOT EXISTS channel   TEXT;
 
 -- ---- per-document ingest event timeline (ops cockpit doc log) ----
 -- append-only, one row per meaningful ingest stage transition / per-page event.

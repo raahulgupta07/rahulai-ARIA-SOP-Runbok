@@ -98,8 +98,29 @@ def render_pages(pdf_path: Path, doc_slug: str) -> list[dict]:
     return pages
 
 
-def build_tree(pdf_path: Path) -> dict | None:
-    """Build PageIndex reasoning tree. Returns None on failure (non-fatal).
+def _fill_summaries(tree: dict, pages: list[dict] | None) -> dict:
+    """Flash nodes carry no summary; nodes.tsv indexes title||summary and node hits
+    weigh 2x in retrieval, so give each node the opening text of its first page
+    (same idea as _flat_tree). No LLM."""
+    if not pages:
+        return tree
+    by_no = {p["page_no"]: (p.get("text") or "") for p in pages}
+
+    def walk(nodes):
+        for n in nodes or []:
+            if not (n.get("summary") or "").strip():
+                n["summary"] = by_no.get(n.get("start_index"), "")[:300]
+            walk(n.get("nodes"))
+    walk(tree.get("structure"))
+    return tree
+
+
+def build_tree(pdf_path: Path, pages: list[dict] | None = None) -> dict | None:
+    """Build the document's section tree. Returns None on failure (non-fatal).
+
+    TREE_MODE=flash (default): PageIndex Flash reads the PDF layout/bookmarks —
+    no LLM, ~0.1-0.7 s per SOP. Returns None for scanned/image-only PDFs, which
+    then fall through to the LLM builder below. TREE_MODE=llm skips Flash.
 
     page_index makes its own LLM calls with NO timeout — a stalled OpenRouter
     response would hang ingest forever (observed). Run it in a worker thread with
@@ -107,6 +128,15 @@ def build_tree(pdf_path: Path) -> dict | None:
     finishes. (The orphaned thread eventually unblocks on the client's own TCP
     timeout; it can't corrupt anything — its result is just discarded.)"""
     from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FTimeout
+    if os.getenv("TREE_MODE", "flash").lower() == "flash":
+        try:
+            from .tree_flash import build_tree_flash
+            t = build_tree_flash(str(pdf_path), timeout_s=int(os.getenv("TREE_FLASH_TIMEOUT", "30")))
+            if t:
+                print(f"[ingest] flash tree ({t.get('toc_source')}) for {pdf_path.name}")
+                return _fill_summaries(t, pages)
+        except Exception as e:
+            print(f"[ingest] flash tree skipped: {e!r}")
     deadline = float(os.getenv("TREE_BUILD_TIMEOUT", "120"))
 
     def _run():
@@ -324,14 +354,14 @@ def process_doc(doc_id: int, src_path: Path, display_name: str, should_cancel=No
         try:
             tree = _tree_cached if isinstance(_tree_cached, (dict, list)) else json.loads(_tree_cached)
         except Exception:
-            tree = build_tree(pdf_path)
+            tree = build_tree(pdf_path, pages)
         has_tree = tree is not None
         if not has_tree:
             tree = _flat_tree(display_name, pages)
     else:
         log_ingest(doc_id, "tree", f"🌳 building page tree… {len(pages)} pages")
         _log_event(doc_id, "structure", f"building page tree ({len(pages)} pages)")
-        tree = build_tree(pdf_path)
+        tree = build_tree(pdf_path, pages)
         has_tree = tree is not None
         if not has_tree:
             tree = _flat_tree(display_name, pages)

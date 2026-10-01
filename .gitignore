@@ -37,3 +37,9 @@ vendor_pageindex/results/
 
 # product videos (generated)
 brag-output/
+
+# vendored PageIndex: track the code only, not upstream examples/notebooks
+vendor_pageindex/examples/
+vendor_pageindex/cookbook/
+vendor_pageindex/.claude/
+logs/
