@@ -6,12 +6,23 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.26.1"
+VERSION = "2.27.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.27.0",
+        "date": "2026-10-01",
+        "title": "App keys for connected apps",
+        "lines": [
+            "Give each connected app or server (for example each CityGPT site) its own key — no need to look up and type sign-in client IDs",
+            "The app still passes along each person's own sign-in, so Aria always knows who is asking; a key on its own gets no answers",
+            "Settings → Authentication → App keys: create, revoke or delete keys, and see when each was last used and how often",
+            "Ready-made CityGPT / OpenWebUI connector included (integrations/openwebui/aria_pipe.py)",
+        ],
+    },
     {
         "version": "2.26.1",
         "date": "2026-10-01",

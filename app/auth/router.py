@@ -351,6 +351,48 @@ def admin_save_config(body: dict, _: dict = Depends(require_superadmin)):
     return _with_bearer_effective(store.save_config(body))
 
 
+# ---- app API keys for "Access from other apps" (super-admin) ----
+@router.get("/admin/app-keys")
+def admin_app_keys(_: dict = Depends(require_superadmin)):
+    from . import app_keys
+    return {"keys": app_keys.list_keys(), "header": app_keys.HEADER}
+
+
+@router.post("/admin/app-keys")
+def admin_app_key_create(body: dict, admin: dict = Depends(require_superadmin)):
+    from . import app_keys
+    from ..security_log import log_event
+    try:
+        row = app_keys.create(body.get("name", ""), created_by=admin.get("email"))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    log_event("app_key_create", None, actor_email=admin.get("email"),
+              meta={"id": row["id"], "name": row["name"], "prefix": row["key_prefix"]})
+    return row                                   # includes the plaintext key — shown once
+
+
+@router.post("/admin/app-keys/{key_id}/active")
+def admin_app_key_active(key_id: int, body: dict, admin: dict = Depends(require_superadmin)):
+    from . import app_keys
+    from ..security_log import log_event
+    active = bool(body.get("active"))
+    if not app_keys.set_active(key_id, active):
+        raise HTTPException(status_code=404, detail="key not found")
+    log_event("app_key_enable" if active else "app_key_revoke", None,
+              actor_email=admin.get("email"), meta={"id": key_id})
+    return {"ok": True}
+
+
+@router.delete("/admin/app-keys/{key_id}")
+def admin_app_key_delete(key_id: int, admin: dict = Depends(require_superadmin)):
+    from . import app_keys
+    from ..security_log import log_event
+    if not app_keys.delete(key_id):
+        raise HTTPException(status_code=404, detail="key not found")
+    log_event("app_key_delete", None, actor_email=admin.get("email"), meta={"id": key_id})
+    return {"ok": True}
+
+
 def _with_bearer_effective(c: dict) -> dict:
     """Attach the EFFECTIVE bearer-token settings (UI value, else env) so the
     Settings page can show what is live even before an admin saves it."""

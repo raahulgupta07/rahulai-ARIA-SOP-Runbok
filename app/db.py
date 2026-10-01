@@ -361,6 +361,21 @@ ALTER TABLE oidc_state ADD COLUMN IF NOT EXISTS pid TEXT;
 -- OIDC nonce bound to this auth attempt; validated against the id_token claim.
 ALTER TABLE oidc_state ADD COLUMN IF NOT EXISTS nonce TEXT;
 
+-- ---- app API keys: identify a calling app (e.g. one CityGPT server) on the
+-- SSO pass-through path. The user is still identified by their own SSO token.
+-- Only a SHA-256 of the key is stored; the key itself is shown once.
+CREATE TABLE IF NOT EXISTS app_keys (
+    id           BIGSERIAL PRIMARY KEY,
+    name         TEXT NOT NULL,
+    key_prefix   TEXT NOT NULL,
+    key_hash     TEXT NOT NULL UNIQUE,
+    active       BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by   TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_used_at TIMESTAMPTZ,
+    uses         BIGINT NOT NULL DEFAULT 0
+);
+
 -- ---- per-user chat conversations + messages ----
 CREATE TABLE IF NOT EXISTS conversations (
     id          BIGSERIAL PRIMARY KEY,

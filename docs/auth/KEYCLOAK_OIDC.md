@@ -326,6 +326,13 @@ signed-in user** with `Authorization: Bearer <Keycloak access token>`. Code:
   throttled to once per user per 10 min.
 - **Config:** env `OIDC_BEARER_ENABLED` / `OIDC_BEARER_CLIENT_IDS`; UI keys
   `auth_config.bearer_enabled` / `bearer_client_ids` (None → env).
-- **Tests:** `tests/test_oidc_bearer.py` (offline RSA key + fake JWKS).
+- **App keys (2.27.0):** optional header `X-Aria-App-Key: ak_live_…` (`app/auth/app_keys.py`,
+  table `app_keys`, SHA-256 stored, plaintext shown once). Valid key → `verify_bearer(skip_client_check=True)`
+  (signature/issuer/expiry/typ still enforced, user must still exist); wrong/revoked key → 401 even if the
+  client is allow-listed; no header → client allow-list as before. Each call bumps `uses`/`last_used_at`;
+  audit meta gains `app_key`. Admin routes `/api/admin/app-keys…` (super-admin). Header param on
+  `current_user`/`current_principal` is normalised with `isinstance(str)` because `require_admin` calls
+  `current_user()` positionally (FastAPI `Header` default object otherwise → crash).
+- **Tests:** `tests/test_oidc_bearer.py` (offline RSA key + fake JWKS; 29 cases incl. app keys).
 - ★ LDAP-created users may hold a UPN (`x@corp.local`) that differs from Keycloak's `email` → 403.
   Check emails match before go-live.

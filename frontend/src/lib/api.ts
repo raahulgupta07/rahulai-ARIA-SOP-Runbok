@@ -797,6 +797,18 @@ export const api = {
   async adminSaveAuthConfig(cfg: any) {
     return jsonOrThrow(await fetch(`${BASE}/admin/auth-config`, { method: 'PUT', headers: headers(), body: JSON.stringify(cfg) }));
   },
+  async appKeys() {
+    return jsonOrThrow(await fetch(`${BASE}/admin/app-keys`, { headers: headers(false) }));
+  },
+  async appKeyCreate(name: string) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/app-keys`, { method: 'POST', headers: headers(), body: JSON.stringify({ name }) }));
+  },
+  async appKeyActive(id: number, active: boolean) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/app-keys/${id}/active`, { method: 'POST', headers: headers(), body: JSON.stringify({ active }) }));
+  },
+  async appKeyDelete(id: number) {
+    return jsonOrThrow(await fetch(`${BASE}/admin/app-keys/${id}`, { method: 'DELETE', headers: headers(false) }));
+  },
   async adminTestLdap(cfg: any) {
     return jsonOrThrow(await fetch(`${BASE}/admin/auth-config/test-ldap`, { method: 'POST', headers: headers(), body: JSON.stringify(cfg) }));
   },

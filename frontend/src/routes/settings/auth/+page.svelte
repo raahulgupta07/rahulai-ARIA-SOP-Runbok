@@ -14,6 +14,30 @@
   let edit = $state<any>(null);
   let modalTest = $state('');
 
+  // app API keys ("Access from other apps") — one per calling app/server
+  let appKeys = $state<any[]>([]);
+  let akName = $state('');
+  let akNew = $state<any>(null);          // freshly created key, plaintext shown once
+  let akBusy = $state(false);
+  let akErr = $state('');
+  async function loadAppKeys() {
+    try { appKeys = (await api.appKeys()).keys || []; } catch { appKeys = []; }
+  }
+  $effect(() => { loadAppKeys(); });
+  async function createAppKey() {
+    if (!akName.trim()) return;
+    akBusy = true; akErr = '';
+    try { akNew = await api.appKeyCreate(akName.trim()); akName = ''; await loadAppKeys(); }
+    catch (e: any) { akErr = e?.message || 'Could not create the key'; }
+    finally { akBusy = false; }
+  }
+  async function toggleAppKey(k: any) { await api.appKeyActive(k.id, !k.active); await loadAppKeys(); }
+  async function deleteAppKey(k: any) { await api.appKeyDelete(k.id); await loadAppKeys(); }
+  async function copyKey() {
+    try { await navigator.clipboard.writeText(akNew.key); akErr = 'Copied'; } catch { akErr = 'Select the key and copy it'; }
+  }
+  function akWhen(d: string | null) { return d ? new Date(d).toLocaleString() : 'never'; }
+
   // unsaved-changes indicator: current config differs from the last save
   let dirty = $derived(!!cfg && JSON.stringify(cfg) !== clean);
 
@@ -199,8 +223,40 @@
           {#if cfg.bearer_enabled && !cfg.oidc_providers.some((p: any) => p.enabled && p.issuer)}
             <div class="rhint">⚠ Add and enable an SSO provider first — tokens are checked against its issuer.</div>
           {/if}
-          <div class="redirect">Callers send this header on any API request, e.g. <b>POST /api/ask/stream</b>
-            <code>Authorization: Bearer &lt;user's SSO access token&gt;</code></div>
+          <div class="redirect">Callers send these headers on any API request, e.g. <b>POST /api/ask/stream</b>
+            <code>Authorization: Bearer &lt;user's SSO access token&gt;</code>
+            <code>X-Aria-App-Key: &lt;app key&gt;   (optional — replaces the client-ID list)</code></div>
+        </Section>
+
+        <Section title="App keys" desc="Give each app or server its own key instead of listing client IDs. The app still forwards the person's own sign-in, so Aria always knows who is asking — a key alone gets no answers. Revoke a key to cut that app off.">
+          <div class="akrow">
+            <input class="txt" bind:value={akName} placeholder="e.g. CityGPT Global" onkeydown={(e) => e.key === 'Enter' && createAppKey()} />
+            <button class="btn add" disabled={akBusy || !akName.trim()} onclick={createAppKey}>{akBusy ? 'Creating…' : '+ Create key'}</button>
+          </div>
+          {#if akNew}
+            <div class="aknew">
+              <b>Copy this key now — it won't be shown again.</b> Paste it into the app's <i>aria_app_key</i> setting.
+              <code class="akcode">{akNew.key}</code>
+              <div class="akbtns"><button class="btn sm" onclick={copyKey}>Copy</button><button class="btn sm ghost" onclick={() => { akNew = null; akErr = ''; }}>Done</button></div>
+            </div>
+          {/if}
+          {#if akErr}<div class="rhint">{akErr}</div>{/if}
+          {#if !appKeys.length}
+            <div class="rhint">No app keys yet.</div>
+          {:else}
+            {#each appKeys as k (k.id)}
+              <div class="rowcard" style="opacity:{k.active ? 1 : 0.62}">
+                <div class="meta">
+                  <div class="nm">{k.name}
+                    {#if k.active}<span class="st on">● Active</span>{:else}<span class="st">○ Revoked</span>{/if}
+                  </div>
+                  <div class="sub">{k.key_prefix}… · created {akWhen(k.created_at)} · last used {akWhen(k.last_used_at)} · {k.uses} calls</div>
+                </div>
+                <button class="btn sm" onclick={() => toggleAppKey(k)}>{k.active ? 'Revoke' : 'Re-enable'}</button>
+                <button class="del" onclick={() => deleteAppKey(k)} title="Delete">✕</button>
+              </div>
+            {/each}
+          {/if}
         </Section>
 
       {:else if pane === 'sso'}
@@ -433,6 +489,11 @@
   .redirect{background:#f4f3f0; border-radius:9px; padding:9px 11px; font-size:11.5px; color:var(--muted); margin-top:4px;}
   .redirect code{display:block; margin-top:4px; font-size:11px; color:var(--ink); word-break:break-all;}
   .rhint{margin-top:6px; font-size:11px; color:var(--muted);}
+  .akrow{display:flex; gap:10px; align-items:center; padding:10px 0;}
+  .akrow .txt{min-width:0;}
+  .aknew{margin:6px 0 10px; padding:12px 14px; border:1px solid var(--border); border-radius:10px; background:#fbfaf7; font-size:13px; display:flex; flex-direction:column; gap:8px;}
+  .akcode{font-family:ui-monospace,monospace; font-size:12.5px; background:#fff; border:1px solid var(--border); border-radius:8px; padding:8px 10px; word-break:break-all; user-select:all;}
+  .akbtns{display:flex; gap:8px;}
 
   @media (max-width:640px){
     .mcards{grid-template-columns:1fr;}

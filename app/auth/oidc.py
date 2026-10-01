@@ -168,9 +168,11 @@ def bearer_settings() -> dict:
     }
 
 
-def verify_bearer(token: str) -> dict | None:
+def verify_bearer(token: str, skip_client_check: bool = False) -> dict | None:
     """Verify an IdP-issued ACCESS token (e.g. the Keycloak token OpenWebUI
     forwards). Returns the claims plus `_issuer` / `_client_id`, or None.
+    skip_client_check=True when the caller already proved which app it is with
+    a valid app API key — signature, issuer, expiry and typ are still enforced.
     Never raises; never logs or returns the token."""
     try:
         cfg = bearer_settings()
@@ -188,26 +190,28 @@ def verify_bearer(token: str) -> dict | None:
                 disc = _discover_cached(p["issuer"])
                 claims = _decode_signed(token, p["issuer"], disc["jwks_uri"], strict_kid=True)
             except Exception as e:
-                print(f"[oidc-bearer] rejected ({type(e).__name__})")
+                print(f"[oidc-bearer] rejected ({type(e).__name__})", flush=True)
                 continue
             # an id_token also carries azp=client — only accept access tokens
             typ = claims.get("typ")
             if typ and str(typ).lower() != "bearer":
-                print("[oidc-bearer] rejected (not an access token)")
+                print("[oidc-bearer] rejected (not an access token)", flush=True)
                 continue
             allowed = cfg["client_ids"] or _client_ids([p.get("client_id")])
             aud = claims.get("aud")
             aud_list = aud if isinstance(aud, list) else [aud]
             azp = claims.get("azp")
             match = azp if azp in allowed else next((a for a in aud_list if a in allowed), None)
+            if skip_client_check:
+                match = match or azp or (aud_list[0] if aud_list else None)
             if not match:
-                print("[oidc-bearer] rejected (client not allow-listed)")
+                print("[oidc-bearer] rejected (client not allow-listed)", flush=True)
                 continue
             claims["_issuer"] = iss
             claims["_client_id"] = match
             return claims
     except Exception as e:
-        print(f"[oidc-bearer] rejected ({type(e).__name__})")
+        print(f"[oidc-bearer] rejected ({type(e).__name__})", flush=True)
     return None
 
 
