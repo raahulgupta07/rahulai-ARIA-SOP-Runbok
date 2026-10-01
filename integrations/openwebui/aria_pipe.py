@@ -1,7 +1,7 @@
 """
 title: Aria (Runbooks)
 author: CityGPT platform
-version: 0.3.0
+version: 0.3.1
 description: Ask City Agent Aria (company runbooks / SOPs) as the signed-in user. No shared keys.
 requirements: httpx
 """
@@ -359,7 +359,8 @@ class Pipe:
     async def _finish(self, ev: dict, emitter, chat_id: str):
         """Sources, ungrounded warning, chat title and follow-ups from the done event."""
         pages = ev.get("pages") or []
-        if self.valves.show_sources and pages:
+        # an overview IS the list of runbooks — repeating it as sources is noise
+        if self.valves.show_sources and pages and not ev.get("global"):
             lines = ["\n\n---\n**Sources**"]
             seen = set()
             for p in pages[:8]:
@@ -374,7 +375,9 @@ class Pipe:
                 lines.append(f"- [{label}]({self._base}{url})" if url else f"- {label}")
             yield "\n".join(lines)
 
-        if ev.get("blind") and not ev.get("grounded"):
+        # only for a real ungrounded answer — not a polite "outside my runbooks"
+        # refusal (declined) and not small talk ("hi", "thanks")
+        if ev.get("blind") and not ev.get("grounded") and not ev.get("declined") and not ev.get("smalltalk"):
             yield "\n\n_No runbook covers this yet — the answer above is not backed by a source._"
 
         if not emitter:

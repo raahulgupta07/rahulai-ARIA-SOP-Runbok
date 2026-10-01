@@ -6,12 +6,24 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.27.0"
+VERSION = "2.27.1"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.27.1",
+        "date": "2026-10-01",
+        "title": "Instant hellos & a readable runbook list",
+        "lines": [
+            "'Hi', 'thanks', 'who are you', 'help' (English and Burmese) get an instant friendly reply with example questions — no more 8-second search ending in 'outside the runbooks'",
+            "Greetings no longer count as blind spots in Coverage Audit",
+            "'What SOPs do we have' on a large library now shows each area with its count and a few titles, instead of hundreds of lines",
+            "Ask 'list <area> runbooks' (e.g. 'list Batch Jobs runbooks') to see one whole area; '(summary pending)' placeholders are gone",
+            "Polite 'outside my runbooks' replies are marked as declined, so connected apps don't add an extra warning",
+        ],
+    },
     {
         "version": "2.27.0",
         "date": "2026-10-01",

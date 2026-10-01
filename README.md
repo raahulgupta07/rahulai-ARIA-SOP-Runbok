@@ -865,6 +865,10 @@ If it shows `http://` or the wrong host, the Public URL isn't applied — fix it
 
 > Common mistake: leaving `PUBLIC_URL` as the example domain (`aria.yourco.com`) from a template — the IdP then rejects the redirect because it doesn't match your real domain. Set it to **your** domain (or set it in the UI).
 
+### Small talk & corpus questions
+- **"hi" / "thanks" / "who are you" / "help"** (English + Burmese) are answered instantly with no LLM call, plus a few example questions as follow-ups. Only a message that is *entirely* small talk counts ("hi, how do I…" is searched normally), and greetings are not counted as blind spots.
+- **"What SOPs do we have?"** — on a large library Aria lists each area with its count and a few titles; ask **"list Batch Jobs runbooks"** (any area name) for one area in full.
+
 ### Access from other apps (SSO access tokens, e.g. CityGPT / OpenWebUI)
 
 Another app your users already sign in to with the same Keycloak realm can call Aria's API **as the signed-in user** by forwarding that user's SSO **access token**:

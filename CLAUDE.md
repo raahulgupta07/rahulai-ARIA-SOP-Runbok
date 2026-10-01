@@ -1,5 +1,13 @@
 # CLAUDE.md — City Agent Aria (codename DocSensei)
 
+## Status (2026-10-01c — SMALL TALK + COMPACT OVERVIEW, v2.27.1, merged `main`, PUSHED + DEPLOYED itsm)
+- NEW `app/smalltalk.py`: whole-message greet/thanks/bye/who/help (EN + Burmese) → instant zero-LLM reply + 3 example Qs as `followups` (read `starter_chips` table directly — `starter_chips.read()` logs impressions); wired BEFORE global/cache/retrieval in `/ask` + `/ask/stream`; message `meta.kind='smalltalk'` excluded from `audit.coverage_report` blind-spot counts. Was: "hello" → full retrieval + recovery LLM → refusal, 7.9 s, logged as blind spot.
+- Scope refusals now carry `declined: true` (both paths).
+- `global_answer`: >15 docs → per-area digest (`_compact_answer`: count + 5 titles + "+N more", no coins); `build_overview(q=)` filters to ONE area via `_match_category` (word/stem match); area-listing regexes (`_AREA_RE`) only count as global when a REAL category matches (so "show me the backup runbook" still retrieves); "(summary pending)" removed; "what sops we have" (no aux verb) now global.
+- ★PROD KNOWLEDGE GAP (not fixed, needs a cost decision): itsm runs with `COMPILE_ON_INGEST`/`CHAT_USE_WIKI`/`COMPILE_PLAYBOOK` OFF (config defaults 0; only dev `.env` sets them) → 320 docs, `doc_wiki`=0, `doc_pages_md`=0, playbooks/entities 0, vision on only 30/2445 pages. Answers there come from raw text layer only.
+- Pipe v0.3.1 (`integrations/openwebui/aria_pipe.py`): no ungrounded warning on `declined`/`smalltalk`; no Sources block on `global`.
+- Tests: `tests/test_smalltalk_overview.py` (36) — suite 69 pass. Live local run: hello/thanks/who/မင်္ဂလာပါ 0.0 s; overview 1.7 s; real Q 10.6 s grounded; junk 4.6 s declined.
+
 ## Status (2026-10-01b — APP KEYS + CityGPT LIVE WIRING, v2.27.0, merged `main`, PUSHED + DEPLOYED itsm)
 - **App keys** (`app/auth/app_keys.py`, table `app_keys`): per-app `ak_live_…` key sent as `X-Aria-App-Key` REPLACES the client-ID allow-list (user's Keycloak token still fully verified; wrong/revoked key → 401 fail-closed). Settings → Authentication → Methods → **App keys** (create shown-once, revoke, delete, last used, calls). Routes `/api/admin/app-keys*` super-admin. ★LANDMINE fixed pre-ship: adding a `Header()` param to `current_user` broke `require_admin`'s positional call (Header default object ≠ None → AttributeError) — normalise with `isinstance(x, str)`; regression test added.
 - **OpenWebUI connector** now in-repo: `integrations/openwebui/aria_pipe.py` v0.3.0 (valve `aria_app_key`; uses `done.clean` not raw tokens — raw stream carries `PAGES:`/`FOLLOWUPS:` lines + `[N]` cites; humanised `doc_name` sources linked to `/api/pages/{id}`; shows Aria's 401/403 `detail`). 24 offline tests (stubbed httpx, not in repo).

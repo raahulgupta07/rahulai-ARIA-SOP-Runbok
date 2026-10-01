@@ -473,10 +473,24 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
     # GLOBAL / meta intent ("summarize all docs", "what do you cover", "list SOPs"):
     # answer from the doc list + per-doc summaries (deterministic, grounded), BEFORE
     # per-page retrieval + the scope gate — those refuse corpus-level questions.
+    # SMALL TALK ("hi", "thanks", "who are you"): instant reply, zero LLM, never a
+    # blind spot. Whole-message match only — "hi, how do I…" still retrieves.
+    try:
+        from . import smalltalk
+        _st = smalltalk.kind_of(req.q)
+        if _st:
+            r = smalltalk.reply(req.q, _st, user)
+            convo.add_message(conv_id, "user", req.q, [])
+            convo.add_message(conv_id, "bot", r["answer"], [], meta={"kind": "smalltalk"})
+            return {"answer": r["answer"], "pages": [], "conversation_id": conv_id,
+                    "title": None, "smalltalk": _st, "followups": r["followups"]}
+    except Exception as e:
+        print(f"[smalltalk] ask skipped: {e!r}")
+
     try:
         from . import global_answer
         if global_answer.is_global_query(req.q):
-            ov = global_answer.build_overview(sectors=_sectors, folders=_folders)
+            ov = global_answer.build_overview(sectors=_sectors, folders=_folders, q=req.q)
             ans = ov.get("answer") or "No documents are loaded yet."
             cited = ov.get("pages") or []
             convo.add_message(conv_id, "user", req.q, [])
@@ -536,7 +550,7 @@ def ask(req: AskRequest, user: dict = Depends(current_principal)):
         convo.add_message(conv_id, "bot", _refusal, [])
         if first_turn:
             convo.autotitle(conv_id, req.q)
-        return {"answer": _refusal, "pages": [], "conversation_id": conv_id}
+        return {"answer": _refusal, "pages": [], "conversation_id": conv_id, "declined": True}
     if not seed:
         answer = "No documents uploaded yet. Please upload SOPs/policies first."
         convo.add_message(conv_id, "user", req.q, [])
@@ -617,11 +631,34 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
         # ---- GLOBAL / meta intent: corpus overview from doc summaries (grounded) ----
         # "summarize all docs", "what do you cover", "list SOPs" — answered from the
         # doc list, BEFORE per-page retrieval + the scope gate (which refuse them).
+        # ---- SMALL TALK: instant friendly reply, zero LLM, not a blind spot ----
+        try:
+            from . import smalltalk
+            _st = smalltalk.kind_of(req.q)
+            if _st:
+                r = smalltalk.reply(req.q, _st, user)
+                ans = r["answer"]
+                for i in range(0, len(ans), 48):
+                    yield json.dumps({"type": "token", "v": ans[i:i + 48]}) + "\n"
+                convo.add_message(conv_id, "user", req.q, [])
+                bot_id = convo.add_message(conv_id, "bot", ans, [],
+                                           meta={**_trace_meta(_t0_req), "kind": "smalltalk"})
+                yield json.dumps({"type": "done", "pages": [], "title": None,
+                                  "clean": ans, "blind": False, "nearest": None,
+                                  "message_id": bot_id, "smalltalk": _st,
+                                  "tokens": {"in": 0, "out": 0, "total": 0},
+                                  "cost": 0, "cited_n": 0,
+                                  "citations": appcfg.citations_enabled(),
+                                  "grounded": False, "followups": r["followups"]}) + "\n"
+                return
+        except Exception as e:
+            print(f"[smalltalk] stream skipped: {e!r}")
+
         try:
             from . import global_answer
             if global_answer.is_global_query(req.q):
                 yield _step("Reading the knowledge base", "building a corpus overview")
-                ov = global_answer.build_overview(sectors=_sectors, folders=_folders)
+                ov = global_answer.build_overview(sectors=_sectors, folders=_folders, q=req.q)
                 ans = ov.get("answer") or "No documents are loaded yet."
                 cited = ov.get("pages") or []
                 ans, cited = _cite_policy(ans, cited)
@@ -754,7 +791,7 @@ def ask_stream(req: AskRequest, user: dict = Depends(current_principal)):
                 pass
             yield json.dumps({"type": "done", "pages": [], "title": None,
                               "clean": _refusal, "blind": True, "nearest": None,
-                              "message_id": _bid, "cited_n": 0,
+                              "message_id": _bid, "cited_n": 0, "declined": True,
                               "grounded": False}) + "\n"
             return
 

@@ -37,13 +37,15 @@ def coverage_report(blind_limit: int = 12, days: int = 30) -> dict:
         # ---- answer coverage: bot replies with vs without a source page ----
         total_ans = _scalar(
             conn,
-            "SELECT count(*) FROM messages WHERE role = 'bot' AND created_at >= %s",
+            "SELECT count(*) FROM messages WHERE role = 'bot' AND created_at >= %s "
+            "AND coalesce(meta->>'kind', '') <> 'smalltalk'",
             (since,),
         )
         no_src = _scalar(
             conn,
             "SELECT count(*) FROM messages WHERE role = 'bot' AND created_at >= %s "
-            "AND (pages IS NULL OR jsonb_array_length(pages) = 0)",
+            "AND (pages IS NULL OR jsonb_array_length(pages) = 0) "
+            "AND coalesce(meta->>'kind', '') <> 'smalltalk'",
             (since,),
         )
 
@@ -61,6 +63,7 @@ def coverage_report(blind_limit: int = 12, days: int = 30) -> dict:
             ) u ON true
             WHERE b.role = 'bot' AND b.created_at >= %s
               AND (b.pages IS NULL OR jsonb_array_length(b.pages) = 0)
+              AND coalesce(b.meta->>'kind', '') <> 'smalltalk'   -- "hi"/"thanks" aren't blind spots
               AND u.text IS NOT NULL AND btrim(u.text) <> ''
             GROUP BY lower(btrim(u.text))
             ORDER BY n DESC, last_at DESC
