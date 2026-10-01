@@ -6,12 +6,24 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.28.0"
+VERSION = "2.29.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.29.0",
+        "date": "2026-10-01",
+        "title": "Real runbook sections, faster uploads, and usage by app",
+        "lines": [
+            "Every runbook now gets its real sections (Purpose, Scope, Procedure, Escalations…) — built in under a second from the PDF layout, with no AI cost; scanned PDFs still use the AI builder",
+            "Installs from GitHub were missing the section builder, so each page became its own section — fixed, and existing runbooks can be rebuilt in seconds",
+            "Insights: new 'Where questions come from' card — Aria web, embed widget and each connected app, with people counts and new accounts created via apps",
+            "People given 'teach' or 'manage documents' rights through a group now see those buttons on the Brain pages",
+            "Safer upgrades: update.sh detects how this server was set up; error reasons now appear in the logs immediately",
+        ],
+    },
     {
         "version": "2.28.0",
         "date": "2026-10-01",

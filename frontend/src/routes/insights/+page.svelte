@@ -59,7 +59,9 @@
     adoption: {
       dau: 0, wau: 0, mau: 0, dau_trend: [] as number[],
       stickiness_pct: 0, after_hours: 0, d7: 0, d30: 0
-    }
+    },
+    // where questions come from — web / widget / connected apps
+    channels: { channels: [] as any[], total: 0, new_accounts_via_app: 0, trend: [] as any[] }
   };
 
   let data = $state<any>(EMPTY);
@@ -109,6 +111,19 @@
     if (m.includes('gemini') || m.includes('flash')) return { label: 'Quick', color: C.blue };
     return { label: 'Deep', color: C.violet };
   }
+
+  // ---- channels: one colour per source (web blue · widget teal · apps rotate) ----
+  const APP_COLORS = [C.violet, C.amber, C.green, C.red];
+  const chanRows = $derived.by(() => {
+    const list = (data.channels?.channels || []) as any[];
+    let ai = 0;
+    return list.map((c: any) => ({
+      ...c,
+      color: c.channel === 'web' ? C.blue : c.channel === 'widget' ? C.teal : APP_COLORS[ai++ % APP_COLORS.length]
+    }));
+  });
+  const chanMax = $derived(Math.max(1, ...chanRows.map((c: any) => c.questions || 0)));
+  const chanHasApps = $derived(chanRows.some((c: any) => String(c.channel || '').startsWith('app:')));
 
   // ---- people table: client-side search + flag filter ----
   let peopleSearch = $state('');
@@ -501,6 +516,26 @@
         <EChart option={hourlyOption} height={170} />
       </div>
 
+      <!-- WHERE QUESTIONS COME FROM — web / widget / connected apps -->
+      <div class="card">
+        <h2>Where questions come from <small>Aria web · embed widget · connected apps</small></h2>
+        {#each chanRows as c}
+          <div class="crow" title={c.channel}>
+            <span class="cl"><i style="background:{c.color}"></i>{c.label}</span>
+            <div class="bar"><i style="width:{Math.round(((c.questions || 0) / chanMax) * 100)}%;background:{c.color}"></i></div>
+            <span class="cn">{n(c.questions)} <small>· {pct(c.share_pct)}</small></span>
+            <span class="cp">{n(c.people)} {c.people === 1 ? 'person' : 'people'}</span>
+          </div>
+        {/each}
+        {#if !chanHasApps}
+          <div class="empty">No connected-app questions yet</div>
+        {/if}
+        <div class="note">
+          <b>{n(data.channels?.new_accounts_via_app || 0)}</b> new
+          {(data.channels?.new_accounts_via_app || 0) === 1 ? 'account' : 'accounts'} created via connected apps this period.
+        </div>
+      </div>
+
       <!-- DEPARTMENTS + FUNNEL + GAPS -->
       <div class="grid3">
         <div class="card">
@@ -699,6 +734,19 @@
   .frow .fl { color: var(--ink); }
   .frow .fn { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
   .note { font-size: 10.5px; color: var(--mut); margin-top: 10px; line-height: 1.5; }
+
+  /* channel rows */
+  .crow { display: grid; grid-template-columns: minmax(110px, 200px) 1fr 104px 84px; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 12.5px; }
+  .crow .cl { display: flex; align-items: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .crow .cl i { width: 8px; height: 8px; border-radius: 3px; margin-right: 7px; flex: none; }
+  .crow .cn { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .crow .cn small { color: var(--mut); font-weight: 400; }
+  .crow .cp { color: var(--mut); font-size: 11px; text-align: right; white-space: nowrap; }
+  @media (max-width: 560px) {
+    .crow { grid-template-columns: 1fr 90px; }
+    .crow .bar { grid-column: 1 / -1; grid-row: 2; }
+    .crow .cp { display: none; }
+  }
 
   /* gap chips */
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }

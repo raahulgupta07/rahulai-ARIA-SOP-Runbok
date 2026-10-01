@@ -32,6 +32,8 @@ ARG BUILD_SHA=local
 ARG BUILD_DATE=
 ENV BUILD_SHA=$BUILD_SHA
 ENV BUILD_DATE=$BUILD_DATE
+# print() from auth/ingest shows up in `docker logs` immediately (was block-buffered)
+ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8077
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8077"]

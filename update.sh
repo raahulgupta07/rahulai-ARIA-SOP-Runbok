@@ -22,11 +22,13 @@ DC="docker compose"
 # pick the compose file that's actually running (npm or built-in nginx)
 COMPOSE="${COMPOSE:-}"
 if [ -z "$COMPOSE" ]; then
-  if $DC -f docker-compose.npm.yml --env-file .env.prod ps -q app >/dev/null 2>&1 && [ -n "$($DC -f docker-compose.npm.yml --env-file .env.prod ps -q app 2>/dev/null)" ]; then
-    COMPOSE=docker-compose.npm.yml
-  else
-    COMPOSE=docker-compose.prod.yml
-  fi
+  # use whichever compose file the RUNNING stack was started from — guessing wrong
+  # (e.g. prod.yml on a bundled-NPM box) starts a 2nd proxy on 80/443 and the site drops
+  for f in docker-compose.with-npm.yml docker-compose.npm.yml docker-compose.prod.yml; do
+    [ -f "$f" ] || continue
+    if [ -n "$($DC -f "$f" --env-file .env.prod ps -q app 2>/dev/null)" ]; then COMPOSE="$f"; break; fi
+  done
+  [ -n "$COMPOSE" ] || die "Can't tell which compose file runs Aria (app not running?). Re-run with e.g.  sudo COMPOSE=docker-compose.with-npm.yml bash update.sh"
 fi
 say "Using $COMPOSE"
 

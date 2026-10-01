@@ -381,7 +381,7 @@ def record_metric(*, message_id=None, conversation_id=None, user_id=None,
                   model=None, mode=None, ms_first_token=None, ms_total=None,
                   tok_in=0, tok_out=0, seed_n=0, wide_n=0, wider_fired=False,
                   cited_n=0, blind=False, cache_hit=False,
-                  scanned=None, pool=None, reranked=None) -> None:
+                  scanned=None, pool=None, reranked=None, channel=None) -> None:
     """Persist one answer's telemetry row. Cost derived from the ROI price knob
     (real token counts × $/Mtok). cache_hit=True for a zero-LLM Q&A-bank serve.
     scanned/pool/reranked = retrieval funnel counts (NULL for cache serves).
@@ -392,12 +392,12 @@ def record_metric(*, message_id=None, conversation_id=None, user_id=None,
         conn.execute(
             "INSERT INTO answer_metrics (message_id, conversation_id, user_id, model, "
             " mode, ms_first_token, ms_total, tok_in, tok_out, cost_usd, seed_n, "
-            " wide_n, wider_fired, cited_n, blind, cache_hit, scanned, pool, reranked) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            " wide_n, wider_fired, cited_n, blind, cache_hit, scanned, pool, reranked, channel) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (message_id, conversation_id, user_id, model, mode, ms_first_token,
              ms_total, int(tok_in or 0), int(tok_out or 0), cost, seed_n, wide_n,
              bool(wider_fired), cited_n, bool(blind), bool(cache_hit),
-             scanned, pool, reranked),
+             scanned, pool, reranked, channel),
         )
 
 

@@ -603,6 +603,107 @@ def _adoption(conn, s, e, d7, d30):
             "stickiness_pct": stickiness, "after_hours": after, "d7": d7, "d30": d30}
 
 
+# ---- where questions come from (web / widget / connected apps) ---------------
+def _empty_channels() -> dict:
+    return {"channels": [], "total": 0, "new_accounts_via_app": 0, "trend": []}
+
+
+def channel_label(channel) -> str:
+    """'web'/NULL → 'Aria web', 'widget' → 'Embed widget', 'app:<name>' → <name>."""
+    ch = (channel or "web").strip() or "web"
+    if ch == "web":
+        return "Aria web"
+    if ch == "widget":
+        return "Embed widget"
+    if ch.startswith("app:"):
+        return ch[4:].strip() or "Connected app"
+    return ch
+
+
+def _channel_bucket(channel) -> str:
+    ch = (channel or "web").strip() or "web"
+    if ch in ("web", "widget"):
+        return ch
+    return "apps" if ch.startswith("app:") else "web"
+
+
+def shape_channels(rows, trend_rows=(), s=None, e=None, new_accounts=0) -> dict:
+    """Pure shaping (DB-free, tested). rows = [{channel, questions, people}],
+    trend_rows = [{day, channel, n}]. NULL channel folds into 'web'."""
+    agg: dict[str, dict] = {}
+    for r in rows or ():
+        ch = (r.get("channel") or "web").strip() or "web"
+        slot = agg.setdefault(ch, {"questions": 0, "people": 0})
+        slot["questions"] += int(r.get("questions") or 0)
+        slot["people"] += int(r.get("people") or 0)
+    total = sum(v["questions"] for v in agg.values())
+    chans = [{"channel": ch, "label": channel_label(ch), "questions": v["questions"],
+              "people": v["people"], "share_pct": _pct(v["questions"], total)}
+             for ch, v in agg.items() if v["questions"] > 0]
+    chans.sort(key=lambda c: (-c["questions"], c["label"]))
+
+    by_day: dict[str, dict] = {}
+    for r in trend_rows or ():
+        d = r.get("day")
+        d = d.isoformat() if hasattr(d, "isoformat") else str(d)
+        slot = by_day.setdefault(d, {"web": 0, "widget": 0, "apps": 0})
+        slot[_channel_bucket(r.get("channel"))] += int(r.get("n") or 0)
+    trend = []
+    if s is not None and e is not None:
+        day = s
+        while day <= e:
+            k = day.isoformat()
+            trend.append({"day": k, **by_day.get(k, {"web": 0, "widget": 0, "apps": 0})})
+            day += datetime.timedelta(days=1)
+    else:
+        trend = [{"day": k, **v} for k, v in sorted(by_day.items())]
+    return {"channels": chans, "total": total,
+            "new_accounts_via_app": int(new_accounts or 0), "trend": trend}
+
+
+def _channel_usage(conn, s, e) -> dict:
+    # answer_metrics.channel may not exist yet on an un-migrated DB → all 'web'
+    try:
+        conn.execute("SELECT channel FROM answer_metrics LIMIT 1")
+        col = "COALESCE(NULLIF(channel,''),'web')"
+    except Exception:
+        col = "'web'"
+    rows = conn.execute(
+        f"SELECT {col} AS channel, count(*) AS questions, "
+        "  count(DISTINCT user_id) AS people "
+        "FROM answer_metrics WHERE created_at::date BETWEEN %s AND %s GROUP BY 1",
+        (s, e),
+    ).fetchall()
+    trend_rows = conn.execute(
+        f"SELECT created_at::date AS day, {col} AS channel, count(*) AS n "
+        "FROM answer_metrics WHERE created_at::date BETWEEN %s AND %s GROUP BY 1,2",
+        (s, e),
+    ).fetchall()
+    new_accounts = 0
+    try:
+        new_accounts = int(conn.execute(
+            "SELECT count(*) AS n FROM users "
+            "WHERE 'oidc-bearer' = ANY(COALESCE(auth_methods,'{}'::text[])) "
+            "  AND created_at::date BETWEEN %s AND %s",
+            (s, e),
+        ).fetchone()["n"] or 0)
+    except Exception as ex:
+        print(f"[productivity] new_accounts_via_app failed: {ex!r}")
+    return shape_channels(rows, trend_rows, s, e, new_accounts)
+
+
+def channel_usage(days: int = 30, date_from: str | None = None,
+                  date_to: str | None = None) -> dict:
+    """Questions per channel (web / widget / each connected app). Never raises."""
+    s, e, _ps, _pe, _n = _window(days, date_from, date_to)
+    try:
+        with get_conn() as conn:
+            return _channel_usage(conn, s, e)
+    except Exception as ex:
+        print(f"[productivity] channel_usage failed: {ex!r}")
+        return _empty_channels()
+
+
 # ---- public API ---------------------------------------------------------------
 def overview(days: int = 30, date_from: str | None = None, date_to: str | None = None) -> dict:
     """Full productivity scorecard for a window (+ prior window for deltas).
@@ -644,6 +745,7 @@ def overview(days: int = 30, date_from: str | None = None, date_to: str | None =
         },
         "adoption": {"dau": 0, "wau": 0, "mau": 0, "dau_trend": [0] * 14,
                      "stickiness_pct": 0, "after_hours": 0, "d7": 0, "d30": 0},
+        "channels": _empty_channels(),
     }
 
     try:
@@ -658,6 +760,7 @@ def overview(days: int = 30, date_from: str | None = None, date_to: str | None =
                 ("gaps", lambda: _gaps(conn, s, e, n)),
                 ("people", lambda: _people(conn, s, e, minutes, rate, has_dept)),
                 ("platform", lambda: _platform(conn, s, e)),
+                ("channels", lambda: _channel_usage(conn, s, e)),
             ):
                 try:
                     out[key] = fn()
