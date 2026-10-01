@@ -318,7 +318,8 @@ signed-in user** with `Authorization: Bearer <Keycloak access token>`. Code:
 - **Client allow-list:** `azp` or any `aud` entry must be in `OIDC_BEARER_CLIENT_IDS`
   (or the UI value); blank = each provider's own `client_id`.
 - **User:** `email` claim (lower-cased) → existing active user. No email → 401;
-  `email_verified` explicitly false → 401; unknown / inactive / `widget` → 403;
+  `email_verified` is NOT required (2.26.1, same as the SSO callback — Office 365-brokered
+  Keycloak users are `false`); unknown / inactive / `widget` → 403;
   `pending` → 403. **Never auto-creates.**
 - **Bookkeeping:** `record_auth_method(uid,'oidc-bearer')`, `touch_login`, `security_log`
   `bearer_ok` / `bearer_no_account` (email, issuer, client id — never the token),
