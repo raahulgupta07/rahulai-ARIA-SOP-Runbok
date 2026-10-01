@@ -6,12 +6,23 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.27.1"
+VERSION = "2.28.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.28.0",
+        "date": "2026-10-01",
+        "title": "First question from a connected app creates the Aria account",
+        "lines": [
+            "People who never signed in to Aria can now just ask from CityGPT — their Aria account is created on that first question and they get the answer straight away",
+            "Works like Aria's own single sign-on, which already creates accounts on first sign-in; new accounts get chat access only and join the Users group",
+            "Turn it on in Settings → Authentication → Access from other apps → 'Create an Aria account on first use' (off by default); set the default role to 'pending' to approve each person first",
+            "New accounts show a 'via app' badge in Users, and each one is recorded in the security log and the activity feed",
+        ],
+    },
     {
         "version": "2.27.1",
         "date": "2026-10-01",

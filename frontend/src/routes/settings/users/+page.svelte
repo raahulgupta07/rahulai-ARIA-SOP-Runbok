@@ -35,7 +35,7 @@
     catch (e: any) { alert(e.message); }
   }
 
-  const srcLabel: Record<string, string> = { local: 'local', ldap: 'ldap', oidc: 'sso' };
+  const srcLabel: Record<string, string> = { local: 'local', ldap: 'ldap', oidc: 'sso', 'oidc-bearer': 'via app' };
   // one merged-by-email row can carry several sign-in methods; fall back to the
   // single auth_source for old rows that predate auth_methods[].
   const methodsOf = (u: any): string[] => {

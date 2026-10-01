@@ -8,7 +8,7 @@ import urllib.parse
 import httpx
 import jwt
 
-from ..config import PUBLIC_URL, OIDC_BEARER_ENABLED, OIDC_BEARER_CLIENT_IDS
+from ..config import PUBLIC_URL, OIDC_BEARER_ENABLED, OIDC_BEARER_CLIENT_IDS, OIDC_BEARER_AUTO_CREATE
 from ..db import get_conn
 from . import store
 
@@ -160,10 +160,11 @@ def bearer_settings() -> dict:
     """Effective bearer-token settings. The Settings → Authentication value wins
     once saved; until then (None) the OIDC_BEARER_* env vars apply."""
     c = store.get_config()
-    en, ids = c.get("bearer_enabled"), c.get("bearer_client_ids")
+    en, ids, ac = c.get("bearer_enabled"), c.get("bearer_client_ids"), c.get("bearer_auto_create")
     return {
         "enabled": OIDC_BEARER_ENABLED if en is None else bool(en),
         "client_ids": _client_ids(OIDC_BEARER_CLIENT_IDS if ids is None else ids),
+        "auto_create": OIDC_BEARER_AUTO_CREATE if ac is None else bool(ac),
         "source": "env" if en is None else "settings",
     }
 

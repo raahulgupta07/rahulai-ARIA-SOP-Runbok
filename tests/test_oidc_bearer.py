@@ -193,7 +193,7 @@ def test_env_applies_when_setting_unset(env, monkeypatch):
     monkeypatch.setattr(oidc, "OIDC_BEARER_ENABLED", True)
     monkeypatch.setattr(oidc, "OIDC_BEARER_CLIENT_IDS", f" {CLIENT} , other ")
     s = oidc.bearer_settings()
-    assert s == {"enabled": True, "client_ids": [CLIENT, "other"], "source": "env"}
+    assert s == {"enabled": True, "client_ids": [CLIENT, "other"], "auto_create": False, "source": "env"}
     assert _status(deps.current_principal, _tok()) == 200
 
 
@@ -304,3 +304,62 @@ def test_require_admin_direct_call_with_bearer(keys):
         assert False, "expected 403"
     except HTTPException as e:
         assert e.status_code == 403
+
+
+# ---- create the account on first use (2.28.0) ----
+@pytest.fixture
+def jit(env, monkeypatch):
+    made = []
+    def fake_create(email, name, sub=None):
+        role = env["cfg"].get("default_role", "user")
+        u = {"id": 99, "email": email, "role": role if role in ("user", "pending") else "user", "active": True}
+        made.append((email, name, sub))
+        USERS[email] = u; BY_ID[99] = u
+        return u
+    monkeypatch.setattr(store, "create_for_bearer", fake_create)
+    env["made"] = made
+    yield env
+    USERS.pop("newbie@city.test", None); BY_ID.pop(99, None)
+
+
+def test_unknown_user_still_403_when_auto_create_off(jit):
+    assert _status(deps.current_principal, _tok(email="newbie@city.test")) == 403
+    assert jit["made"] == []
+
+
+def test_first_use_creates_account_and_answers(jit):
+    jit["cfg"]["bearer_auto_create"] = True
+    u = deps.current_principal(f"Bearer {_tok(email='Newbie@City.test', name='New Bie')}")
+    assert u["email"] == "newbie@city.test" and u["role"] == "user"
+    assert jit["made"] == [("newbie@city.test", "New Bie", "kc-uuid")]
+    assert [e[0] for e in jit["events"]] == ["bearer_user_created", "bearer_ok"]
+    # second call finds the account — no second create
+    deps.current_principal(f"Bearer {_tok(email='newbie@city.test')}")
+    assert len(jit["made"]) == 1
+
+
+def test_first_use_pending_role_waits_for_approval(jit):
+    jit["cfg"].update(bearer_auto_create=True, default_role="pending")
+    assert _status(deps.current_principal, _tok(email="newbie@city.test")) == 403
+
+
+def test_auto_create_never_resurrects_inactive_or_widget(jit):
+    jit["cfg"]["bearer_auto_create"] = True
+    assert _status(deps.current_principal, _tok(email="gone@city.test")) == 403
+    assert _status(deps.current_principal, _tok(email="vis@city.test")) == 403
+    assert jit["made"] == []
+
+
+def test_auto_create_failure_is_403_not_500(jit, monkeypatch):
+    jit["cfg"]["bearer_auto_create"] = True
+    def boom(*a, **k):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(store, "create_for_bearer", boom)
+    assert _status(deps.current_principal, _tok(email="newbie@city.test")) == 403
+
+
+def test_auto_create_needs_a_valid_token(jit):
+    jit["cfg"]["bearer_auto_create"] = True
+    assert _status(deps.current_principal, _tok(email="newbie@city.test", azp="other-app")) == 401
+    assert _status(deps.current_principal, _tok(key=KEY_X, kid="kid-x", email="newbie@city.test")) == 401
+    assert jit["made"] == []

@@ -240,6 +240,9 @@ OIDC_BEARER_ENABLED = os.getenv("OIDC_BEARER_ENABLED", "0").lower() in ("1", "tr
 # Comma-separated client ids whose access tokens are accepted (azp/aud). Empty =
 # each SSO provider's own client id.
 OIDC_BEARER_CLIENT_IDS = os.getenv("OIDC_BEARER_CLIENT_IDS", "")
+# Create an Aria account the first time someone asks from a connected app (same as
+# Aria's own SSO login does on first sign-in). OFF by default; UI value wins once saved.
+OIDC_BEARER_AUTO_CREATE = os.getenv("OIDC_BEARER_AUTO_CREATE", "0").lower() in ("1", "true", "yes", "on")
 
 # CORS: cross-origin browser callers. Empty (default) = same-origin only — the
 # embed widget runs in an iframe served from THIS origin so it never needs CORS.

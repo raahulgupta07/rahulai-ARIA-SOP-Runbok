@@ -106,6 +106,7 @@ services:
       LOGIN_LOCK_MIN: ${LOGIN_LOCK_MIN:-15}
       OIDC_BEARER_ENABLED: ${OIDC_BEARER_ENABLED:-0}
       OIDC_BEARER_CLIENT_IDS: ${OIDC_BEARER_CLIENT_IDS:-}
+      OIDC_BEARER_AUTO_CREATE: ${OIDC_BEARER_AUTO_CREATE:-0}
       # ---- external alerting (warn/error → webhook; empty = off) ----
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       ALERT_COOLDOWN_SEC: ${ALERT_COOLDOWN_SEC:-300}
