@@ -54,6 +54,7 @@
     const be = c._bearer_effective || {};
     if (c.bearer_enabled == null) c.bearer_enabled = !!be.enabled;
     if (c.bearer_client_ids == null) c.bearer_client_ids = (be.client_ids || []).join(', ');
+    if (c.bearer_auto_create == null) c.bearer_auto_create = !!be.auto_create;
     if (!c.oidc_providers.length && c.oidc?.issuer) {
       c.oidc_providers = [{ id: 'default', name: (c.oidc.provider || 'SSO'), provider: c.oidc.provider || 'generic',
         label: c.oidc.label || '', issuer: c.oidc.issuer, client_id: c.oidc.client_id || '',
@@ -217,6 +218,7 @@
 
         <Section title="Access from other apps" desc="Let another app your users already sign in to (for example CityGPT) ask Aria on their behalf. The app forwards the user's SSO access token; Aria checks it with your SSO provider and answers as that user, with their access rights.">
           <Row label="Accept SSO access tokens" hint="Users must already have an Aria account with the same email — none are created"><Toggle bind:checked={cfg.bearer_enabled} /></Row>
+          <Row label="Create an Aria account on first use" hint={`Someone who never signed in to Aria gets an account (role: ${(cfg.default_role === 'pending') ? 'pending — approve first' : 'user'}) the first time they ask from a connected app`}><Toggle bind:checked={cfg.bearer_auto_create} /></Row>
           <Row label="Allowed app client IDs" hint="The calling app's client ID at your SSO provider, comma-separated. Blank = this app's own SSO client ID">
             <input class="txt" bind:value={cfg.bearer_client_ids} placeholder="citygpt-openwebui" />
           </Row>

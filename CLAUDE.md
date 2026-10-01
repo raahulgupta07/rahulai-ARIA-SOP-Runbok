@@ -1,5 +1,8 @@
 # CLAUDE.md — City Agent Aria (codename DocSensei)
 
+## Status (2026-10-01d — FIRST-USE ACCOUNTS via connected app, v2.28.0, merged `main`, PUSHED + DEPLOYED itsm)
+- Setting `bearer_auto_create` (UI "Create an Aria account on first use") / env `OIDC_BEARER_AUTO_CREATE`, default OFF, `None`→env pattern. `deps._bearer_user`: unknown email + on → `store.create_for_bearer(email, name, sub)` → request continues. `create_for_bearer`: auth_source **'oidc'** (NOT 'oidc-bearer' — else a later direct SSO login hits MergeBlocked when merge_by_email off), auth_methods `['oidc-bearer']`, role = `default_role` clamped user|pending, Users group + sector via `create_user`, race-safe (unique-violation → return existing). Create failure → 403 never 500. Audit `bearer_user_created` + bell notify. Users page label `oidc-bearer` → "via app". Mockup https://claude.ai/artifact/5D2wBMsDPjPTVs2iZpxMC6. Prod setting must be flipped by Rahul (my settings write on prod was blocked by the tool's safety check).
+
 ## Status (2026-10-01c — SMALL TALK + COMPACT OVERVIEW, v2.27.1, merged `main`, PUSHED + DEPLOYED itsm)
 - NEW `app/smalltalk.py`: whole-message greet/thanks/bye/who/help (EN + Burmese) → instant zero-LLM reply + 3 example Qs as `followups` (read `starter_chips` table directly — `starter_chips.read()` logs impressions); wired BEFORE global/cache/retrieval in `/ask` + `/ask/stream`; message `meta.kind='smalltalk'` excluded from `audit.coverage_report` blind-spot counts. Was: "hello" → full retrieval + recovery LLM → refusal, 7.9 s, logged as blind spot.
 - Scope refusals now carry `declined: true` (both paths).

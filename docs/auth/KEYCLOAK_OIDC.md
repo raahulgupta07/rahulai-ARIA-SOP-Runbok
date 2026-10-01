@@ -320,7 +320,10 @@ signed-in user** with `Authorization: Bearer <Keycloak access token>`. Code:
 - **User:** `email` claim (lower-cased) → existing active user. No email → 401;
   `email_verified` is NOT required (2.26.1, same as the SSO callback — Office 365-brokered
   Keycloak users are `false`); unknown / inactive / `widget` → 403;
-  `pending` → 403. **Never auto-creates.**
+  `pending` → 403. Auto-create is OFF by default; with `bearer_auto_create` / `OIDC_BEARER_AUTO_CREATE`
+  on (2.28.0), an unknown email gets `store.create_for_bearer` (auth_source `oidc` so a later direct SSO
+  login lands on the same row; auth_methods `['oidc-bearer']`; role = default_role clamped to
+  user|pending; Users group; race-safe) and the request continues. Inactive / widget rows are never recreated.
 - **Bookkeeping:** `record_auth_method(uid,'oidc-bearer')`, `touch_login`, `security_log`
   `bearer_ok` / `bearer_no_account` (email, issuer, client id — never the token),
   throttled to once per user per 10 min.

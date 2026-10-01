@@ -53,12 +53,31 @@ def _bearer_user(token: str, app_key: str | None = None) -> dict:
     # (store.find_or_create): the corporate IdP's email is authoritative, and
     # Keycloak marks Office 365-brokered emails unverified unless "Trust Email"
     # is on. The token is still signature/issuer/client checked and must map to
-    # an EXISTING active account.
+    # an existing active account (or one created on first use when that setting is on).
     meta = {"issuer": claims.get("_issuer"), "client_id": claims.get("_client_id")}
     if app:
         meta["app_key"] = app["name"]
         app_keys.touch(app["id"])
     user = store.get_by_email(email)
+    if not user:
+        from .oidc import bearer_settings
+        if bearer_settings().get("auto_create"):
+            # first question from a connected app → JIT account, like Aria's own
+            # SSO login does on first sign-in (role clamped to user|pending)
+            name = (claims.get("name") or claims.get("preferred_username") or email.split("@")[0]).strip()
+            try:
+                user = store.create_for_bearer(email, name, claims.get("sub"))
+            except Exception as e:                     # never a 500 — fall through to 403
+                print(f"[auth] bearer auto-create failed: {type(e).__name__}", flush=True)
+                user = None
+            if user:
+                log_event("bearer_user_created", email, meta={**meta, "role": user.get("role")})
+                try:
+                    from .. import notify
+                    notify.emit("user", f"New user via connected app · {email}",
+                                meta.get("app_key") or meta.get("client_id") or "", "info")
+                except Exception:
+                    pass
     if not user or not user["active"] or user["role"] == "widget":
         if _due("deny:" + email):
             log_event("bearer_no_account", email, meta=meta)

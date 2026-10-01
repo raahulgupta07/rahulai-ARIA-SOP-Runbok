@@ -35,6 +35,7 @@ DEFAULT_CONFIG = {
     # signed-in user). None = not set here → OIDC_BEARER_* env applies.
     "bearer_enabled": None,
     "bearer_client_ids": None,     # comma-separated string
+    "bearer_auto_create": None,    # create the account on first use (None → env)
     "ldap": {
         "host": "", "port": 389, "bind_dn": "", "bind_password": "",
         "base_dn": "",
@@ -212,6 +213,29 @@ def get_by_id(uid: int) -> dict | None:
 def touch_login(uid: int) -> None:
     with get_conn() as conn:
         conn.execute("UPDATE users SET last_login = now() WHERE id = %s", (uid,))
+
+
+def create_for_bearer(email: str, name: str, oauth_sub: str | None = None) -> dict:
+    """JIT account for someone's first question from a connected app.
+
+    auth_source='oidc' (it IS the same Keycloak), so a later direct SSO sign-in to
+    Aria lands on this row instead of hitting MergeBlocked; auth_methods records
+    only how they really arrived ('oidc-bearer'). Role = the configured default
+    for new SSO users, clamped to user|pending — never admin via this path.
+    Race-safe: a concurrent first message that already created the row wins."""
+    role = get_config().get("default_role") or "user"
+    if role not in ("user", "pending"):
+        role = "user"
+    try:
+        row = create_user(email, name, "oidc", oauth_sub=oauth_sub, role=role)
+    except Exception:
+        existing = get_by_email(email)
+        if existing:
+            return existing
+        raise
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET auth_methods = ARRAY['oidc-bearer']::text[] WHERE id=%s", (row["id"],))
+    return get_by_id(row["id"]) or row
 
 
 def record_auth_method(uid: int, method: str | None) -> None:
