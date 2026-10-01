@@ -6,12 +6,21 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.29.0"
+VERSION = "2.29.1"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.29.1",
+        "date": "2026-10-01",
+        "title": "Sign-in secrets no longer sent to the browser",
+        "lines": [
+            "Settings → Authentication no longer sends the single sign-on client secret or the LDAP bind password to the browser — it shows 'saved' instead",
+            "Leave the field blank to keep the saved secret, or type a new one to replace it; 'Test connection' still uses the saved password",
+        ],
+    },
     {
         "version": "2.29.0",
         "date": "2026-10-01",

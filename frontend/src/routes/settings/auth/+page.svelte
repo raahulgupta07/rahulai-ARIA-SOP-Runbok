@@ -58,7 +58,7 @@
     if (!c.oidc_providers.length && c.oidc?.issuer) {
       c.oidc_providers = [{ id: 'default', name: (c.oidc.provider || 'SSO'), provider: c.oidc.provider || 'generic',
         label: c.oidc.label || '', issuer: c.oidc.issuer, client_id: c.oidc.client_id || '',
-        client_secret: c.oidc.client_secret || '', scopes: c.oidc.scopes || 'openid email profile', enabled: !!c.enable_oidc }];
+        client_secret: c.oidc.client_secret || '', has_secret: !!c.oidc.has_secret, scopes: c.oidc.scopes || 'openid email profile', enabled: !!c.enable_oidc }];
     }
     if (!c.ldap_directories.length && c.ldap?.host) {
       c.ldap_directories = [{ ...c.ldap, id: 'default', name: c.ldap.name || 'LDAP / AD', enabled: !!c.enable_ldap }];
@@ -327,7 +327,7 @@
           <label class="fg"><span>Issuer URL</span><input bind:value={edit.draft.issuer} placeholder="https://login.microsoftonline.com/&#123;tenant&#125;/v2.0" /></label>
           <div class="g2">
             <label class="fg"><span>Client ID</span><input bind:value={edit.draft.client_id} /></label>
-            <label class="fg"><span>Client secret</span><input type="password" bind:value={edit.draft.client_secret} /></label>
+            <label class="fg"><span>Client secret</span><input type="password" bind:value={edit.draft.client_secret} placeholder={edit.draft.has_secret ? '•••••• saved — leave blank to keep' : ''} autocomplete="new-password" /></label>
           </div>
           <div class="g2">
             <label class="fg"><span>Scopes</span><input bind:value={edit.draft.scopes} /></label>
@@ -356,7 +356,7 @@
             <label class="fg"><span>Bind DN</span><input bind:value={edit.draft.bind_dn} placeholder="cn=svc,ou=Service,dc=chl,dc=local" /></label>
             <label class="fg"><span>Base DN</span><input bind:value={edit.draft.base_dn} placeholder="dc=chl,dc=local" /></label>
           </div>
-          <label class="fg" style="max-width:340px"><span>Bind password</span><input type="password" bind:value={edit.draft.bind_password} /></label>
+          <label class="fg" style="max-width:340px"><span>Bind password</span><input type="password" bind:value={edit.draft.bind_password} placeholder={edit.draft.has_secret ? '•••••• saved — leave blank to keep' : ''} autocomplete="new-password" /></label>
 
           <div class="sect-h">3 · How users log in <span class="hint">— username OR full email both resolve automatically</span></div>
           <div class="grid3">

@@ -342,13 +342,51 @@ def admin_delete(uid: int, admin: dict = Depends(require_superadmin)):
 # ---- auth config (admin sees + edits everything incl. secrets) ----
 @router.get("/admin/auth-config")
 def admin_get_config(_: dict = Depends(require_superadmin)):
-    return _with_bearer_effective(store.get_config())
+    return _with_bearer_effective(_mask_secrets(store.get_config()))
 
 
 @router.put("/admin/auth-config")
 def admin_save_config(body: dict, _: dict = Depends(require_superadmin)):
     body.pop("_bearer_effective", None)          # read-only, computed below
-    return _with_bearer_effective(store.save_config(body))
+    body = _keep_secrets(body, store.get_config())
+    return _with_bearer_effective(_mask_secrets(store.save_config(body)))
+
+
+# ---- secrets never travel to the browser ----
+# SSO client secrets and LDAP bind passwords are write-only from the UI (same
+# model as S3 / Microsoft 365): GET returns "" + has_secret; a blank value on
+# save keeps the stored one; a new value replaces it.
+_SECRET_FIELDS = (("oidc_providers", "oidc", "client_secret"),
+                  ("ldap_directories", "ldap", "bind_password"))
+
+
+def _mask_secrets(c: dict) -> dict:
+    import copy
+    c = copy.deepcopy(c)
+    for lst, legacy, field in _SECRET_FIELDS:
+        for item in (c.get(lst) or []):
+            item["has_secret"] = bool(item.get(field))
+            item[field] = ""
+        if isinstance(c.get(legacy), dict):
+            c[legacy]["has_secret"] = bool(c[legacy].get(field))
+            c[legacy][field] = ""
+    return c
+
+
+def _keep_secrets(body: dict, stored: dict) -> dict:
+    for lst, legacy, field in _SECRET_FIELDS:
+        # store.*() also yields the legacy single block migrated as id 'default'
+        cur = store.oidc_providers() if lst == "oidc_providers" else store.ldap_directories()
+        old_by_id = {str(x.get("id")): x for x in ((stored.get(lst) or []) + cur)}
+        for item in (body.get(lst) or []):
+            item.pop("has_secret", None)
+            if not item.get(field):
+                item[field] = (old_by_id.get(str(item.get("id"))) or {}).get(field, "")
+        if isinstance(body.get(legacy), dict):
+            body[legacy].pop("has_secret", None)
+            if not body[legacy].get(field):
+                body[legacy][field] = (stored.get(legacy) or {}).get(field, "")
+    return body
 
 
 # ---- app API keys for "Access from other apps" (super-admin) ----
@@ -406,4 +444,8 @@ def _with_bearer_effective(c: dict) -> dict:
 
 @router.post("/admin/auth-config/test-ldap")
 def admin_test_ldap(body: dict, _: dict = Depends(require_superadmin)):
+    # the UI never holds the stored bind password — fill it in when left blank
+    if not body.get("bind_password"):
+        stored = {str(d.get("id")): d for d in store.ldap_directories()}
+        body = {**body, "bind_password": (stored.get(str(body.get("id"))) or {}).get("bind_password", "")}
     return ldap_test(body)
