@@ -104,6 +104,8 @@ services:
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-}
       LOGIN_MAX_FAIL: ${LOGIN_MAX_FAIL:-5}
       LOGIN_LOCK_MIN: ${LOGIN_LOCK_MIN:-15}
+      OIDC_BEARER_ENABLED: ${OIDC_BEARER_ENABLED:-0}
+      OIDC_BEARER_CLIENT_IDS: ${OIDC_BEARER_CLIENT_IDS:-}
       # ---- external alerting (warn/error → webhook; empty = off) ----
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       ALERT_COOLDOWN_SEC: ${ALERT_COOLDOWN_SEC:-300}

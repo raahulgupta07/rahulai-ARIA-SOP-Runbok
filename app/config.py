@@ -233,6 +233,13 @@ LOGIN_LOCK_MIN = int(os.getenv("LOGIN_LOCK_MIN", "15"))    # window length (minu
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-docsensei-change-me")
 JWT_TTL_DAYS = int(os.getenv("JWT_TTL_DAYS", "7"))
 PUBLIC_URL = os.getenv("PUBLIC_URL", "")  # used to build the OIDC redirect URI
+# Accept IdP access tokens (e.g. Keycloak, forwarded by an OpenWebUI pipe) as
+# Bearer auth on the API, mapped to the existing Aria user by email. OFF by
+# default. Settings -> Authentication overrides these once saved there.
+OIDC_BEARER_ENABLED = os.getenv("OIDC_BEARER_ENABLED", "0").lower() in ("1", "true", "yes", "on")
+# Comma-separated client ids whose access tokens are accepted (azp/aud). Empty =
+# each SSO provider's own client id.
+OIDC_BEARER_CLIENT_IDS = os.getenv("OIDC_BEARER_CLIENT_IDS", "")
 
 # CORS: cross-origin browser callers. Empty (default) = same-origin only — the
 # embed widget runs in an iframe served from THIS origin so it never needs CORS.

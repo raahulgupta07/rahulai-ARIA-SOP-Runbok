@@ -6,12 +6,23 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.25.0"
+VERSION = "2.26.0"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.26.0",
+        "date": "2026-10-01",
+        "title": "Ask Aria from other apps you sign in to (single sign-on pass-through)",
+        "lines": [
+            "Another app your staff already sign in to with the company SSO (for example CityGPT) can now ask Aria on their behalf — Aria answers as that person, with their own access rights",
+            "No shared password or key between the apps: Aria checks the sign-in with your SSO provider's public keys and only accepts the apps you allow",
+            "New setting: Settings → Authentication → Methods → 'Access from other apps' (on/off + allowed app IDs); off by default",
+            "Only people who already have an Aria account are let in — nobody is created automatically, and every pass-through sign-in is recorded in the security log",
+        ],
+    },
     {
         "version": "2.25.0",
         "date": "2026-07-23",
