@@ -154,8 +154,10 @@ def test_no_email_claim(env):
     assert _status(deps.current_principal, _tok(email=None)) == 401
 
 
-def test_unverified_email_rejected(env):
-    assert _status(deps.current_principal, _tok(email_verified=False)) == 401
+def test_unverified_email_accepted_like_sso_login(env):
+    # Office 365-brokered Keycloak users carry email_verified=false; Aria's own
+    # SSO login accepts them, so the bearer path must too (2.26.1).
+    assert _status(deps.current_principal, _tok(email_verified=False)) == 200
 
 
 # 9

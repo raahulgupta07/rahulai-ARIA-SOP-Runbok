@@ -6,12 +6,21 @@ time (Dockerfile ARG/ENV) and read here from the environment.
 """
 import os
 
-VERSION = "2.26.0"
+VERSION = "2.26.1"
 BUILD_SHA = os.getenv("BUILD_SHA", "dev")
 BUILD_DATE = os.getenv("BUILD_DATE", "")
 
 # newest first
 CHANGELOG = [
+    {
+        "version": "2.26.1",
+        "date": "2026-10-01",
+        "title": "Fix: CityGPT pass-through works for Office 365 sign-ins",
+        "lines": [
+            "People who sign in through Office 365 were refused when asking Aria from CityGPT ('email not verified'), even though they can sign in to Aria directly",
+            "Pass-through now follows the same rule as Aria's own single sign-on: the company sign-in's email is trusted; the person still needs an existing Aria account",
+        ],
+    },
     {
         "version": "2.26.0",
         "date": "2026-10-01",

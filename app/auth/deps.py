@@ -41,9 +41,11 @@ def _bearer_user(token: str) -> dict:
     email = (claims.get("email") or "").strip().lower()
     if not email:
         raise HTTPException(status_code=401, detail="token has no email claim")
-    ev = claims.get("email_verified")
-    if ev is not None and not (ev is True or str(ev).lower() == "true"):
-        raise HTTPException(status_code=401, detail="email not verified at the identity provider")
+    # email_verified is NOT required — same rule as Aria's own SSO login
+    # (store.find_or_create): the corporate IdP's email is authoritative, and
+    # Keycloak marks Office 365-brokered emails unverified unless "Trust Email"
+    # is on. The token is still signature/issuer/client checked and must map to
+    # an EXISTING active account.
     meta = {"issuer": claims.get("_issuer"), "client_id": claims.get("_client_id")}
     user = store.get_by_email(email)
     if not user or not user["active"] or user["role"] == "widget":
