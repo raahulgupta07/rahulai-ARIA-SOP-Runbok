@@ -31,6 +31,10 @@ DEFAULT_CONFIG = {
     # — only ever merges when the provider VERIFIES the email (LDAP mail trusted;
     # OIDC requires email_verified=true). Prevents account takeover via spoofed email.
     "merge_by_email": False,
+    # Bearer access tokens from the IdP (another app calling the API as the
+    # signed-in user). None = not set here → OIDC_BEARER_* env applies.
+    "bearer_enabled": None,
+    "bearer_client_ids": None,     # comma-separated string
     "ldap": {
         "host": "", "port": 389, "bind_dn": "", "bind_password": "",
         "base_dn": "",

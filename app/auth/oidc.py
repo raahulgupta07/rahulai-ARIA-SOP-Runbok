@@ -1,13 +1,16 @@
 """OIDC / SSO (Keycloak, Azure AD, Google) — authorization-code flow.
 Discovery via /.well-known, id_token verified against the provider JWKS."""
 import secrets
+import threading
+import time
 import urllib.parse
 
 import httpx
 import jwt
 
-from ..config import PUBLIC_URL
+from ..config import PUBLIC_URL, OIDC_BEARER_ENABLED, OIDC_BEARER_CLIENT_IDS
 from ..db import get_conn
+from . import store
 
 # CSRF state lives in Postgres (oidc_state table), not an in-process dict, so it
 # survives across uvicorn workers — login can land on a different worker than the
@@ -66,6 +69,146 @@ def _discover(issuer: str) -> dict:
     r = httpx.get(url, headers=_UA, timeout=10)
     r.raise_for_status()
     return r.json()
+
+
+# ---- signing-key verification (shared by the SSO callback + bearer tokens) ----
+# Per-process caches (one dict per uvicorn worker — no Redis). Discovery docs
+# and JWKS are cached for _KEY_TTL; an unknown `kid` forces ONE refetch so key
+# rotation at the IdP heals without a restart. Forced refetches are throttled
+# per jwks_uri so junk tokens with random kids can't hammer the IdP.
+_KEY_TTL = 600
+_FORCE_MIN_GAP = 30
+_disc_cache: dict[str, tuple[float, dict]] = {}
+_jwks_cache: dict[str, tuple[float, list]] = {}
+_jwks_forced: dict[str, float] = {}
+_cache_lock = threading.Lock()
+
+
+def _discover_cached(issuer: str) -> dict:
+    key = _issuer_base(issuer)
+    now = time.monotonic()
+    with _cache_lock:
+        hit = _disc_cache.get(key)
+    if hit and now - hit[0] < _KEY_TTL:
+        return hit[1]
+    disc = _discover(issuer)
+    with _cache_lock:
+        _disc_cache[key] = (now, disc)
+    return disc
+
+
+def _fetch_jwks(jwks_uri: str) -> list:
+    # Fetch JWKS ourselves via httpx (NOT PyJWKClient, which uses urllib with
+    # a "Python-urllib" User-Agent that a WAF / reverse proxy in front of the
+    # IdP often blocks with 403). A normal User-Agent gets through.
+    jr = httpx.get(jwks_uri, headers=_UA, timeout=10)
+    jr.raise_for_status()
+    return jr.json().get("keys", [])
+
+
+def _jwks(jwks_uri: str, force: bool = False) -> list:
+    now = time.monotonic()
+    with _cache_lock:
+        hit = _jwks_cache.get(jwks_uri)
+        if force:
+            if now - _jwks_forced.get(jwks_uri, -1e9) < _FORCE_MIN_GAP:
+                return hit[1] if hit else []
+            _jwks_forced[jwks_uri] = now
+    if hit and not force and now - hit[0] < _KEY_TTL:
+        return hit[1]
+    keys = _fetch_jwks(jwks_uri)
+    with _cache_lock:
+        _jwks_cache[jwks_uri] = (now, keys)
+    return keys
+
+
+def _decode_signed(token: str, issuer: str, jwks_uri: str, *, strict_kid: bool) -> dict:
+    """Verify signature + expiry + issuer and return the claims. Raises
+    OidcError / jwt.PyJWTError on failure.
+
+    strict_kid=False keeps the SSO callback's legacy behaviour (fall back to the
+    first key when the kid doesn't match). Bearer tokens use strict_kid=True:
+    unknown kid → refetch once → reject."""
+    kid = jwt.get_unverified_header(token).get("kid")
+    keys = _jwks(jwks_uri)
+    jwk = next((k for k in keys if k.get("kid") == kid), None)
+    if jwk is None and strict_kid:
+        keys = _jwks(jwks_uri, force=True)
+        jwk = next((k for k in keys if k.get("kid") == kid), None)
+    if jwk is None and not strict_kid:
+        jwk = keys[0] if keys else None
+    if jwk is None:
+        raise OidcError("no matching signing key in provider JWKS")
+    signing_key = jwt.PyJWK(jwk).key
+    # Keycloak's `aud` is frequently "account" (or a list that omits the
+    # client), while the client id lives in `azp`. So we DON'T let PyJWT
+    # enforce audience — callers check the client id in `aud`/`azp` themselves.
+    return jwt.decode(
+        token, signing_key, algorithms=["RS256", "ES256"],
+        issuer=_issuer_base(issuer), leeway=30,
+        options={"verify_at_hash": False, "verify_aud": False},
+    )
+
+
+def _client_ids(raw) -> list[str]:
+    if isinstance(raw, str):
+        raw = raw.split(",")
+    return [str(x).strip() for x in (raw or []) if str(x).strip()]
+
+
+def bearer_settings() -> dict:
+    """Effective bearer-token settings. The Settings → Authentication value wins
+    once saved; until then (None) the OIDC_BEARER_* env vars apply."""
+    c = store.get_config()
+    en, ids = c.get("bearer_enabled"), c.get("bearer_client_ids")
+    return {
+        "enabled": OIDC_BEARER_ENABLED if en is None else bool(en),
+        "client_ids": _client_ids(OIDC_BEARER_CLIENT_IDS if ids is None else ids),
+        "source": "env" if en is None else "settings",
+    }
+
+
+def verify_bearer(token: str) -> dict | None:
+    """Verify an IdP-issued ACCESS token (e.g. the Keycloak token OpenWebUI
+    forwards). Returns the claims plus `_issuer` / `_client_id`, or None.
+    Never raises; never logs or returns the token."""
+    try:
+        cfg = bearer_settings()
+        if not cfg["enabled"] or not token or token.count(".") != 2:
+            return None
+        iss = (jwt.decode(token, options={"verify_signature": False}).get("iss") or "").rstrip("/")
+        if not iss:
+            return None
+        for p in store.oidc_providers():
+            if not p.get("enabled") or not p.get("issuer"):
+                continue
+            if _issuer_base(p["issuer"]) != iss:
+                continue
+            try:
+                disc = _discover_cached(p["issuer"])
+                claims = _decode_signed(token, p["issuer"], disc["jwks_uri"], strict_kid=True)
+            except Exception as e:
+                print(f"[oidc-bearer] rejected ({type(e).__name__})")
+                continue
+            # an id_token also carries azp=client — only accept access tokens
+            typ = claims.get("typ")
+            if typ and str(typ).lower() != "bearer":
+                print("[oidc-bearer] rejected (not an access token)")
+                continue
+            allowed = cfg["client_ids"] or _client_ids([p.get("client_id")])
+            aud = claims.get("aud")
+            aud_list = aud if isinstance(aud, list) else [aud]
+            azp = claims.get("azp")
+            match = azp if azp in allowed else next((a for a in aud_list if a in allowed), None)
+            if not match:
+                print("[oidc-bearer] rejected (client not allow-listed)")
+                continue
+            claims["_issuer"] = iss
+            claims["_client_id"] = match
+            return claims
+    except Exception as e:
+        print(f"[oidc-bearer] rejected ({type(e).__name__})")
+    return None
 
 
 def redirect_uri(public_url: str | None = None) -> str:
@@ -128,26 +271,7 @@ def exchange(provider: dict, code: str, state: str, public_url: str | None = Non
     # signature, expired, decode error) becomes an OidcError so the callback
     # redirects to /login with a message instead of a raw 500.
     try:
-        # Fetch JWKS ourselves via httpx (NOT PyJWKClient, which uses urllib with
-        # a "Python-urllib" User-Agent that a WAF / reverse proxy in front of the
-        # IdP often blocks with 403). A normal User-Agent gets through.
-        jr = httpx.get(disc["jwks_uri"], headers=_UA, timeout=10)
-        jr.raise_for_status()
-        keys = jr.json().get("keys", [])
-        kid = jwt.get_unverified_header(id_token).get("kid")
-        jwk = next((k for k in keys if k.get("kid") == kid), None) or (keys[0] if keys else None)
-        if jwk is None:
-            raise OidcError("no signing key in provider JWKS")
-        signing_key = jwt.PyJWK(jwk).key
-        # Keycloak's id_token `aud` is frequently "account" (or a list that omits
-        # the client), while the client id lives in `azp`. So we DON'T let PyJWT
-        # enforce audience — we verify the signature + issuer, then check the
-        # client id appears in either `aud` or `azp` ourselves.
-        claims = jwt.decode(
-            id_token, signing_key, algorithms=["RS256", "ES256"],
-            issuer=_issuer_base(oc["issuer"]),
-            options={"verify_at_hash": False, "verify_aud": False},
-        )
+        claims = _decode_signed(id_token, oc["issuer"], disc["jwks_uri"], strict_kid=False)
     except OidcError:
         raise
     except jwt.PyJWTError as e:

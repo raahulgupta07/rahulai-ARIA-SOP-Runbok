@@ -342,12 +342,24 @@ def admin_delete(uid: int, admin: dict = Depends(require_superadmin)):
 # ---- auth config (admin sees + edits everything incl. secrets) ----
 @router.get("/admin/auth-config")
 def admin_get_config(_: dict = Depends(require_superadmin)):
-    return store.get_config()
+    return _with_bearer_effective(store.get_config())
 
 
 @router.put("/admin/auth-config")
 def admin_save_config(body: dict, _: dict = Depends(require_superadmin)):
-    return store.save_config(body)
+    body.pop("_bearer_effective", None)          # read-only, computed below
+    return _with_bearer_effective(store.save_config(body))
+
+
+def _with_bearer_effective(c: dict) -> dict:
+    """Attach the EFFECTIVE bearer-token settings (UI value, else env) so the
+    Settings page can show what is live even before an admin saves it."""
+    from .oidc import bearer_settings
+    try:
+        c["_bearer_effective"] = bearer_settings()
+    except Exception:
+        pass
+    return c
 
 
 @router.post("/admin/auth-config/test-ldap")

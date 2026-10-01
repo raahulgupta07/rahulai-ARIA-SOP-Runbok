@@ -748,6 +748,7 @@ A **full-width top bar** is the shell: the **brand logo** (left) · top nav **�
 | Path | Purpose |
 |---|---|
 | `/api/auth/{config,signup,login,ldap,oidc/login,oidc/callback,me}` | auth |
+| any member route, e.g. `/api/ask/stream` | also accepts a forwarded **Keycloak access token** as `Authorization: Bearer …` when *Access from other apps* is on (see below) |
 | `/api/ask/stream` | streamed answer (NDJSON: `step`* → `token`* → `done`) `{q, conversation_id, mode}` |
 | `/api/followups` · `/api/feedback` | AI follow-up Qs · 👍/👎 |
 | `/api/suggestions` | corpus-derived home starter chips (zero LLM) — most-served Q&A → top doc sections → curated fallbacks |
@@ -862,6 +863,30 @@ GET https://<your-domain>/api/auth/oidc/redirect-uri
 If it shows `http://` or the wrong host, the Public URL isn't applied — fix it and recheck. Then register **that exact string** in the IdP client (Keycloak → client → *Valid redirect URIs*; add, don't replace). Each app needs its **own** IdP client + its own redirect — never reuse another app's client.
 
 > Common mistake: leaving `PUBLIC_URL` as the example domain (`aria.yourco.com`) from a template — the IdP then rejects the redirect because it doesn't match your real domain. Set it to **your** domain (or set it in the UI).
+
+### Access from other apps (SSO access tokens, e.g. CityGPT / OpenWebUI)
+
+Another app your users already sign in to with the same Keycloak realm can call Aria's API **as the signed-in user** by forwarding that user's SSO **access token**:
+
+```
+POST /api/ask/stream
+Authorization: Bearer <user's Keycloak access token>
+{"q": "what SOPs do you cover?", "mode": "quick"}
+```
+
+Aria verifies the token with the IdP's **public keys** (JWKS, cached 10 min, refetched once on key rotation), pins the issuer to an enabled SSO provider, rejects ID tokens, and only accepts tokens issued to an **allow-listed client**. The email claim maps to the **existing** Aria user, so every answer keeps that user's access scope. Nobody is auto-created.
+
+| Result | Meaning |
+|---|---|
+| `200` | token valid, user found and approved |
+| `401` | token expired / wrong realm / client not allowed / ID token / feature off |
+| `403` | token valid but no active Aria account for that email (or account pending approval) |
+
+**No shared secret is needed.** Turn it on either way (off by default):
+1. **UI:** Settings → Authentication → Methods → **Access from other apps** → toggle on + enter the calling app's client ID (e.g. CityGPT's Keycloak client, **not** Aria's own). The UI value wins once saved.
+2. **Env:** `OIDC_BEARER_ENABLED=1` and `OIDC_BEARER_CLIENT_IDS=<client-id>[,<client-id>]` (blank = each SSO provider's own client ID).
+
+Requirements: an SSO provider configured for the **same realm**; the access token carries an `email` claim (add the `email` scope to the calling client if not); users signed in to Aria at least once (or created by an admin) with the **same email**. Each bearer sign-in is logged as `bearer_ok` / `bearer_no_account` (email, issuer, client ID; never the token). Your normal Aria login and embed-widget tokens are checked first and are unchanged.
 - The frontend is built **inside the image** — every deploy must rebuild: `docker compose up -d --build --force-recreate app`. `--build` alone can build the image but leave the old container running (new `app/*.py` won't be live); use `--force-recreate` and verify the container actually swapped.
 - **SPA cache headers (fixed):** `index.html` is served `no-cache` and the hashed `/_app/*` assets `immutable`, so a new deploy reaches the browser on the next navigation without a manual hard-refresh. (Before this, the shell was heuristically cached and could point at chunk hashes the new deploy deleted → a stuck/blank screen. If you still see a stale page once right after upgrading from an old build, hard-refresh `Cmd+Shift+R` a single time.)
 - **Cache gotcha:** `compose up -d --build` can cache the `COPY app/` layer and ship a **new frontend with a stale backend** (a missing route then 404s and falls through to the SPA). If a just-added endpoint 404s, run `docker compose build app` first (this busts the layer — you'll see `COPY app/` run, not `CACHED`), then `up -d --force-recreate`, and confirm with `docker exec <app> grep <symbol> /app/app/routes.py`. Registry `EOF`/TLS timeouts mid-build are common — just retry `build` until it prints `Built`.

@@ -301,3 +301,30 @@ Open WebUI mapping:
 - **Reusing another app's client** — each app = its own client + own redirect. Never share.
 - Put the session token in the URL **fragment** (`#token=`), not the query, so it stays out of
   server/proxy logs.
+
+## 13. Bearer access tokens from other apps (v2.26.0)
+
+Lets another app on the same realm (e.g. CityGPT / OpenWebUI pipe) call the API **as the
+signed-in user** with `Authorization: Bearer <Keycloak access token>`. Code:
+`oidc.verify_bearer()` + `deps._bearer_user()`.
+
+- **Order:** our HS256 token (incl. widget) is decoded FIRST and unchanged; only if that fails
+  and the feature is on is the token tried as an IdP access token.
+- **Verify:** pre-filter providers by the unverified `iss`, then `_decode_signed(strict_kid=True)`
+  (RS256/ES256, issuer pinned via `_issuer_base`, `verify_aud=False`, 30 s leeway).
+  JWKS + discovery cached per process for 10 min; unknown `kid` → one forced refetch,
+  throttled to one per 30 s per jwks_uri.
+- **Reject** `typ` ≠ `Bearer` (an ID token also carries `azp=client`).
+- **Client allow-list:** `azp` or any `aud` entry must be in `OIDC_BEARER_CLIENT_IDS`
+  (or the UI value); blank = each provider's own `client_id`.
+- **User:** `email` claim (lower-cased) → existing active user. No email → 401;
+  `email_verified` explicitly false → 401; unknown / inactive / `widget` → 403;
+  `pending` → 403. **Never auto-creates.**
+- **Bookkeeping:** `record_auth_method(uid,'oidc-bearer')`, `touch_login`, `security_log`
+  `bearer_ok` / `bearer_no_account` (email, issuer, client id — never the token),
+  throttled to once per user per 10 min.
+- **Config:** env `OIDC_BEARER_ENABLED` / `OIDC_BEARER_CLIENT_IDS`; UI keys
+  `auth_config.bearer_enabled` / `bearer_client_ids` (None → env).
+- **Tests:** `tests/test_oidc_bearer.py` (offline RSA key + fake JWKS).
+- ★ LDAP-created users may hold a UPN (`x@corp.local`) that differs from Keycloak's `email` → 403.
+  Check emails match before go-live.

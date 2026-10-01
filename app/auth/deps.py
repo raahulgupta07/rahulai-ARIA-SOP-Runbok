@@ -1,8 +1,65 @@
 """FastAPI dependencies — verify our JWT, load the user, enforce role/status."""
+import threading
+import time
+
 from fastapi import Header, HTTPException
 
 from .security import decode_token
 from . import store
+
+_NO_ACCOUNT = "no DocSensei account for this identity"
+_PENDING = "account awaiting admin approval"
+
+# Bearer calls arrive on EVERY chat request — throttle the bookkeeping writes
+# (last_login / auth_methods / audit row) to once per user per window.
+_NOTE_EVERY = 600
+_noted: dict[str, float] = {}
+_noted_lock = threading.Lock()
+
+
+def _due(key: str) -> bool:
+    now = time.monotonic()
+    with _noted_lock:
+        if now - _noted.get(key, -1e9) < _NOTE_EVERY:
+            return False
+        if len(_noted) > 20000:
+            _noted.clear()
+        _noted[key] = now
+        return True
+
+
+def _bearer_user(token: str) -> dict:
+    """Fallback when the token is not one of ours: an IdP access token (e.g.
+    Keycloak via an OpenWebUI pipe). Maps to the EXISTING user by email — never
+    creates one. 401 = token not accepted, 403 = accepted but no usable account."""
+    from .oidc import verify_bearer
+    from ..security_log import log_event
+
+    claims = verify_bearer(token)
+    if not claims:
+        raise HTTPException(status_code=401, detail="invalid or expired token")
+    email = (claims.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=401, detail="token has no email claim")
+    ev = claims.get("email_verified")
+    if ev is not None and not (ev is True or str(ev).lower() == "true"):
+        raise HTTPException(status_code=401, detail="email not verified at the identity provider")
+    meta = {"issuer": claims.get("_issuer"), "client_id": claims.get("_client_id")}
+    user = store.get_by_email(email)
+    if not user or not user["active"] or user["role"] == "widget":
+        if _due("deny:" + email):
+            log_event("bearer_no_account", email, meta=meta)
+        raise HTTPException(status_code=403, detail=_NO_ACCOUNT)
+    if user["role"] == "pending":
+        raise HTTPException(status_code=403, detail=_PENDING)
+    if _due(f"ok:{user['id']}"):
+        store.record_auth_method(user["id"], "oidc-bearer")
+        try:
+            store.touch_login(user["id"])
+        except Exception as e:
+            print(f"[auth] touch_login skipped: {e!r}")
+        log_event("bearer_ok", email, meta=meta)
+    return user
 
 
 def _bearer(authorization: str | None) -> str | None:
@@ -20,12 +77,12 @@ def current_user(authorization: str | None = Header(default=None)) -> dict:
         raise HTTPException(status_code=401, detail="not authenticated")
     payload = decode_token(token)
     if not payload:
-        raise HTTPException(status_code=401, detail="invalid or expired token")
+        return _bearer_user(token)
     user = store.get_by_id(int(payload["sub"]))
     if not user or not user["active"]:
         raise HTTPException(status_code=401, detail="account inactive")
     if user["role"] == "pending":
-        raise HTTPException(status_code=403, detail="account awaiting admin approval")
+        raise HTTPException(status_code=403, detail=_PENDING)
     return user
 
 
@@ -38,7 +95,7 @@ def current_principal(authorization: str | None = Header(default=None)) -> dict:
         raise HTTPException(status_code=401, detail="not authenticated")
     payload = decode_token(token)
     if not payload:
-        raise HTTPException(status_code=401, detail="invalid or expired token")
+        return _bearer_user(token)
     user = store.get_by_id(int(payload["sub"]))
     if not user or not user["active"]:
         raise HTTPException(status_code=401, detail="account inactive")
@@ -54,7 +111,7 @@ def current_principal(authorization: str | None = Header(default=None)) -> dict:
         u["_embed_key_id"] = key["id"]  # routes use this to meter widget spend
         return u
     if user["role"] == "pending":
-        raise HTTPException(status_code=403, detail="account awaiting admin approval")
+        raise HTTPException(status_code=403, detail=_PENDING)
     return user
 
 

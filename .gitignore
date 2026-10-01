@@ -34,3 +34,6 @@ vendor_pageindex/results/
 # --- misc ---
 *.log
 .DS_Store
+
+# product videos (generated)
+brag-output/
